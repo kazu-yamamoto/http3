@@ -1,0 +1,20 @@
+name:                http3
+version:             0.0.0
+author:              Kazu Yamamoto <kazu@iij.ad.jp>
+maintainer:          Kazu Yamamoto <kazu@iij.ad.jp>
+license:             BSD3
+license-file:        LICENSE
+synopsis:            HTTP/3 library
+description:         HTTP/3 library including frames, QPACK, client and server.
+homepage:            https://github.com/kazu-yamamoto/http3
+category:            Network
+cabal-version:       >=1.10
+build-type:          Simple
+extra-source-files:  CHANGELOG.md
+
+library
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+  build-depends:       base >= 4.13 && < 5
+                     , array
+                     , http2
