@@ -27,7 +27,7 @@ staticTableSize = length staticTableList
 -- Entry 52 (Token {ix = 21, shouldBeIndexed = True, isPseudo = False, tokenKey = "Content-Type"}) "text/css"
 
 toStaticEntry :: Index -> Entry
-toStaticEntry sidx = staticTable `unsafeAt` (sidx - 1)
+toStaticEntry sidx = staticTable `unsafeAt` sidx
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry
@@ -68,6 +68,7 @@ staticTableList = [
   , (":status", "503")
   , ("accept", "*/*")
   , ("accept", "application/dns-message")
+  , ("accept-encoding", "gzip, deflate, br")
   , ("accept-ranges", "bytes")
   , ("access-control-allow-headers", "cache-control")
   , ("access-control-allow-headers", "content-type")
@@ -77,6 +78,7 @@ staticTableList = [
   , ("cache-control", "max-age=604800")
   , ("cache-control", "no-cache")
   , ("cache-control", "no-store")
+  , ("cache-control", "public, age=31536000")
   , ("content-encoding", "br")
   , ("content-encoding", "gzip")
   , ("content-type", "application/dns-message")
@@ -87,13 +89,17 @@ staticTableList = [
   , ("content-type", "image/jpeg")
   , ("content-type", "image/png")
   , ("content-type", "text/css")
+  , ("content-type", "text/html; charset=utf-8")
   , ("content-type", "text/plain")
   , ("content-type", "text/plain;charset=utf-8")
   , ("range", "bytes=0-")
   , ("strict-transport-security", "max-age=31536000")
+  , ("strict-transport-security", "max-age=31536000; includesubdomains")
+  , ("strict-transport-security", "max-age=31536000; includesubdomains; preload")
   , ("vary", "accept-encoding")
   , ("vary", "origin")
   , ("x-content-type-options", "nosniff")
+  , ("x-xss-protection", "1; mode=block")
   , (":status", "100")
   , (":status", "204")
   , (":status", "206")
@@ -108,6 +114,7 @@ staticTableList = [
   , ("access-control-allow-credentials", "TRUE")
   , ("access-control-allow-headers", "*")
   , ("access-control-allow-methods", "get")
+  , ("access-control-allow-methods", "get, post, options")
   , ("access-control-allow-methods", "options")
   , ("access-control-expose-headers", "content-length")
   , ("access-control-request-headers", "content-type")
@@ -115,6 +122,7 @@ staticTableList = [
   , ("access-control-request-method", "post")
   , ("alt-svc", "clear")
   , ("authorization", "")
+  , ("content-security-policy", "script-src 'none'; object-src 'none'; base-uri 'none'")
   , ("early-data", "1")
   , ("expect-ct", "")
   , ("forwarded", "")
