@@ -23,3 +23,12 @@ spec = do
             bs2  <- encodeEncoderInstructions eis0 False
             eis2 <- decodeEncoderInstructions bs2
             eis2 `shouldBe` eis0
+    describe "encodeDecoderInstructions and decodeDecoderInstructions" $ do
+        it "encode/decodes decode instructions properly" $ do
+            let eis0 = [HeaderAcknowledgement 10
+                       ,StreamCancellation 100
+                       ,InsertCountIncrement 200
+                       ]
+            bs1  <- encodeDecoderInstructions eis0
+            eis1 <- decodeDecoderInstructions bs1
+            eis1 `shouldBe` eis0

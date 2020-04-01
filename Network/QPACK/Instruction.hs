@@ -10,6 +10,8 @@ module Network.QPACK.Instruction (
   , decodeEI
   -- * Decoder instructions
   , DecoderInstruction(..)
+  , encodeDecoderInstructions
+  , decodeDecoderInstructions
   , encodeDI
   , decodeDI
   ) where
@@ -108,12 +110,28 @@ data DecoderInstruction = HeaderAcknowledgement Int
 
 ----------------------------------------------------------------
 
+encodeDecoderInstructions :: [DecoderInstruction] -> IO ByteString
+encodeDecoderInstructions dis = withWriteBuffer 4096 $ \wbuf ->
+    mapM_ (encodeDI wbuf) dis
+
 encodeDI :: WriteBuffer -> DecoderInstruction -> IO ()
 encodeDI wbuf (HeaderAcknowledgement n) = encodeI wbuf set1  7 n
 encodeDI wbuf (StreamCancellation n)    = encodeI wbuf set01 6 n
 encodeDI wbuf (InsertCountIncrement n)  = encodeI wbuf id    6 n
 
 ----------------------------------------------------------------
+
+decodeDecoderInstructions :: ByteString -> IO [DecoderInstruction]
+decodeDecoderInstructions bs = withReadBuffer bs $ loop []
+  where
+    loop rs rbuf = do
+        n <- remainingSize rbuf
+        if n == 0 then
+            return $ reverse rs
+          else do
+            r <- decodeDI rbuf
+            loop (r:rs) rbuf
+
 
 decodeDI :: ReadBuffer -> IO DecoderInstruction
 decodeDI rbuf = do
