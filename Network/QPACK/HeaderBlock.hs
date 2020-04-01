@@ -1,11 +1,16 @@
+{-# LANGUAGE BinaryLiterals #-}
+
 module Network.QPACK.HeaderBlock where
 
-import Network.HPACK (Header, Buffer)
+import Data.Bits
+import Data.CaseInsensitive
 import Data.IORef
+import Network.ByteOrder
+import Network.HPACK.Internal
+import Network.HPACK.Token
 
 data DynamicTable
 data StaticTable
-type Index = Int
 data ControlBuffer
 
 {-
@@ -31,11 +36,17 @@ maxTableCapacity = 100
 maxEntries :: Int
 maxEntries = maxTableCapacity `div` 32
 
+-- |
+-- >>> encInsertCount 9
+-- 4
 encInsertCount :: Int -> Int
 encInsertCount 0              = 0
 encInsertCount reqInsertCount = (reqInsertCount `mod` (2 * maxEntries)) + 1
 
--- for decoder
+-- | for decoder
+--
+-- >>> requiredInsertCount 4 10
+-- 9
 requiredInsertCount :: Int -> Int -> Int
 requiredInsertCount 0 _ = 0
 requiredInsertCount encodedInsertCount totalNumberOfInserts
@@ -84,7 +95,7 @@ streamBuffer :: Buffer
 streamBuffer = undefined
 controlBuffer :: ControlBuffer
 controlBuffer = undefined
-prefixBuffer :: Buffer
+prefixBuffer :: WriteBuffer
 prefixBuffer = undefined
 
 -- 4.5.2.  Indexed Header Field
@@ -150,21 +161,115 @@ dynamicOrLiteral baseIndex ref dynamicTable header = do
         -- Encode dynamicIdx, possibly with dynamicIdx above baseIndex
         encodeDynamicIndexReference streamBuffer dynamicIdx baseIndex
 
-encodeInteger :: Buffer
-              -> Int  -- ^ Flag to be ORed
-              -> Int  -- ^ Target
-              -> Int  -- ^ N+
-              -> IO ()
-encodeInteger = undefined
-
 encodePrefix :: Index -> Index -> IO ()
 encodePrefix largestReference baseIndex = do
     -- Required Insert Count
-    encodeInteger prefixBuffer 0x00 largestReference 8
+    encodeI prefixBuffer set0 8 largestReference
     -- Sign bit + Delta Base (7+)
     if baseIndex >= largestReference then
-        encodeInteger prefixBuffer 0x00 (baseIndex - largestReference) 7
+        encodeI prefixBuffer set0 7 (baseIndex - largestReference)
       else
-        encodeInteger prefixBuffer 0x80 (largestReference - baseIndex) 7
+        encodeI prefixBuffer set1 7 (largestReference - baseIndex)
+
+type Setter = Word8 -> Word8
+
+-- Assuming MSBs are 0.
+set1, set0, set01, set001, set0000, setH :: Setter
+set1    x = x `setBit` 7
+set01   x = x `setBit` 6
+set001  x = x `setBit` 5
+set11   x = x .|. 0b11000000
+-- set0001 x = x `setBit` 4 -- Never indexing
+set0    = id
+set000  = id
+set0000 = id
+setH = set1
 
 -- nameIndex?
+
+data HIndex = SIndex Int | DIndex Int deriving (Eq, Ord, Show)
+
+data EncoderInstruction = SetDynamicTableCapacity Int
+                        | InsertWithNameReference HIndex HeaderValue
+                        | InsertWithoutNameReference Token HeaderValue
+                        | Duplicate Int -- fixme
+                        deriving (Eq, Show)
+
+encodeEI :: WriteBuffer -> Bool -> EncoderInstruction -> IO ()
+encodeEI wbuf _    (SetDynamicTableCapacity cap) = encodeI wbuf set001 5 cap
+encodeEI wbuf huff (InsertWithNameReference hidx v) = do
+    let (set, idx) = case hidx of
+          SIndex i -> (set11, i)
+          DIndex i -> (set1,  i)
+    encodeI wbuf set 6 idx
+    encodeS wbuf huff id set1 7 v
+encodeEI wbuf huff (InsertWithoutNameReference k v) = do
+    encodeS wbuf huff set01 set001 5 $ foldedCase $ tokenKey k
+    encodeS wbuf huff id    set1   7 v
+encodeEI wbuf _    (Duplicate idx) = encodeI wbuf set000 5 idx
+
+decodeEncoderInstruction :: ByteString -> IO [EncoderInstruction]
+decodeEncoderInstruction bs = fmap snd .  withWriteBuffer' 4096 $ \wbuf ->
+    withReadBuffer bs $ loop (decodeH wbuf) []
+  where
+    loop hdec rs rbuf = do
+        n <- remainingSize rbuf
+        if n == 0 then
+            return $ reverse rs
+          else do
+            r <- decodeEI hdec rbuf
+            loop hdec (r:rs) rbuf
+
+decodeEI :: HuffmanDecoder -> ReadBuffer -> IO EncoderInstruction
+decodeEI hufdec rbuf = do
+    w8 <- read8 rbuf
+    if w8 `testBit` 7 then
+        decodeInsertWithNameReference rbuf w8 hufdec
+      else if w8 `testBit` 6 then
+        decodeInsertWithoutNameReference rbuf hufdec
+      else if w8 `testBit` 5 then
+        decodeSetDynamicTableCapacity rbuf w8
+      else
+        decodeDuplicate rbuf w8
+
+decodeInsertWithNameReference :: ReadBuffer -> Word8 -> HuffmanDecoder -> IO EncoderInstruction
+decodeInsertWithNameReference rbuf w8 hufdec = do
+    idx <- decodeI 6 (w8 .&. 0b00111111) rbuf
+    let hidx | w8 `testBit` 6 = SIndex idx
+             | otherwise      = DIndex idx
+    v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
+    return $ InsertWithNameReference hidx v
+
+decodeInsertWithoutNameReference :: ReadBuffer -> HuffmanDecoder -> IO EncoderInstruction
+decodeInsertWithoutNameReference rbuf hufdec = do
+    ff rbuf (-1)
+    k <- decodeS (.&. 0b00011111) (`testBit` 5) hufdec rbuf
+    v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
+    return $ InsertWithoutNameReference (toToken k)  v
+
+decodeSetDynamicTableCapacity :: ReadBuffer -> Word8 -> IO EncoderInstruction
+decodeSetDynamicTableCapacity rbuf w8 =
+    SetDynamicTableCapacity <$> decodeI 5 (w8 .&. 0b00011111) rbuf
+
+decodeDuplicate :: ReadBuffer -> Word8 -> IO EncoderInstruction
+decodeDuplicate rbuf w8 =
+    Duplicate <$> decodeI 5 (w8 .&. 0b00011111) rbuf
+
+data DecoderInstruction = HeaderAcknowledgement Int
+                        | StreamCancellation Int
+                        | InsertCountIncrement Int
+                        deriving (Eq, Show)
+
+encodeDI :: WriteBuffer -> DecoderInstruction -> IO ()
+encodeDI wbuf (HeaderAcknowledgement n) = encodeI wbuf set1  7 n
+encodeDI wbuf (StreamCancellation n)    = encodeI wbuf set01 6 n
+encodeDI wbuf (InsertCountIncrement n)  = encodeI wbuf id    6 n
+
+decodeDI :: ReadBuffer -> IO DecoderInstruction
+decodeDI rbuf = do
+    w8 <- read8 rbuf
+    if w8 `testBit` 7 then
+        HeaderAcknowledgement <$> decodeI 7 (w8 .&. 0b01111111) rbuf
+      else do
+        i <- decodeI 6 (w8 .&. 0b00111111) rbuf
+        return $ if w8 `testBit` 6 then StreamCancellation i else InsertCountIncrement i

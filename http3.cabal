@@ -17,4 +17,6 @@ library
   ghc-options:         -Wall
   build-depends:       base >= 4.13 && < 5
                      , array
+                     , case-insensitive
                      , http2
+                     , network-byte-order
