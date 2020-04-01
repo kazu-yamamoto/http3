@@ -174,16 +174,15 @@ encodePrefix largestReference baseIndex = do
 type Setter = Word8 -> Word8
 
 -- Assuming MSBs are 0.
-set1, set0, set01, set001, set0000, setH :: Setter
+set1, set0, set01, set11, set001, set000, set0000, set0001 :: Setter
 set1    x = x `setBit` 7
-set01   x = x `setBit` 6
-set001  x = x `setBit` 5
-set11   x = x .|. 0b11000000
--- set0001 x = x `setBit` 4 -- Never indexing
 set0    = id
+set01   x = x `setBit` 6
+set11   x = x .|. 0b11000000
+set001  x = x `setBit` 5
 set000  = id
+set0001 x = x `setBit` 4 -- Never indexing
 set0000 = id
-setH = set1
 
 -- nameIndex?
 
@@ -194,6 +193,10 @@ data EncoderInstruction = SetDynamicTableCapacity Int
                         | InsertWithoutNameReference Token HeaderValue
                         | Duplicate Int -- fixme
                         deriving (Eq, Show)
+
+encodeEncoderInstructions :: [EncoderInstruction] -> Bool -> IO ByteString
+encodeEncoderInstructions eis huff = withWriteBuffer 4096 $ \wbuf ->
+    mapM_ (encodeEI wbuf huff) eis
 
 encodeEI :: WriteBuffer -> Bool -> EncoderInstruction -> IO ()
 encodeEI wbuf _    (SetDynamicTableCapacity cap) = encodeI wbuf set001 5 cap
@@ -208,8 +211,8 @@ encodeEI wbuf huff (InsertWithoutNameReference k v) = do
     encodeS wbuf huff id    set1   7 v
 encodeEI wbuf _    (Duplicate idx) = encodeI wbuf set000 5 idx
 
-decodeEncoderInstruction :: ByteString -> IO [EncoderInstruction]
-decodeEncoderInstruction bs = fmap snd .  withWriteBuffer' 4096 $ \wbuf ->
+decodeEncoderInstructions :: ByteString -> IO [EncoderInstruction]
+decodeEncoderInstructions bs = fmap snd .  withWriteBuffer' 4096 $ \wbuf ->
     withReadBuffer bs $ loop (decodeH wbuf) []
   where
     loop hdec rs rbuf = do
