@@ -16,11 +16,12 @@ module Network.QPACK.Instruction (
   , decodeDI
   ) where
 
-import Data.Bits
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK.Internal
 import Network.HPACK.Token
+
+import Imports
 
 ----------------------------------------------------------------
 

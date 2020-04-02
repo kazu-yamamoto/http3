@@ -2,10 +2,10 @@
 
 module QPACK.InstructionSpec where
 
-import Data.ByteString ()
 import Network.HPACK.Token
 import Test.Hspec
 
+import Imports()
 import Network.QPACK.Instruction
 
 spec :: Spec

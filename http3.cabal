@@ -18,8 +18,10 @@ library
   exposed-modules:     Network.QPACK.HeaderBlock
                        Network.QPACK.Instruction
                        Network.QPACK.Table.Static
+  other-modules:       Imports
   build-depends:       base >= 4.13 && < 5
                      , array
+                     , bytestring
                      , case-insensitive
                      , http2
                      , network-byte-order
@@ -32,7 +34,8 @@ Test-suite spec
   hs-source-dirs:      test, .
   ghc-options:         -Wall
   main-is:             Spec.hs
-  other-modules:       Network.QPACK.Instruction
+  other-modules:       Imports
+                       Network.QPACK.Instruction
                        Network.QPACK.HeaderBlock
                        QPACK.InstructionSpec
                        QPACK.TableSpec

@@ -8,10 +8,11 @@ module Network.QPACK.HeaderBlock (
   , base
   ) where
 
-import Data.Bits
 import Data.IORef
 import Network.ByteOrder
 import Network.HPACK.Internal
+
+import Imports
 
 data DynamicTable
 data StaticTable
