@@ -22,15 +22,14 @@ import Network.HPACK.Internal
 import Network.HPACK.Token
 
 import Imports
+import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-data HIndex = SIndex Int | DIndex Int deriving (Eq, Ord, Show)
-
 data EncoderInstruction = SetDynamicTableCapacity Int
-                        | InsertWithNameReference HIndex HeaderValue
+                        | InsertWithNameReference IIndex HeaderValue
                         | InsertWithoutNameReference Token HeaderValue
-                        | Duplicate Int -- fixme
+                        | Duplicate InsRelativeIndex
                         deriving (Eq, Show)
 
 ----------------------------------------------------------------
@@ -43,14 +42,14 @@ encodeEI :: WriteBuffer -> Bool -> EncoderInstruction -> IO ()
 encodeEI wbuf _    (SetDynamicTableCapacity cap) = encodeI wbuf set001 5 cap
 encodeEI wbuf huff (InsertWithNameReference hidx v) = do
     let (set, idx) = case hidx of
-          SIndex i -> (set11, i)
-          DIndex i -> (set1,  i)
+          SIIndex (AbsoluteIndex i)    -> (set11, i)
+          DIIndex (InsRelativeIndex i) -> (set1,  i)
     encodeI wbuf set 6 idx
     encodeS wbuf huff id set1 7 v
 encodeEI wbuf huff (InsertWithoutNameReference k v) = do
     encodeS wbuf huff set01 set001 5 $ foldedCase $ tokenKey k
     encodeS wbuf huff id    set1   7 v
-encodeEI wbuf _    (Duplicate idx) = encodeI wbuf set000 5 idx
+encodeEI wbuf _    (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 idx
 
 ----------------------------------------------------------------
 
@@ -81,8 +80,8 @@ decodeEI hufdec rbuf = do
 decodeInsertWithNameReference :: ReadBuffer -> Word8 -> HuffmanDecoder -> IO EncoderInstruction
 decodeInsertWithNameReference rbuf w8 hufdec = do
     idx <- decodeI 6 (w8 .&. 0b00111111) rbuf
-    let hidx | w8 `testBit` 6 = SIndex idx
-             | otherwise      = DIndex idx
+    let hidx | w8 `testBit` 6 = SIIndex (AbsoluteIndex idx)
+             | otherwise      = DIIndex (InsRelativeIndex idx)
     v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
     return $ InsertWithNameReference hidx v
 
@@ -99,8 +98,7 @@ decodeSetDynamicTableCapacity rbuf w8 =
 
 decodeDuplicate :: ReadBuffer -> Word8 -> IO EncoderInstruction
 decodeDuplicate rbuf w8 =
-    Duplicate <$> decodeI 5 (w8 .&. 0b00011111) rbuf
-
+    Duplicate . InsRelativeIndex <$> decodeI 5 (w8 .&. 0b00011111) rbuf
 
 ----------------------------------------------------------------
 

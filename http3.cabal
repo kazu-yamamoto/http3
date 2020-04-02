@@ -18,6 +18,7 @@ library
   exposed-modules:     Network.QPACK.HeaderBlock
                        Network.QPACK.Instruction
                        Network.QPACK.Table.Static
+                       Network.QPACK.Types
   other-modules:       Imports
   build-depends:       base >= 4.13 && < 5
                      , array
@@ -37,6 +38,7 @@ Test-suite spec
   other-modules:       Imports
                        Network.QPACK.Instruction
                        Network.QPACK.HeaderBlock
+                       Network.QPACK.Types
                        QPACK.InstructionSpec
                        QPACK.TableSpec
   Build-Depends:       base >= 4 && < 5

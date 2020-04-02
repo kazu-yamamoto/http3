@@ -18,23 +18,6 @@ data DynamicTable
 data StaticTable
 data ControlBuffer
 
-{-
-    Dropping    Draining Index               Insertion Point
-      |          |                                 |
-      v          v                                 v
-      +----------+---------------------------------+--------+
-      | Draining |          Referenceable          | Unused |
-      | Entries  |             Entries             | Space  |
-      +----------+---------------------------------+--------+
-|  d  |                            |n-4|n-3|n-2|n-1|          Absolute
-|n-d-1|                            | 3 | 2 | 1 | 0 |          Relative ins
-|n-d-3|                            | 1 | 0 |                  Relative HB
-                                           | 0 | 1 |          Post-Base
-                                           ^
-                                           |
-                                          Base = n - 2
--}
-
 -- |
 -- >>> encodeInsertCount 3 9
 -- 4

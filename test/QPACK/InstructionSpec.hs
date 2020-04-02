@@ -6,6 +6,7 @@ import Network.HPACK.Token
 import Test.Hspec
 
 import Imports()
+import Network.QPACK.Types
 import Network.QPACK.Instruction
 
 spec :: Spec
@@ -13,7 +14,7 @@ spec = do
     describe "encodeEncoderInstructions and decodeEncoderInstructions" $ do
         it "encode/decodes encode instructions properly" $ do
             let eis0 = [SetDynamicTableCapacity 4096
-                       ,InsertWithNameReference (SIndex 92) "Warp/4.3.2.1"
+                       ,InsertWithNameReference (SIIndex 92) "Warp/4.3.2.1"
                        ,InsertWithoutNameReference tokenContentType "text/plain"
                        ,Duplicate 40
                        ]
