@@ -3,8 +3,8 @@
 module Network.QPACK.HeaderBlock (
     encodeHeader
   , encodePrefix
-  , encInsertCount
-  , requiredInsertCount
+  , encodeInsertCount
+  , decodeInsertCount
   , base
   ) where
 
@@ -34,28 +34,26 @@ data ControlBuffer
                                           Base = n - 2
 -}
 
-maxTableCapacity :: Int
-maxTableCapacity = 100
-
-maxEntries :: Int
-maxEntries = maxTableCapacity `div` 32
-
 -- |
--- >>> encInsertCount 9
+-- >>> encodeInsertCount 3 9
 -- 4
-encInsertCount :: Int -> Int
-encInsertCount 0              = 0
-encInsertCount reqInsertCount = (reqInsertCount `mod` (2 * maxEntries)) + 1
+-- >>> encodeInsertCount 128 1000
+-- 233
+encodeInsertCount :: Int -> Int -> Int
+encodeInsertCount _ 0                       = 0
+encodeInsertCount maxEntries reqInsertCount = (reqInsertCount `mod` (2 * maxEntries)) + 1
 
 -- | for decoder
 --
--- >>> requiredInsertCount 4 10
+-- >>> decodeInsertCount 3 10 4
 -- 9
-requiredInsertCount :: Int -> Int -> Int
-requiredInsertCount 0 _ = 0
-requiredInsertCount encodedInsertCount totalNumberOfInserts
-  | encodedInsertCount > fullRange = error "requiredInsertCount"
-  | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "requiredInsertCount"
+-- >>> decodeInsertCount 128 990 233
+-- 1000
+decodeInsertCount :: Int -> Int -> Int -> Int
+decodeInsertCount _ _ 0 = 0
+decodeInsertCount maxEntries totalNumberOfInserts encodedInsertCount
+  | encodedInsertCount > fullRange = error "decodeInsertCount"
+  | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "decodeInsertCount"
   | reqInsertCount > maxValue = reqInsertCount - fullRange
   | otherwise                 = reqInsertCount
   where
@@ -63,7 +61,6 @@ requiredInsertCount encodedInsertCount totalNumberOfInserts
     maxValue = totalNumberOfInserts + maxEntries
     maxWrapped = (maxValue `div` fullRange) * fullRange
     reqInsertCount = maxWrapped + encodedInsertCount - 1
-
 
 -- |
 -- >>> base 1 9 2
