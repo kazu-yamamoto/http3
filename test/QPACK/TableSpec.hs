@@ -8,10 +8,10 @@ import Network.QPACK.HeaderBlock
 
 spec :: Spec
 spec = do
-    describe "encodeInsertCount and decodeInsertCount" $ do
+    describe "encodeRequiredInsertCount and decodeRequiredInsertCount" $ do
         prop "duality" $ \(Triple m ei di) -> do
-            let ereq = encodeInsertCount m ei
-                ei' = decodeInsertCount m di ereq
+            let ereq = encodeRequiredInsertCount m ei
+                ei' = decodeRequiredInsertCount m di ereq
             ei' `shouldBe` ei
 
 data Triple = Triple Int Int Int deriving (Eq, Show)

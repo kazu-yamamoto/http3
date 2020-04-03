@@ -3,9 +3,9 @@
 module Network.QPACK.HeaderBlock (
     encodeHeader
   , encodePrefix
-  , encodeInsertCount
-  , decodeInsertCount
-  , base
+  , encodeRequiredInsertCount
+  , decodeRequiredInsertCount
+  , decodeBase
   ) where
 
 import Data.IORef
@@ -19,25 +19,25 @@ data StaticTable
 data ControlBuffer
 
 -- |
--- >>> encodeInsertCount 3 9
+-- >>> encodeRequiredInsertCount 3 9
 -- 4
--- >>> encodeInsertCount 128 1000
+-- >>> encodeRequiredInsertCount 128 1000
 -- 233
-encodeInsertCount :: Int -> Int -> Int
-encodeInsertCount _ 0                       = 0
-encodeInsertCount maxEntries reqInsertCount = (reqInsertCount `mod` (2 * maxEntries)) + 1
+encodeRequiredInsertCount :: Int -> Int -> Int
+encodeRequiredInsertCount _ 0                       = 0
+encodeRequiredInsertCount maxEntries reqInsertCount = (reqInsertCount `mod` (2 * maxEntries)) + 1
 
 -- | for decoder
 --
--- >>> decodeInsertCount 3 10 4
+-- >>> decodeRequiredInsertCount 3 10 4
 -- 9
--- >>> decodeInsertCount 128 990 233
+-- >>> decodeRequiredInsertCount 128 990 233
 -- 1000
-decodeInsertCount :: Int -> Int -> Int -> Int
-decodeInsertCount _ _ 0 = 0
-decodeInsertCount maxEntries totalNumberOfInserts encodedInsertCount
-  | encodedInsertCount > fullRange = error "decodeInsertCount"
-  | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "decodeInsertCount"
+decodeRequiredInsertCount :: Int -> Int -> Int -> Int
+decodeRequiredInsertCount _ _ 0 = 0
+decodeRequiredInsertCount maxEntries totalNumberOfInserts encodedInsertCount
+  | encodedInsertCount > fullRange = error "decodeRequiredInsertCount"
+  | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "decodeRequiredInsertCount"
   | reqInsertCount > maxValue = reqInsertCount - fullRange
   | otherwise                 = reqInsertCount
   where
@@ -47,11 +47,11 @@ decodeInsertCount maxEntries totalNumberOfInserts encodedInsertCount
     reqInsertCount = maxWrapped + encodedInsertCount - 1
 
 -- |
--- >>> base 1 9 2
+-- >>> decodeBase 1 9 2
 -- 6
-base :: Int -> Int -> Int -> Int
-base 0 reqInsertCount deltaBase = reqInsertCount + deltaBase
-base _ reqInsertCount deltaBase = reqInsertCount - deltaBase - 1
+decodeBase :: Int -> Int -> Int -> Int
+decodeBase 0 reqInsertCount deltaBase = reqInsertCount + deltaBase
+decodeBase _ reqInsertCount deltaBase = reqInsertCount - deltaBase - 1
 
 -- dynamicTable
 getBaseIndex :: DynamicTable -> IO Index
