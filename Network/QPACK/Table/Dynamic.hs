@@ -1,14 +1,11 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Network.QPACK.Table.Dynamic where
 
-import Control.Exception (bracket, throwIO)
-import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO (IOArray, newArray)
-import qualified Data.ByteString.Char8 as BS
-import Data.IORef
-import Foreign.Marshal.Alloc (mallocBytes, free)
-import Network.ByteOrder (newWriteBuffer)
-import Network.HPACK.Internal
 import Control.Concurrent.STM
+import Data.Array.IO (IOArray)
+import Data.IORef
+import Network.HPACK.Internal
 
 import Network.QPACK.Types
 
@@ -23,3 +20,10 @@ data DynamicTable = DynamicTable {
   }
 
 type Table = IOArray Index Entry
+
+getMaxNumOfEntries :: DynamicTable -> IO Int
+getMaxNumOfEntries DynamicTable{..} = readIORef maxNumOfEntries
+
+getTotalNumOfEntries :: DynamicTable -> IO InsertPoint
+getTotalNumOfEntries DynamicTable{..} = atomically $ readTVar insertionPoint
+
