@@ -10,19 +10,8 @@ newtype PostBaseIndex    = PostBaseIndex    Int deriving (Eq, Ord, Show, Num)
 type InsertPoint = AbsoluteIndex
 type BasePoint   = AbsoluteIndex
 
-data DynamicIndex = DynamicIndex AbsoluteIndex InsertPoint BasePoint
-    deriving (Eq, Ord, Show)
-
-data AIndex = SAIndex AbsoluteIndex
-            | DAIndex DynamicIndex
-            deriving (Eq, Ord, Show)
-
-data IIndex = SIIndex AbsoluteIndex
-            | DIIndex InsRelativeIndex
-            deriving (Eq, Ord, Show)
-
-data HIndex = SHIndex AbsoluteIndex
-            | DHIndex HBRelativeIndex
+data HIndex = SIndex AbsoluteIndex
+            | DIndex AbsoluteIndex
             deriving (Eq, Ord, Show)
 
 {-
@@ -51,16 +40,16 @@ data HIndex = SHIndex AbsoluteIndex
 
 -- |
 --
--- >>> toInsRelativeIndex $ DynamicIndex 99 100 98
+-- >>> toInsRelativeIndex 99 100
 -- InsRelativeIndex 0
--- >>> toInsRelativeIndex $ DynamicIndex 98 100 98
+-- >>> toInsRelativeIndex 98 100
 -- InsRelativeIndex 1
--- >>> toInsRelativeIndex $ DynamicIndex 97 100 98
+-- >>> toInsRelativeIndex 97 100
 -- InsRelativeIndex 2
--- >>> toInsRelativeIndex $ DynamicIndex 96 100 98
+-- >>> toInsRelativeIndex 96 100
 -- InsRelativeIndex 3
-toInsRelativeIndex :: DynamicIndex -> InsRelativeIndex
-toInsRelativeIndex (DynamicIndex (AbsoluteIndex idx) (AbsoluteIndex ip) _) =
+toInsRelativeIndex :: AbsoluteIndex -> InsertPoint -> InsRelativeIndex
+toInsRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex ip) =
     InsRelativeIndex (ip - idx - 1)
 
 -- |
@@ -79,12 +68,12 @@ fromInsRelativeIndex (InsRelativeIndex ri) (AbsoluteIndex ip) =
 
 -- |
 --
--- >>> toHBRelativeIndex $ DynamicIndex 96 100 98
+-- >>> toHBRelativeIndex 96 98
 -- HBRelativeIndex 1
--- >>> toHBRelativeIndex $ DynamicIndex 97 100 98
+-- >>> toHBRelativeIndex 97 98
 -- HBRelativeIndex 0
-toHBRelativeIndex :: DynamicIndex -> HBRelativeIndex
-toHBRelativeIndex (DynamicIndex (AbsoluteIndex idx) _ (AbsoluteIndex bp)) =
+toHBRelativeIndex :: AbsoluteIndex -> BasePoint -> HBRelativeIndex
+toHBRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
     HBRelativeIndex (bp - idx - 1)
 
 -- |
@@ -99,12 +88,12 @@ fromHBRelativeIndex (HBRelativeIndex ri) (AbsoluteIndex bp) =
 
 -- |
 --
--- >>> toPostBaseIndex $ DynamicIndex 98 100 98
+-- >>> toPostBaseIndex 98 98
 -- PostBaseIndex 0
--- >>> toPostBaseIndex $ DynamicIndex 99 100 98
+-- >>> toPostBaseIndex 99 98
 -- PostBaseIndex 1
-toPostBaseIndex :: DynamicIndex -> PostBaseIndex
-toPostBaseIndex (DynamicIndex (AbsoluteIndex idx) _ (AbsoluteIndex bp)) =
+toPostBaseIndex :: AbsoluteIndex -> BasePoint -> PostBaseIndex
+toPostBaseIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
     PostBaseIndex (idx - bp)
 
 -- |

@@ -30,11 +30,11 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-data RevResult = N | K AIndex | KV AIndex
+data RevResult = N | K HIndex | KV HIndex
 
 ----------------------------------------------------------------
 
-data RevIndex = RevIndex !DynamicRevIndex !OtherRevIdex
+data RevIndex = RevIndex DynamicRevIndex OtherRevIdex
 
 type DynamicRevIndex = Array Int (IORef ValueMap)
 
@@ -42,19 +42,19 @@ data KeyValue = KeyValue HeaderName HeaderValue deriving (Eq, Ord)
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
-type OtherRevIdex = IORef (Map KeyValue AIndex)
+type OtherRevIdex = IORef (Map KeyValue HIndex)
 
-{-# SPECIALIZE INLINE M.lookup :: KeyValue -> M.Map KeyValue AIndex -> Maybe AIndex #-}
-{-# SPECIALIZE INLINE M.delete :: KeyValue -> M.Map KeyValue AIndex -> M.Map KeyValue AIndex #-}
-{-# SPECIALIZE INLINE M.insert :: KeyValue -> AIndex -> M.Map KeyValue AIndex -> M.Map KeyValue AIndex #-}
+{-# SPECIALIZE INLINE M.lookup :: KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex #-}
+{-# SPECIALIZE INLINE M.delete :: KeyValue -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex #-}
+{-# SPECIALIZE INLINE M.insert :: KeyValue -> HIndex -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex #-}
 
 ----------------------------------------------------------------
 
 type StaticRevIndex = Array Int StaticEntry
 
-data StaticEntry = StaticEntry !AIndex !(Maybe ValueMap) deriving Show
+data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving Show
 
-type ValueMap = Map HeaderValue AIndex
+type ValueMap = Map HeaderValue HIndex
 
 ----------------------------------------------------------------
 
@@ -69,7 +69,7 @@ staticRevIndex = A.array (minTokenIx,51) $ map toEnt zs
             (_,i):_  -> StaticEntry i $ Just $ M.fromList xs
     zs = map extract $ groupBy ((==) `on` fst) lst
       where
-        lst = zipWith (\(k,v) i -> (k,(v,i))) staticTableList $ map (SAIndex . AbsoluteIndex) [0..]
+        lst = zipWith (\(k,v) i -> (k,(v,i))) staticTableList $ map (SIndex . AbsoluteIndex) [0..]
         extract xs = (fst (head xs), map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
@@ -103,7 +103,7 @@ lookupDynamicStaticRevIndex ix v drev = do
         Nothing -> return $ lookupStaticRevIndex ix v
 
 {-# INLINE insertDynamicRevIndex #-}
-insertDynamicRevIndex :: Token -> HeaderValue -> AIndex -> DynamicRevIndex -> IO ()
+insertDynamicRevIndex :: Token -> HeaderValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
     ref = drev `unsafeAt` tokenIx t
@@ -131,7 +131,7 @@ lookupOtherRevIndex (k,v) ref = do
         Just  i -> return $ KV i
 
 {-# INLINE insertOtherRevIndex #-}
-insertOtherRevIndex :: Token -> HeaderValue -> AIndex -> OtherRevIdex -> IO ()
+insertOtherRevIndex :: Token -> HeaderValue -> HIndex -> OtherRevIdex -> IO ()
 insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
   where
     k = tokenFoldedKey t
@@ -181,7 +181,7 @@ lookupRevIndex' Token{..} v
 ----------------------------------------------------------------
 
 {-# INLINE insertRevIndex #-}
-insertRevIndex :: Entry -> AIndex -> RevIndex -> IO ()
+insertRevIndex :: Entry -> HIndex -> RevIndex -> IO ()
 insertRevIndex (Entry _ t v) i (RevIndex dyn oth)
   | quicIx (tokenIx t) >= 0 = insertDynamicRevIndex t v i dyn
   | otherwise               = insertOtherRevIndex   t v i oth

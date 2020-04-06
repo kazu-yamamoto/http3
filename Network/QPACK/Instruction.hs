@@ -26,8 +26,10 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
+type InsIndex = Either AbsoluteIndex InsRelativeIndex
+
 data EncoderInstruction = SetDynamicTableCapacity Int
-                        | InsertWithNameReference IIndex HeaderValue
+                        | InsertWithNameReference InsIndex HeaderValue
                         | InsertWithoutNameReference Token HeaderValue
                         | Duplicate InsRelativeIndex
                         deriving (Eq, Show)
@@ -42,8 +44,8 @@ encodeEI :: WriteBuffer -> Bool -> EncoderInstruction -> IO ()
 encodeEI wbuf _    (SetDynamicTableCapacity cap) = encodeI wbuf set001 5 cap
 encodeEI wbuf huff (InsertWithNameReference hidx v) = do
     let (set, idx) = case hidx of
-          SIIndex (AbsoluteIndex i)    -> (set11, i)
-          DIIndex (InsRelativeIndex i) -> (set1,  i)
+          Left  (AbsoluteIndex i)    -> (set11, i)
+          Right (InsRelativeIndex i) -> (set1,  i)
     encodeI wbuf set 6 idx
     encodeS wbuf huff id set1 7 v
 encodeEI wbuf huff (InsertWithoutNameReference k v) = do
@@ -80,8 +82,8 @@ decodeEI hufdec rbuf = do
 decodeInsertWithNameReference :: ReadBuffer -> Word8 -> HuffmanDecoder -> IO EncoderInstruction
 decodeInsertWithNameReference rbuf w8 hufdec = do
     idx <- decodeI 6 (w8 .&. 0b00111111) rbuf
-    let hidx | w8 `testBit` 6 = SIIndex (AbsoluteIndex idx)
-             | otherwise      = DIIndex (InsRelativeIndex idx)
+    let hidx | w8 `testBit` 6 = Left (AbsoluteIndex idx)
+             | otherwise      = Right (InsRelativeIndex idx)
     v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
     return $ InsertWithNameReference hidx v
 

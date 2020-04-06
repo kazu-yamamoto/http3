@@ -87,7 +87,7 @@ encodePrefix dyntbl wbuf reqInsCnt baseIndex = do
 decodePrefix :: DynamicTable -> ReadBuffer -> IO (AbsoluteIndex, AbsoluteIndex)
 decodePrefix dyntbl rbuf = do
     maxEntries <- getMaxNumOfEntries dyntbl
-    totalNumberOfInserts <- getTotalNumOfEntries dyntbl
+    totalNumberOfInserts <- getTotalNumOfInserts dyntbl
     w8 <- read8 rbuf
     ric <- decodeI 8 w8 rbuf
     let reqInsCnt = decodeRequiredInsertCount maxEntries totalNumberOfInserts ric
