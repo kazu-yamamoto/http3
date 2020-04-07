@@ -15,7 +15,6 @@ module Network.QPACK.Table.RevIndex (
 import Data.Array (Array)
 import qualified Data.Array as A
 import Data.Array.Base (unsafeAt)
-import Data.CaseInsensitive (foldedCase)
 import Data.Function (on)
 import Data.IORef
 import Data.Map.Strict (Map)
@@ -157,14 +156,14 @@ lookupRevIndex :: Token
                -> HeaderValue
                -> RevIndex
                -> IO RevResult
-lookupRevIndex Token{..} v (RevIndex dyn oth)
+lookupRevIndex t@Token{..} v (RevIndex dyn oth)
   | ix >= 0         = lookupOtherRevIndex (k,v) oth
   | shouldBeIndexed = lookupDynamicStaticRevIndex ix v dyn
   -- path: is not indexed but ":path /" should be used, sigh.
   | otherwise       = return $ lookupStaticRevIndex ix v
   where
     ix = quicIx tokenIx
-    k = foldedCase tokenKey
+    k = tokenFoldedKey t
 --    ent = toEntryToken t v -- fixme
 
 {-# INLINE lookupRevIndex' #-}
@@ -176,7 +175,7 @@ lookupRevIndex' Token{..} v
   | otherwise = N -- fixme
   where
     ix = quicIx tokenIx
---    k = foldedCase tokenKey -- fixme
+--    k = tokenFoldedKey t -- fixme
 
 ----------------------------------------------------------------
 
