@@ -23,24 +23,24 @@ import Network.QPACK.Types
 -- 4
 -- >>> encodeRequiredInsertCount 128 1000
 -- 233
-encodeRequiredInsertCount :: Int -> AbsoluteIndex -> Int
+encodeRequiredInsertCount :: Int -> InsertionPoint -> Int
 encodeRequiredInsertCount _ 0                       = 0
-encodeRequiredInsertCount maxEntries (AbsoluteIndex reqInsertCount) =
+encodeRequiredInsertCount maxEntries (InsertionPoint reqInsertCount) =
     (reqInsertCount `mod` (2 * maxEntries)) + 1
 
 -- | for decoder
 --
 -- >>> decodeRequiredInsertCount 3 10 4
--- AbsoluteIndex 9
+-- InsertionPoint 9
 -- >>> decodeRequiredInsertCount 128 990 233
--- AbsoluteIndex 1000
-decodeRequiredInsertCount :: Int -> AbsoluteIndex -> Int -> AbsoluteIndex
+-- InsertionPoint 1000
+decodeRequiredInsertCount :: Int -> InsertionPoint -> Int -> InsertionPoint
 decodeRequiredInsertCount _ _ 0 = 0
-decodeRequiredInsertCount maxEntries (AbsoluteIndex totalNumberOfInserts) encodedInsertCount
+decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encodedInsertCount
   | encodedInsertCount > fullRange = error "decodeRequiredInsertCount"
   | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "decodeRequiredInsertCount"
-  | reqInsertCount > maxValue = AbsoluteIndex (reqInsertCount - fullRange)
-  | otherwise                 = AbsoluteIndex reqInsertCount
+  | reqInsertCount > maxValue = InsertionPoint (reqInsertCount - fullRange)
+  | otherwise                 = InsertionPoint reqInsertCount
   where
     fullRange = 2 * maxEntries
     maxValue = totalNumberOfInserts + maxEntries
@@ -54,8 +54,8 @@ decodeRequiredInsertCount maxEntries (AbsoluteIndex totalNumberOfInserts) encode
 -- (False,3)
 -- >>> encodeBase 9 6
 -- (True,2)
-encodeBase :: AbsoluteIndex -> AbsoluteIndex -> (Bool, Int)
-encodeBase (AbsoluteIndex reqInsCnt) (AbsoluteIndex base)
+encodeBase :: InsertionPoint -> BasePoint -> (Bool, Int)
+encodeBase (InsertionPoint reqInsCnt) (BasePoint base)
   | diff >= 0 = (False, diff)            -- base - reqInsCnt
   | otherwise = (True,  negate diff - 1) -- reqInsCnt - base - 1
   where
@@ -63,16 +63,16 @@ encodeBase (AbsoluteIndex reqInsCnt) (AbsoluteIndex base)
 
 -- |
 -- >>> decodeBase 6 False 3
--- AbsoluteIndex 9
+-- BasePoint 9
 -- >>> decodeBase 9 True 2
--- AbsoluteIndex 6
-decodeBase :: AbsoluteIndex -> Bool -> Int -> AbsoluteIndex
-decodeBase (AbsoluteIndex reqInsCnt) False deltaBase = AbsoluteIndex (reqInsCnt + deltaBase)
-decodeBase (AbsoluteIndex reqInsCnt) True  deltaBase = AbsoluteIndex (reqInsCnt - deltaBase - 1)
+-- BasePoint 6
+decodeBase :: InsertionPoint -> Bool -> Int -> BasePoint
+decodeBase (InsertionPoint reqInsCnt) False deltaBase = BasePoint (reqInsCnt + deltaBase)
+decodeBase (InsertionPoint reqInsCnt) True  deltaBase = BasePoint (reqInsCnt - deltaBase - 1)
 
 ----------------------------------------------------------------
 
-encodePrefix :: DynamicTable -> WriteBuffer -> AbsoluteIndex -> AbsoluteIndex -> IO ()
+encodePrefix :: DynamicTable -> WriteBuffer -> InsertionPoint -> BasePoint -> IO ()
 encodePrefix dyntbl wbuf reqInsCnt baseIndex = do
     maxEntries <- getMaxNumOfEntries dyntbl
     -- Required Insert Count
@@ -84,10 +84,10 @@ encodePrefix dyntbl wbuf reqInsCnt baseIndex = do
             | otherwise = set0
     encodeI wbuf set 7 base
 
-decodePrefix :: DynamicTable -> ReadBuffer -> IO (AbsoluteIndex, AbsoluteIndex)
+decodePrefix :: DynamicTable -> ReadBuffer -> IO (InsertionPoint, BasePoint)
 decodePrefix dyntbl rbuf = do
     maxEntries <- getMaxNumOfEntries dyntbl
-    totalNumberOfInserts <- getTotalNumOfInserts dyntbl
+    totalNumberOfInserts <- getInsertionPoint dyntbl
     w8 <- read8 rbuf
     ric <- decodeI 8 w8 rbuf
     let reqInsCnt = decodeRequiredInsertCount maxEntries totalNumberOfInserts ric

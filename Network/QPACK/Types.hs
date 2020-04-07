@@ -6,9 +6,8 @@ newtype AbsoluteIndex    = AbsoluteIndex    Int deriving (Eq, Ord, Show, Num)
 newtype InsRelativeIndex = InsRelativeIndex Int deriving (Eq, Ord, Show, Num)
 newtype HBRelativeIndex  = HBRelativeIndex  Int deriving (Eq, Ord, Show, Num)
 newtype PostBaseIndex    = PostBaseIndex    Int deriving (Eq, Ord, Show, Num)
-
-type InsertPoint = AbsoluteIndex
-type BasePoint   = AbsoluteIndex
+newtype InsertionPoint   = InsertionPoint   Int deriving (Eq, Ord, Show, Num)
+newtype BasePoint        = BasePoint        Int deriving (Eq, Ord, Show, Num)
 
 data HIndex = SIndex AbsoluteIndex
             | DIndex AbsoluteIndex
@@ -48,8 +47,8 @@ data HIndex = SIndex AbsoluteIndex
 -- InsRelativeIndex 2
 -- >>> toInsRelativeIndex 96 100
 -- InsRelativeIndex 3
-toInsRelativeIndex :: AbsoluteIndex -> InsertPoint -> InsRelativeIndex
-toInsRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex ip) =
+toInsRelativeIndex :: AbsoluteIndex -> InsertionPoint -> InsRelativeIndex
+toInsRelativeIndex (AbsoluteIndex idx) (InsertionPoint ip) =
     InsRelativeIndex (ip - idx - 1)
 
 -- |
@@ -62,8 +61,8 @@ toInsRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex ip) =
 -- AbsoluteIndex 97
 -- >>> fromInsRelativeIndex 3 100
 -- AbsoluteIndex 96
-fromInsRelativeIndex :: InsRelativeIndex -> InsertPoint -> AbsoluteIndex
-fromInsRelativeIndex (InsRelativeIndex ri) (AbsoluteIndex ip) =
+fromInsRelativeIndex :: InsRelativeIndex -> InsertionPoint -> AbsoluteIndex
+fromInsRelativeIndex (InsRelativeIndex ri) (InsertionPoint ip) =
     AbsoluteIndex (ip - ri - 1)
 
 -- |
@@ -73,7 +72,7 @@ fromInsRelativeIndex (InsRelativeIndex ri) (AbsoluteIndex ip) =
 -- >>> toHBRelativeIndex 97 98
 -- HBRelativeIndex 0
 toHBRelativeIndex :: AbsoluteIndex -> BasePoint -> HBRelativeIndex
-toHBRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
+toHBRelativeIndex (AbsoluteIndex idx) (BasePoint bp) =
     HBRelativeIndex (bp - idx - 1)
 
 -- |
@@ -83,7 +82,7 @@ toHBRelativeIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
 -- >>> fromHBRelativeIndex 0 98
 -- AbsoluteIndex 97
 fromHBRelativeIndex :: HBRelativeIndex -> BasePoint -> AbsoluteIndex
-fromHBRelativeIndex (HBRelativeIndex ri) (AbsoluteIndex bp) =
+fromHBRelativeIndex (HBRelativeIndex ri) (BasePoint bp) =
     AbsoluteIndex (bp - ri - 1)
 
 -- |
@@ -93,7 +92,7 @@ fromHBRelativeIndex (HBRelativeIndex ri) (AbsoluteIndex bp) =
 -- >>> toPostBaseIndex 99 98
 -- PostBaseIndex 1
 toPostBaseIndex :: AbsoluteIndex -> BasePoint -> PostBaseIndex
-toPostBaseIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
+toPostBaseIndex (AbsoluteIndex idx) (BasePoint bp) =
     PostBaseIndex (idx - bp)
 
 -- |
@@ -103,5 +102,5 @@ toPostBaseIndex (AbsoluteIndex idx) (AbsoluteIndex bp) =
 -- >>> fromPostBaseIndex 1 98
 -- AbsoluteIndex 99
 fromPostBaseIndex :: PostBaseIndex -> BasePoint -> AbsoluteIndex
-fromPostBaseIndex (PostBaseIndex pix) (AbsoluteIndex bp) =
+fromPostBaseIndex (PostBaseIndex pix) (BasePoint bp) =
     AbsoluteIndex (pix + bp)

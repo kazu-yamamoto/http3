@@ -1,9 +1,8 @@
 module Network.QPACK.Table (
     DynamicTable
   , getMaxNumOfEntries
-  , getTotalNumOfInserts
   , getBasePoint
-  , getInsertPoint
+  , getInsertionPoint
   , getRevIndex
   , updateLargestReference
   , lookupRevIndex

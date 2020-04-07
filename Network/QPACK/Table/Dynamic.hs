@@ -24,7 +24,7 @@ data DynamicTable = DynamicTable {
     codeInfo          :: CodeInfo
   , droppingPoint     :: IORef AbsoluteIndex
   , drainingPoint     :: IORef AbsoluteIndex
-  , insertionPoint    :: TVar InsertPoint
+  , insertionPoint    :: TVar InsertionPoint
   , basePoint         :: IORef BasePoint
   , maxNumOfEntries   :: IORef Int
   , circularTable     :: IORef Table
@@ -37,8 +37,8 @@ type Table = IOArray Index Entry
 getBasePoint :: DynamicTable -> IO BasePoint
 getBasePoint DynamicTable{..} = readIORef basePoint
 
-getInsertPoint :: DynamicTable -> IO InsertPoint
-getInsertPoint DynamicTable{..} = atomically $ readTVar insertionPoint
+getInsertionPoint :: DynamicTable -> IO InsertionPoint
+getInsertionPoint DynamicTable{..} = atomically $ readTVar insertionPoint
 
 ----------------------------------------------------------------
 
@@ -88,9 +88,6 @@ clearDynamicTable DynamicTable{..} = case codeInfo of
 getMaxNumOfEntries :: DynamicTable -> IO Int
 getMaxNumOfEntries DynamicTable{..} = readIORef maxNumOfEntries
 
-getTotalNumOfInserts :: DynamicTable -> IO InsertPoint
-getTotalNumOfInserts DynamicTable{..} = atomically $ readTVar insertionPoint
-
 ----------------------------------------------------------------
 
 {-# INLINE getRevIndex #-}
@@ -122,7 +119,7 @@ updateLargestReference DynamicTable{..} idx = do
 
 insertEntry :: Entry -> DynamicTable -> IO AbsoluteIndex
 insertEntry ent dyntbl@DynamicTable{..} = do
-    ai@(AbsoluteIndex insp) <- atomically $ do
+    InsertionPoint insp <- atomically $ do
         x <- readTVar insertionPoint
         writeTVar insertionPoint (x + 1)
         return x
@@ -131,5 +128,6 @@ insertEntry ent dyntbl@DynamicTable{..} = do
     table <- readIORef circularTable
     unsafeWrite table i ent
     let revtbl = getRevIndex dyntbl
+    let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
     return ai

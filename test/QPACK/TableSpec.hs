@@ -11,13 +11,13 @@ spec :: Spec
 spec = do
     describe "encodeRequiredInsertCount and decodeRequiredInsertCount" $ do
         prop "duality" $ \(Triple m ei di) -> do
-            let ereq = encodeRequiredInsertCount m (AbsoluteIndex ei)
-                AbsoluteIndex ei' = decodeRequiredInsertCount m (AbsoluteIndex di) ereq
+            let ereq = encodeRequiredInsertCount m (InsertionPoint ei)
+                InsertionPoint ei' = decodeRequiredInsertCount m (InsertionPoint di) ereq
             ei' `shouldBe` ei
     describe "encodeBase and decodeBase" $ do
         prop "duality" $ \(Doubl base reqInsCnt) -> do
-            let (s,delta) = encodeBase (AbsoluteIndex reqInsCnt) (AbsoluteIndex base)
-                AbsoluteIndex base' = decodeBase (AbsoluteIndex reqInsCnt) s delta
+            let (s,delta) = encodeBase (InsertionPoint reqInsCnt) (BasePoint base)
+                BasePoint base' = decodeBase (InsertionPoint reqInsCnt) s delta
             base' `shouldBe` base
 
 data Doubl = Doubl Int Int deriving (Eq, Show)

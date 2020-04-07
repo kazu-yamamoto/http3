@@ -63,7 +63,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                   insidx <- case hi of
                               SIndex i -> return $ Left i
                               DIndex i -> do
-                                  ip <- getInsertPoint dyntbl
+                                  ip <- getInsertionPoint dyntbl
                                   return $ Right $ toInsRelativeIndex i ip
                   let ins = InsertWithNameReference insidx val
                   encodeEI ibuf True ins
@@ -72,7 +72,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
             | otherwise         -> do
                   -- 4.5.4.  Literal Header Field With Name Reference
-                  undefined
+                  encodeLiteralHeaderFieldWithNameReference
           N
             | shouldBeIndexed t -> do
                   let ins = InsertWithoutNameReference t val
@@ -81,7 +81,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
             | otherwise         -> do
                   -- 4.5.6.  Literal Header Field Without Name Reference
-                  undefined
+                  encodeLiteralHeaderFieldWithoutNameReference
         -- fixme: size check and call loop
 
 -- 4.5.2.  Indexed Header Field
@@ -103,6 +103,15 @@ encodeIndexedHeaderFieldWithPostBaseIndex :: WriteBuffer
                                           -> AbsoluteIndex -- in Dynamic table
                                           -> IO ()
 encodeIndexedHeaderFieldWithPostBaseIndex = undefined
+
+-- 4.5.4.  Literal Header Field With Name Reference
+encodeLiteralHeaderFieldWithNameReference = undefined
+
+-- 4.5.5.  Literal Header Field With Post-Base Name Reference
+-- not implemented
+
+-- 4.5.6.  Literal Header Field Without Name Reference
+encodeLiteralHeaderFieldWithoutNameReference = undefined
 
 
 set10, set11 :: Word8 -> Word8
