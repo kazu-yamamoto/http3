@@ -111,14 +111,18 @@ fromPostBaseIndex (PostBaseIndex pix) (BasePoint bp) =
 
 type Setter = Word8 -> Word8
 
-set1, set01, set10, set11, set001, set0001 :: Setter
+set1, set01, set10, set11, set001, set0001, set0100, set0101, set0010, set00001:: Setter
 
-set1    = (.|. 0b10000000)
-set01   = (.|. 0b01000000)
-set10   = (.|. 0b10000000)
-set11   = (.|. 0b11000000)
-set001  = (.|. 0b00100000)
-set0001 = (.|. 0b00010000)
+set1     = (`setBit` 7)
+set01    = (`setBit` 6)
+set10    = (`setBit` 7)
+set11    = (`setBit` 7) . (`setBit` 6)
+set001   = (`setBit` 5)
+set0001  = (`setBit` 4)
+set0100  = (`setBit` 6)
+set0101  = (`setBit` 6) . (`setBit` 4)
+set0010  = (`setBit` 5)
+set00001 = (`setBit` 3)
 
 set0, set00, set000, set0000 :: Setter
 

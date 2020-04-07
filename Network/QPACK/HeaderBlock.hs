@@ -53,6 +53,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
   where
     loop _ _ _  [] = return ()
     loop wbuf ibuf revidx ((t,val):ts) = do
+        let huff = undefined -- fixme
         rr <- lookupRevIndex t val revidx
         case rr of
           KV hi -> do
@@ -72,7 +73,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
             | otherwise         -> do
                   -- 4.5.4.  Literal Header Field With Name Reference
-                  encodeLiteralHeaderFieldWithNameReference
+                  encodeLiteralHeaderFieldWithNameReference wbuf dyntbl hi val huff
           N
             | shouldBeIndexed t -> do
                   let ins = InsertWithoutNameReference t val
@@ -81,7 +82,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
             | otherwise         -> do
                   -- 4.5.6.  Literal Header Field Without Name Reference
-                  encodeLiteralHeaderFieldWithoutNameReference
+                  encodeLiteralHeaderFieldWithoutNameReference wbuf t val huff
         -- fixme: size check and call loop
 
 -- 4.5.2.  Indexed Header Field
@@ -96,19 +97,35 @@ encodeIndexedHeaderField wbuf dyntbl hi = do
           return (i, set10)
     encodeI wbuf set 6 idx
 
-
 -- 4.5.3.  Indexed Header Field With Post-Base Index
 encodeIndexedHeaderFieldWithPostBaseIndex :: WriteBuffer
                                           -> DynamicTable
                                           -> AbsoluteIndex -- in Dynamic table
                                           -> IO ()
-encodeIndexedHeaderFieldWithPostBaseIndex = undefined
+encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl ai = do
+    bp <- getBasePoint dyntbl
+    let HBRelativeIndex idx = toHBRelativeIndex ai bp
+    encodeI wbuf set0001 4 idx
 
 -- 4.5.4.  Literal Header Field With Name Reference
-encodeLiteralHeaderFieldWithNameReference = undefined
+encodeLiteralHeaderFieldWithNameReference :: WriteBuffer -> DynamicTable -> HIndex -> ByteString -> Bool -> IO ()
+encodeLiteralHeaderFieldWithNameReference wbuf dyntbl hi val huff = do
+    (idx, set) <- case hi of
+      SIndex (AbsoluteIndex i) -> return (i, set0101)
+      DIndex ai-> do
+          updateLargestReference dyntbl ai
+          bp <- getBasePoint dyntbl
+          let HBRelativeIndex i = toHBRelativeIndex ai bp
+          return (i, set0100)
+    encodeI wbuf set 4 idx
+    encodeS wbuf huff id set1 7 val
 
 -- 4.5.5.  Literal Header Field With Post-Base Name Reference
 -- not implemented
 
 -- 4.5.6.  Literal Header Field Without Name Reference
-encodeLiteralHeaderFieldWithoutNameReference = undefined
+encodeLiteralHeaderFieldWithoutNameReference :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
+encodeLiteralHeaderFieldWithoutNameReference wbuf token val huff = do
+    let key = tokenCIKey token
+    encodeS wbuf huff set0010 set00001 3 key
+    encodeS wbuf huff id set1 7 val
