@@ -142,14 +142,3 @@ decodeDI rbuf = do
       else do
         i <- decodeI 6 (w8 .&. 0b00111111) rbuf
         return $ if w8 `testBit` 6 then StreamCancellation i else InsertCountIncrement i
-
-----------------------------------------------------------------
-
-type Setter = Word8 -> Word8
-
-set1, set01, set11, set001, set000 :: Setter
-set1    x = x `setBit` 7
-set01   x = x `setBit` 6
-set11   x = x .|. 0b11000000
-set001  x = x `setBit` 5
-set000  = id

@@ -97,11 +97,3 @@ decodePrefix dyntbl rbuf = do
     delta <- decodeI 8 w8'' rbuf
     let baseIndex = decodeBase reqInsCnt s delta
     return (reqInsCnt,baseIndex)
-
-----------------------------------------------------------------
-
-type Setter = Word8 -> Word8
-
-set1, set0 :: Setter
-set1    x = x `setBit` 7
-set0    = id

@@ -112,8 +112,3 @@ encodeLiteralHeaderFieldWithNameReference = undefined
 
 -- 4.5.6.  Literal Header Field Without Name Reference
 encodeLiteralHeaderFieldWithoutNameReference = undefined
-
-
-set10, set11 :: Word8 -> Word8
-set10 = (.|. 0b10000000)
-set11 = (.|. 0b11000000)

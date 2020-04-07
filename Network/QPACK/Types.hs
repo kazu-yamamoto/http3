@@ -1,6 +1,9 @@
+{-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Network.QPACK.Types where
+
+import Imports
 
 newtype AbsoluteIndex    = AbsoluteIndex    Int deriving (Eq, Ord, Show, Num)
 newtype InsRelativeIndex = InsRelativeIndex Int deriving (Eq, Ord, Show, Num)
@@ -104,3 +107,22 @@ toPostBaseIndex (AbsoluteIndex idx) (BasePoint bp) =
 fromPostBaseIndex :: PostBaseIndex -> BasePoint -> AbsoluteIndex
 fromPostBaseIndex (PostBaseIndex pix) (BasePoint bp) =
     AbsoluteIndex (pix + bp)
+
+
+type Setter = Word8 -> Word8
+
+set1, set01, set10, set11, set001, set0001 :: Setter
+
+set1    = (.|. 0b10000000)
+set01   = (.|. 0b01000000)
+set10   = (.|. 0b10000000)
+set11   = (.|. 0b11000000)
+set001  = (.|. 0b00100000)
+set0001 = (.|. 0b00010000)
+
+set0, set00, set000, set0000 :: Setter
+
+set0    = id
+set00   = id
+set000  = id
+set0000 = id
