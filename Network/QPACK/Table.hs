@@ -1,6 +1,7 @@
 module Network.QPACK.Table (
     DynamicTable
   , getMaxNumOfEntries
+  , setBasePointToInsersionPoint
   , getBasePoint
   , getInsertionPoint
   , getRevIndex
@@ -8,6 +9,7 @@ module Network.QPACK.Table (
   , lookupRevIndex
   , insertEntry
   , RevResult(..)
+  , RevIndex
   ) where
 
 import Network.QPACK.Table.Dynamic

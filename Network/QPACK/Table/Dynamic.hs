@@ -37,6 +37,11 @@ type Table = IOArray Index Entry
 getBasePoint :: DynamicTable -> IO BasePoint
 getBasePoint DynamicTable{..} = readIORef basePoint
 
+setBasePointToInsersionPoint :: DynamicTable -> IO ()
+setBasePointToInsersionPoint DynamicTable{..} = do
+    InsertionPoint ip <- atomically $ readTVar insertionPoint
+    writeIORef basePoint $ BasePoint ip
+
 getInsertionPoint :: DynamicTable -> IO InsertionPoint
 getInsertionPoint DynamicTable{..} = atomically $ readTVar insertionPoint
 
