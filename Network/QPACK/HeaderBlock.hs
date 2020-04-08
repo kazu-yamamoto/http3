@@ -10,7 +10,6 @@ import Network.HPACK (TokenHeaderList)
 import Network.HPACK.Internal
 import Network.HPACK.Token
 
-import Imports
 import Network.QPACK.Instruction
 import Network.QPACK.Table
 import Network.QPACK.Types
@@ -33,7 +32,6 @@ encodeHeader = undefined
 --   Otherwise, this function should be called with it again.
 --   4th argument must be 'False'.
 --
-
 encodeTokenHeader :: Buffer
                   -> BufferSize
                   -> Buffer
@@ -45,15 +43,14 @@ encodeTokenHeader :: Buffer
                   -> IO (TokenHeaderList, Int) -- ^ Leftover, filled length
 encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
     wbuf <- newWriteBuffer buf siz
-    ibuf <- newWriteBuffer ibuf isiz
+    wbufi <- newWriteBuffer ibuf isiz
     -- fixme: set base point
     let revidx = getRevIndex dyntbl
-    loop wbuf ibuf revidx ts0
+    loop wbuf wbufi revidx useHuffman ts0
     return undefined
   where
-    loop _ _ _  [] = return ()
-    loop wbuf ibuf revidx ((t,val):ts) = do
-        let huff = undefined -- fixme
+    loop _ _ _ _ [] = return ()
+    loop wbuf wbufi revidx huff ((t,val):ts) = do
         rr <- lookupRevIndex t val revidx
         case rr of
           KV hi -> do
@@ -67,7 +64,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
                                   ip <- getInsertionPoint dyntbl
                                   return $ Right $ toInsRelativeIndex i ip
                   let ins = InsertWithNameReference insidx val
-                  encodeEI ibuf True ins
+                  encodeEI wbufi True ins
                   dai <- insertEntry (toEntryToken t val) dyntbl
                   -- 4.5.3.  Indexed Header Field With Post-Base Index
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
@@ -77,7 +74,7 @@ encodeTokenHeader buf siz ibuf isiz EncodeStrategy{..} first dyntbl ts0 = do
           N
             | shouldBeIndexed t -> do
                   let ins = InsertWithoutNameReference t val
-                  encodeEI ibuf True ins
+                  encodeEI wbufi True ins
                   dai <- insertEntry (toEntryToken t val) dyntbl
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl dai
             | otherwise         -> do
