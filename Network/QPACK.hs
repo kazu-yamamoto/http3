@@ -2,6 +2,7 @@ module Network.QPACK (
   -- * QPACK encoder
     encodeHeader
   , encodeTokenHeader
+  , encodePrefix
   -- * Dynamic table
   , DynamicTable
   , newDynamicTableForEncoding

@@ -72,8 +72,10 @@ decodeBase (InsertionPoint reqInsCnt) True  deltaBase = BasePoint (reqInsCnt - d
 
 ----------------------------------------------------------------
 
-encodePrefix :: DynamicTable -> WriteBuffer -> IO ()
-encodePrefix dyntbl wbuf = do
+-- | Encoding the prefix part of header block.
+--   This should be used after 'encodeTokenHeader'.
+encodePrefix :: WriteBuffer -> DynamicTable -> IO ()
+encodePrefix wbuf dyntbl = do
     maxEntries <- getMaxNumOfEntries dyntbl
     baseIndex  <- getBasePoint dyntbl
     reqInsCnt  <- getLargestReference dyntbl
@@ -86,8 +88,8 @@ encodePrefix dyntbl wbuf = do
             | otherwise = set0
     encodeI wbuf set 7 base
 
-decodePrefix :: DynamicTable -> ReadBuffer -> IO (InsertionPoint, BasePoint)
-decodePrefix dyntbl rbuf = do
+decodePrefix :: ReadBuffer -> DynamicTable -> IO (InsertionPoint, BasePoint)
+decodePrefix rbuf dyntbl = do
     maxEntries <- getMaxNumOfEntries dyntbl
     totalNumberOfInserts <- getInsertionPoint dyntbl
     w8 <- read8 rbuf

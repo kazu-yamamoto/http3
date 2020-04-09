@@ -7,6 +7,7 @@ module Network.QPACK.HeaderBlock.Encode (
   ) where
 
 import qualified Control.Exception as E
+import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
 import Network.HPACK (HeaderList, EncodeStrategy(..), TokenHeaderList)
@@ -14,26 +15,35 @@ import Network.HPACK.Internal
 import Network.HPACK.Token
 
 import Imports
+import Network.QPACK.HeaderBlock.Prefix
 import Network.QPACK.Instruction
 import Network.QPACK.Table
 import Network.QPACK.Types
 
-encodeHeader :: EncodeStrategy -> Size -> Size -> DynamicTable -> HeaderList -> IO (ByteString,ByteString)
-encodeHeader stgy siz1 siz2 dyntbl hs =
-    withWriteBuffer' siz1 $ \wbuf1 ->
-      withWriteBuffer siz2 $ \wbuf2 -> do
-         hs1 <- encodeTokenHeader wbuf1 wbuf2 stgy dyntbl ts
-         unless (null hs1) $ E.throwIO BufferOverrun
+-- | Encoding headers with QPACK.
+--   Header block with prefix and instructions are returned.
+--   1024, 32, and 1024 bytes-buffers are
+--   temporally allocated for header block, prefix and encoder instructions.
+encodeHeader :: EncodeStrategy -> DynamicTable -> HeaderList -> IO (ByteString,ByteString)
+encodeHeader stgy dyntbl hs = do
+    (hb0, insb) <- withWriteBuffer' 1024 $ \wbuf1 ->
+                       withWriteBuffer 1024 $ \wbuf2 -> do
+                           hs1 <- encodeTokenHeader wbuf1 wbuf2 stgy dyntbl ts
+                           unless (null hs1) $ E.throwIO BufferOverrun
+    prefix <- withWriteBuffer 32 $ \wbuf -> encodePrefix wbuf dyntbl
+    let hb = prefix `B.append` hb0
+    return (hb,insb)
   where
     ts = map (\(k,v) -> let t = toToken k in (t,v)) hs
 
--- | Converting 'TokenHeaderList' to the HPACK format directly in the buffer.
-encodeTokenHeader :: WriteBuffer
-                  -> WriteBuffer
+-- | Converting 'TokenHeaderList' to the QPACK format.
+--   Before calling, the offsets of two 'WriteBuffer's should be reset.
+encodeTokenHeader :: WriteBuffer -- ^ Workspace for the body of header block
+                  -> WriteBuffer -- ^ Workspace for encoder instructions
                   -> EncodeStrategy
                   -> DynamicTable
                   -> TokenHeaderList
-                  -> IO TokenHeaderList
+                  -> IO TokenHeaderList -- ^ Leftover
 encodeTokenHeader wbuf1 wbuf2 EncodeStrategy{..} dyntbl ts0 = do
     setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
