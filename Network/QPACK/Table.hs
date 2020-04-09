@@ -1,5 +1,7 @@
 module Network.QPACK.Table (
     DynamicTable
+  , newDynamicTableForEncoding
+  , newDynamicTableForDecoding
   , getMaxNumOfEntries
   , setBasePointToInsersionPoint
   , getBasePoint

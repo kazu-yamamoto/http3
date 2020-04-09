@@ -15,7 +15,8 @@ extra-source-files:  CHANGELOG.md
 library
   default-language:    Haskell2010
   ghc-options:         -Wall
-  exposed-modules:     Network.QPACK.HeaderBlock
+  exposed-modules:     Network.QPACK
+                       Network.QPACK.HeaderBlock
                        Network.QPACK.HeaderBlock.Prefix
                        Network.QPACK.Instruction
                        Network.QPACK.Table

@@ -1,7 +1,10 @@
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Network.QPACK.HeaderBlock where
+module Network.QPACK.HeaderBlock (
+    encodeHeader
+  , encodeTokenHeader
+  ) where
 
 import qualified Control.Exception as E
 import Data.IORef
@@ -25,20 +28,6 @@ encodeHeader stgy siz1 siz2 dyntbl hs =
     ts = map (\(k,v) -> let t = toToken k in (t,v)) hs
 
 -- | Converting 'TokenHeaderList' to the HPACK format directly in the buffer.
---
---   4th argument is relating to dynamic table size update.
---   When calling this function for a new 'TokenHeaderList',
---   it must be 'True'.
---   If 'True' and set by 'setLimitForEncoding',
---   dynamic table size update is generated at the beginning of
---   the HPACK format.
---
---   The return value is a pair of leftover 'TokenHeaderList' and
---   how many bytes are filled in the buffer.
---   If the leftover is empty, the encoding is finished.
---   Otherwise, this function should be called with it again.
---   4th argument must be 'False'.
---
 encodeTokenHeader :: WriteBuffer
                   -> WriteBuffer
                   -> EncodeStrategy
