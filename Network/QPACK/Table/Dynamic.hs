@@ -16,7 +16,7 @@ import Network.QPACK.Types
 
 data CodeInfo =
     EncodeInfo RevIndex -- Reverse index
-               (IORef AbsoluteIndex)
+               (IORef InsertionPoint)
   | DecodeInfo HuffmanDecoder
                (IO ()) -- free buffer
 
@@ -108,15 +108,16 @@ clearLargestReference DynamicTable{..} = writeIORef ref 0
   where
     EncodeInfo _ ref = codeInfo
 
-getLargestReference :: DynamicTable -> IO AbsoluteIndex
+getLargestReference :: DynamicTable -> IO InsertionPoint
 getLargestReference DynamicTable{..} = readIORef ref
   where
     EncodeInfo _ ref = codeInfo
 
 updateLargestReference :: DynamicTable -> AbsoluteIndex -> IO ()
-updateLargestReference DynamicTable{..} idx = do
+updateLargestReference DynamicTable{..} (AbsoluteIndex idx) = do
+    let nidx = InsertionPoint idx
     oidx <- readIORef ref
-    when (idx > oidx) $ writeIORef ref idx
+    when (nidx > oidx) $ writeIORef ref nidx
   where
     EncodeInfo _ ref = codeInfo
 

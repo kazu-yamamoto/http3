@@ -1,17 +1,22 @@
 module Network.QPACK.Table (
+  -- * Dynamic table
     DynamicTable
   , newDynamicTableForEncoding
   , newDynamicTableForDecoding
+  -- * Getter and setter
   , getMaxNumOfEntries
   , setBasePointToInsersionPoint
   , getBasePoint
   , getInsertionPoint
-  , getRevIndex
+  , getLargestReference
   , updateLargestReference
-  , lookupRevIndex
+  -- * Entry
   , insertEntry
-  , RevResult(..)
+  -- * Reverse index
   , RevIndex
+  , RevResult(..)
+  , getRevIndex
+  , lookupRevIndex
   ) where
 
 import Network.QPACK.Table.Dynamic

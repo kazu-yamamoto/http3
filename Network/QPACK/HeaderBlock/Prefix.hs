@@ -72,9 +72,11 @@ decodeBase (InsertionPoint reqInsCnt) True  deltaBase = BasePoint (reqInsCnt - d
 
 ----------------------------------------------------------------
 
-encodePrefix :: DynamicTable -> WriteBuffer -> InsertionPoint -> BasePoint -> IO ()
-encodePrefix dyntbl wbuf reqInsCnt baseIndex = do
+encodePrefix :: DynamicTable -> WriteBuffer -> IO ()
+encodePrefix dyntbl wbuf = do
     maxEntries <- getMaxNumOfEntries dyntbl
+    baseIndex  <- getBasePoint dyntbl
+    reqInsCnt  <- getLargestReference dyntbl
     -- Required Insert Count
     let ric = encodeRequiredInsertCount maxEntries reqInsCnt
     encodeI wbuf set0 8 ric
