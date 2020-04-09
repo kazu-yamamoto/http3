@@ -29,7 +29,7 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-data RevResult = N | K HIndex | KV HIndex
+data RevResult = N | K HIndex | KV HIndex deriving (Eq, Show)
 
 ----------------------------------------------------------------
 
@@ -157,7 +157,7 @@ lookupRevIndex :: Token
                -> RevIndex
                -> IO RevResult
 lookupRevIndex t@Token{..} v (RevIndex dyn oth)
-  | ix >= 0         = lookupOtherRevIndex (k,v) oth
+  | ix < 0          = lookupOtherRevIndex (k,v) oth
   | shouldBeIndexed = lookupDynamicStaticRevIndex ix v dyn
   -- path: is not indexed but ":path /" should be used, sigh.
   | otherwise       = return $ lookupStaticRevIndex ix v
