@@ -4,6 +4,7 @@ module Network.QPACK.Instruction (
   -- * Encoder instructions
     HIndex(..)
   , EncoderInstruction(..)
+  , InsIndex
   , encodeEncoderInstructions
   , decodeEncoderInstructions
   , encodeEI
