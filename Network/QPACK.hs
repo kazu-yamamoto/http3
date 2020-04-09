@@ -1,12 +1,13 @@
 module Network.QPACK (
-  -- * QPACK encoder
-    encodeHeader
-  , encodeTokenHeader
-  , encodePrefix
   -- * Dynamic table
-  , DynamicTable
+    DynamicTable
   , newDynamicTableForEncoding
   , newDynamicTableForDecoding
+  , clearDynamicTable
+  -- * QPACK encoder
+  , encodeHeader
+  , encodeTokenHeader
+  , encodePrefix
   -- * Types
   , Size
   , EncodeStrategy(..)

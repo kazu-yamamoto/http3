@@ -3,6 +3,7 @@ module Network.QPACK.Table (
     DynamicTable
   , newDynamicTableForEncoding
   , newDynamicTableForDecoding
+  , clearDynamicTable
   -- * Getter and setter
   , getMaxNumOfEntries
   , setBasePointToInsersionPoint

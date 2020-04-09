@@ -37,7 +37,6 @@ encodeHeader stgy dyntbl hs = do
     ts = map (\(k,v) -> let t = toToken k in (t,v)) hs
 
 -- | Converting 'TokenHeaderList' to the QPACK format.
---   Before calling, the offsets of two 'WriteBuffer's should be reset.
 encodeTokenHeader :: WriteBuffer -- ^ Workspace for the body of header block
                   -> WriteBuffer -- ^ Workspace for encoder instructions
                   -> EncodeStrategy
@@ -45,6 +44,8 @@ encodeTokenHeader :: WriteBuffer -- ^ Workspace for the body of header block
                   -> TokenHeaderList
                   -> IO TokenHeaderList -- ^ Leftover
 encodeTokenHeader wbuf1 wbuf2 EncodeStrategy{..} dyntbl ts0 = do
+    clearWriteBuffer wbuf1
+    clearWriteBuffer wbuf2
     setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
     ref <- newIORef ts0

@@ -20,6 +20,7 @@ data CodeInfo =
   | DecodeInfo HuffmanDecoder
                (IO ()) -- free buffer
 
+-- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable {
     codeInfo          :: CodeInfo
   , droppingPoint     :: IORef AbsoluteIndex
