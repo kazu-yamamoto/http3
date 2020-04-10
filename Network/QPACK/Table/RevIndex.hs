@@ -66,7 +66,7 @@ staticRevIndex = A.array (minTokenIx,51) $ map toEnt zs
             []  -> error "staticRevIndex"
             [("",i)] -> StaticEntry i Nothing
             (_,i):_  -> StaticEntry i $ Just $ M.fromList xs
-    zs = map extract $ groupBy ((==) `on` fst) lst
+    zs = map extract $ groupBy ((==) `on` fst) $ sort lst
       where
         lst = zipWith (\(k,v) i -> (k,(v,i))) staticTableList $ map (SIndex . AbsoluteIndex) [0..]
         extract xs = (fst (head xs), map snd xs)
