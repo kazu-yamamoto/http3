@@ -17,6 +17,7 @@ library
   ghc-options:         -Wall
   exposed-modules:     Network.QPACK
                        Network.QPACK.HeaderBlock
+                       Network.QPACK.HeaderBlock.Decode
                        Network.QPACK.HeaderBlock.Encode
                        Network.QPACK.HeaderBlock.Prefix
                        Network.QPACK.Instruction
@@ -46,6 +47,7 @@ Test-suite spec
   main-is:             Spec.hs
   other-modules:       Imports
                        Network.QPACK.HeaderBlock
+                       Network.QPACK.HeaderBlock.Decode
                        Network.QPACK.HeaderBlock.Encode
                        Network.QPACK.HeaderBlock.Prefix
                        Network.QPACK.Instruction

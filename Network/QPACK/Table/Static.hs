@@ -10,6 +10,8 @@ import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
 import Network.HPACK.Internal
 
+import Network.QPACK.Types
+
 ----------------------------------------------------------------
 
 -- | The size of static table.
@@ -25,8 +27,8 @@ staticTableSize = length staticTableList
 -- Entry 49 (Token {tokenIx = 30, shouldBeIndexed = True, isPseudo = False, tokenKey = "If-Modified-Since"}) ""
 -- >>> toStaticEntry 50
 -- Entry 53 (Token {tokenIx = 21, shouldBeIndexed = True, isPseudo = False, tokenKey = "Content-Type"}) "image/png"
-toStaticEntry :: Index -> Entry
-toStaticEntry sidx = staticTable `unsafeAt` sidx
+toStaticEntry :: AbsoluteIndex -> Entry
+toStaticEntry (AbsoluteIndex sidx) = staticTable `unsafeAt` sidx
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry

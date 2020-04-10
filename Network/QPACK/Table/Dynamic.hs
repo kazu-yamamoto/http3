@@ -3,8 +3,8 @@
 module Network.QPACK.Table.Dynamic where
 
 import Control.Concurrent.STM
-import Data.Array.Base (unsafeWrite)
-import Data.Array.IO (IOArray, newArray, )
+import Data.Array.Base (unsafeWrite, unsafeRead)
+import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
@@ -45,6 +45,11 @@ setBasePointToInsersionPoint DynamicTable{..} = do
 
 getInsertionPoint :: DynamicTable -> IO InsertionPoint
 getInsertionPoint DynamicTable{..} = atomically $ readTVar insertionPoint
+
+checkInsertionPoint :: DynamicTable -> InsertionPoint -> IO ()
+checkInsertionPoint DynamicTable{..} reqip = atomically $ do
+    ip <- readTVar insertionPoint
+    check (reqip <= ip)
 
 ----------------------------------------------------------------
 
@@ -102,6 +107,11 @@ getRevIndex DynamicTable{..} = rev
   where
     EncodeInfo rev _ = codeInfo
 
+getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
+getHuffmanDecoder DynamicTable{..} = huf
+  where
+    DecodeInfo huf _ = codeInfo
+
 ----------------------------------------------------------------
 
 clearLargestReference :: DynamicTable -> IO ()
@@ -138,3 +148,10 @@ insertEntry ent dyntbl@DynamicTable{..} = do
     let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
     return ai
+
+toDynamicEntry :: DynamicTable -> AbsoluteIndex -> IO Entry
+toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
+    maxN <- readIORef maxNumOfEntries
+    let i = idx `mod` maxN
+    table <- readIORef circularTable
+    unsafeRead table i

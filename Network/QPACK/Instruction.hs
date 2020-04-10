@@ -85,14 +85,14 @@ decodeInsertWithNameReference rbuf w8 hufdec = do
     idx <- decodeI 6 (w8 .&. 0b00111111) rbuf
     let hidx | w8 `testBit` 6 = Left (AbsoluteIndex idx)
              | otherwise      = Right (InsRelativeIndex idx)
-    v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
+    v <- decodeS (.&. 0b01111111) (`testBit` 7) 7 hufdec rbuf
     return $ InsertWithNameReference hidx v
 
 decodeInsertWithoutNameReference :: ReadBuffer -> HuffmanDecoder -> IO EncoderInstruction
 decodeInsertWithoutNameReference rbuf hufdec = do
     ff rbuf (-1)
-    k <- decodeS (.&. 0b00011111) (`testBit` 5) hufdec rbuf
-    v <- decodeS (.&. 0b01111111) (`testBit` 7) hufdec rbuf
+    k <- decodeS (.&. 0b00011111) (`testBit` 5) 5 hufdec rbuf
+    v <- decodeS (.&. 0b01111111) (`testBit` 7) 7 hufdec rbuf
     return $ InsertWithoutNameReference (toToken k)  v
 
 decodeSetDynamicTableCapacity :: ReadBuffer -> Word8 -> IO EncoderInstruction
