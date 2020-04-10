@@ -12,10 +12,10 @@ import Network.QPACK.HeaderBlock.Prefix
 import Network.QPACK.Table
 import Network.QPACK.Types
 
-decodeTokenHeader :: ReadBuffer
-                  -> DynamicTable
+decodeTokenHeader :: DynamicTable
+                  -> ReadBuffer
                   -> IO TokenHeaderList
-decodeTokenHeader rbuf dyntbl = do
+decodeTokenHeader dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
     checkInsertionPoint dyntbl reqip
     builder <- loop bp id
