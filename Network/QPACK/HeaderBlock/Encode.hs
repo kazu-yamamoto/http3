@@ -10,7 +10,7 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
-import Network.HPACK (HeaderList, EncodeStrategy(..), TokenHeaderList)
+import Network.HPACK (HeaderList, EncodeStrategy(..), TokenHeaderList, CompressionAlgo(..))
 import Network.HPACK.Internal
 import Network.HPACK.Token
 
@@ -22,12 +22,12 @@ import Network.QPACK.Types
 
 -- | Encoding headers with QPACK.
 --   Header block with prefix and instructions are returned.
---   1024, 32, and 1024 bytes-buffers are
+--   2048, 32, and 2048 bytes-buffers are
 --   temporally allocated for header block, prefix and encoder instructions.
 encodeHeader :: EncodeStrategy -> DynamicTable -> HeaderList -> IO (ByteString,ByteString)
 encodeHeader stgy dyntbl hs = do
-    (hb0, insb) <- withWriteBuffer' 1024 $ \wbuf1 ->
-                       withWriteBuffer 1024 $ \wbuf2 -> do
+    (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
+                       withWriteBuffer 2048 $ \wbuf2 -> do
                            hs1 <- encodeTokenHeader wbuf1 wbuf2 stgy dyntbl ts
                            unless (null hs1) $ E.throwIO BufferOverrun
     prefix <- withWriteBuffer 32 $ \wbuf -> encodePrefix wbuf dyntbl
@@ -49,18 +49,43 @@ encodeTokenHeader wbuf1 wbuf2 EncodeStrategy{..} dyntbl ts0 = do
     setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
     ref <- newIORef ts0
-    encodeTokenHeader' wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0  `E.catch` \BufferOverrun -> return ()
+    case compressionAlgo of
+      Static -> encodeStatic wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0  `E.catch` \BufferOverrun -> return ()
+      _      -> encodeLinear wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0  `E.catch` \BufferOverrun -> return ()
     ts <- readIORef ref
     unless (null ts) $ do
         goBack wbuf1
         goBack wbuf2
     return ts
 
-encodeTokenHeader' :: WriteBuffer -> WriteBuffer
-                   -> DynamicTable -> RevIndex -> Bool
-                   -> IORef TokenHeaderList
-                   -> TokenHeaderList -> IO ()
-encodeTokenHeader' wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
+encodeStatic :: WriteBuffer -> WriteBuffer
+             -> DynamicTable -> RevIndex -> Bool
+             -> IORef TokenHeaderList
+             -> TokenHeaderList -> IO ()
+encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
+  where
+    loop [] = return ()
+    loop ((t,val):ts) = do
+        rr <- lookupRevIndex t val revidx
+        case rr of
+          KV hi -> do
+              -- 4.5.2.  Indexed Header Field
+              encodeIndexedHeaderField wbuf1 dyntbl hi
+          K  hi -> do
+              -- 4.5.4.  Literal Header Field With Name Reference
+              encodeLiteralHeaderFieldWithNameReference wbuf1 dyntbl hi val huff
+          N     -> do
+              -- 4.5.6.  Literal Header Field Without Name Reference
+              encodeLiteralHeaderFieldWithoutNameReference wbuf1 t val huff
+        save wbuf1
+        writeIORef ref ts
+        loop ts
+
+encodeLinear :: WriteBuffer -> WriteBuffer
+             -> DynamicTable -> RevIndex -> Bool
+             -> IORef TokenHeaderList
+             -> TokenHeaderList -> IO ()
+encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
   where
     loop [] = return ()
     loop ((t,val):ts) = do
