@@ -69,7 +69,7 @@ newEncoder EncoderConfig{..} = do
     wbuf3 <- newWriteBuffer buf3 ecInstructionBufferSize
     dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
     q <- newTQueueIO
-    tid <- forkIO $ decodeInstructionHandler dyntbl q
+    tid <- forkIO $ handleDecodeInstruction dyntbl q
     let enc = qpackEncoder encStrategy wbuf1 wbuf2 wbuf3 dyntbl
         handle = atomically . writeTQueue q
         clean = do
@@ -90,8 +90,8 @@ qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
     let hb = prefix `B.append` hb0
     return (hb, ins)
 
-decodeInstructionHandler :: DynamicTable -> TQueue ByteString -> IO ()
-decodeInstructionHandler dyntbl q = forever $ do
+handleDecodeInstruction :: DynamicTable -> TQueue ByteString -> IO ()
+handleDecodeInstruction dyntbl q = forever $ do
     _ <- getInsertionPoint dyntbl -- fixme
     bs <- atomically $ readTQueue q
     ins <- decodeDecoderInstructions bs
@@ -114,7 +114,7 @@ newDecoder :: DecoderConfig -> IO (Decoder, HandleInstruction, Cleanup)
 newDecoder DecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     q <- newTQueueIO
-    tid <- forkIO $ encodeInstructionHandler dyntbl q
+    tid <- forkIO $ handleEncodeInstruction dyntbl q
     let dec = qpackDecoder dyntbl
         handle = atomically . writeTQueue q
         clean = do
@@ -125,8 +125,8 @@ newDecoder DecoderConfig{..} = do
 qpackDecoder :: DynamicTable -> ByteString -> IO TokenHeaderList
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
 
-encodeInstructionHandler :: DynamicTable -> TQueue ByteString -> IO ()
-encodeInstructionHandler dyntbl q = forever $ do
+handleEncodeInstruction :: DynamicTable -> TQueue ByteString -> IO ()
+handleEncodeInstruction dyntbl q = forever $ do
     _ <- getInsertionPoint dyntbl -- fixme
     bs <- atomically $ readTQueue q
     ins <- decodeEncoderInstructions bs
