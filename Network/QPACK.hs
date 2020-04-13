@@ -131,3 +131,9 @@ encodeInstructionHandler dyntbl q = forever $ do
     bs <- atomically $ readTQueue q
     ins <- decodeEncoderInstructions bs
     print ins
+    mapM_ handle ins
+  where
+    handle (SetDynamicTableCapacity _) = return ()
+    handle (InsertWithNameReference _ _) = return ()
+    handle (InsertWithoutNameReference _ _) = return ()
+    handle (Duplicate _) = return ()
