@@ -172,13 +172,13 @@ serverH3 conn = connDebugLog conn "Connection terminated" `onE` do
     let st0 = BS.singleton $ fromIntegral $ fromH3StreamType H3ControlStreams
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
     bs0 <- encodeH3Frame $ H3Frame H3FrameSettings settings
-    sendStream conn  3 (st0 `BS.append` bs0) False
+    sendStream conn serverControlStream (st0 `BS.append` bs0) False
     -- from encoder to decoder
     let st2 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKEncoderStream
-    sendStream conn  7 st2 False
+    sendStream conn serverEncoderStream st2 False
     -- from decoder to encoder
     let st3 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKDecoderStream
-    sendStream conn 11 st3 False
+    sendStream conn serverDecoderStream st3 False
     (hdr, "") <- enc $ map toT serverHeader
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
     bdyblock <- encodeH3Frame $ H3Frame H3FrameData html

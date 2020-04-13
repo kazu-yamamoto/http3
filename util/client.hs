@@ -302,13 +302,13 @@ clientH3 authority conn debug = do
     let st0 = BS.singleton $ fromIntegral $ fromH3StreamType H3ControlStreams
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
     bs0 <- encodeH3Frame $ H3Frame H3FrameSettings settings
-    sendStream conn  2 (st0 `BS.append` bs0) False
+    sendStream conn clientControlStream (st0 `BS.append` bs0) False
     -- from encoder to decoder
     let st2 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKEncoderStream
-    sendStream conn  6 st2 False
+    sendStream conn clientEncoderStream st2 False
     -- from decoder to encoder
     let st3 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKDecoderStream
-    sendStream conn 10 st3 False
+    sendStream conn clientDecoderStream st3 False
     (hdr, "") <- enc $ map toT (clientHeader authority)
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
     sendStream conn  0 hdrblock True

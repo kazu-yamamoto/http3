@@ -1,5 +1,7 @@
 module Network.HTTP3.Stream where
 
+import Network.QUIC (StreamId)
+
 data H3StreamType = H3ControlStreams
                   | H3PushStreams
                   | QPACKEncoderStream
@@ -20,3 +22,13 @@ toH3StreamType 0x01 = H3PushStreams
 toH3StreamType 0x02 = QPACKEncoderStream
 toH3StreamType 0x03 = QPACKDecoderStream
 toH3StreamType    i = H3StreamTypeUnknown i
+
+clientControlStream,clientEncoderStream,clientDecoderStream :: StreamId
+clientControlStream = 2
+clientEncoderStream = 6
+clientDecoderStream = 10
+
+serverControlStream,serverEncoderStream,serverDecoderStream :: StreamId
+serverControlStream = 3
+serverEncoderStream = 7
+serverDecoderStream = 11
