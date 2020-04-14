@@ -6,8 +6,6 @@ module Common (
   , getDirLogger
   , getStdoutLogger
   , makeProtos
-  , toT
-  , name
   ) where
 
 import Control.Concurrent
@@ -16,15 +14,11 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Base16 (encode)
 import qualified Data.ByteString.Char8 as C8
-import Data.CaseInsensitive hiding (map)
 import Data.Default.Class
 import Data.Maybe
-import Network.HPACK (TokenHeader, HeaderValue)
-import Network.HPACK.Token
-import Network.HTTP.Types
 import Network.TLS hiding (Version)
-import Text.Printf
 import System.FilePath
+import Text.Printf
 
 import Network.QUIC
 
@@ -76,9 +70,3 @@ makeProtos ver = (h3X,hqX)
     verbs = C8.pack $ printf "%d" $ fromVersion ver
     h3X = "h3-" `BS.append` verbs
     hqX = "hq-" `BS.append` verbs
-
-toT :: (HeaderName, HeaderValue) -> TokenHeader
-toT (k,v) = (toToken $ foldedCase k, v)
-
-name :: ByteString
-name = "HaskellQuic/0.0.0"

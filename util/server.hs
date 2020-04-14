@@ -12,7 +12,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.List as L
-import Network.HTTP.Types
 import Network.QUIC
 import Network.TLS.Extra.Cipher
 import qualified Network.TLS.SessionManager as SM
@@ -23,7 +22,6 @@ import System.IO
 import System.Timeout
 
 import Network.HTTP3
-import Network.QPACK
 
 import Common
 
@@ -166,51 +164,4 @@ serverHQ conn = connDebugLog conn "Connection terminated" `onE` loop
                   loop
 
 serverH3 :: Connection -> IO ()
-serverH3 conn = connDebugLog conn "Connection terminated" `onE` do
-    (enc, _handleDecIns, cleanEnc) <- newEncoder defaultEncoderConfig
-    (dec, handleEncIns, cleanDec)  <- newDecoder defaultDecoderConfig
-    -- settings
-    let st0 = BS.singleton $ fromIntegral $ fromH3StreamType H3ControlStreams
-    settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    bs0 <- encodeH3Frame $ H3Frame H3FrameSettings settings
-    sendStream conn serverControlStream (st0 `BS.append` bs0) False
-    -- from encoder to decoder
-    let st2 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKEncoderStream
-    sendStream conn serverEncoderStream st2 False
-    -- from decoder to encoder
-    let st3 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKDecoderStream
-    sendStream conn serverDecoderStream st3 False
-    (hdr, "") <- enc $ map toT serverHeader
-    hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-    bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
-    let hdrbdy = BS.concat [hdrblock,bdyblock]
-    loop hdrbdy dec handleEncIns
-    cleanEnc
-    cleanDec
-  where
-    loop hdrbdy dec handleEncIns = do
-        mx <- timeout 5000000 $ recvStream conn
-        case mx of
-          Nothing -> connDebugLog conn "Connection timeout"
-          Just (sid, bs, fin) -> do
-              connDebugLog conn ("SID: " ++ show sid ++ " " ++ show (BS.unpack bs) ++ if fin then " Fin" else "")
-              if isClientInitiatedBidirectional sid then
-                  sendStream conn sid hdrbdy True
-                else if sid == 2 then do
-                  H3Frame H3FrameSettings settings <- decodeH3Frame $ BS.tail bs
-                  decodeH3Settings settings >>= print
-                else if BS.length bs >= 2 then -- fixme
-                  handleEncIns bs
-                else
-                  return ()
-              loop hdrbdy dec handleEncIns
-
-html :: ByteString
-html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
-
-serverHeader :: ResponseHeaders
-serverHeader = [
-    (":status", "200")
-  , ("Content-Type", "text/html; charset=utf-8")
-  , ("Server", name)
-  ]
+serverH3 conn = run conn
