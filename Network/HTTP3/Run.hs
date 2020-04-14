@@ -89,15 +89,16 @@ readerServer ctx = loop
     process sid bs _fin
       | isClientInitiatedUnidirectional sid = handle ctx sid bs
       | isClientInitiatedBidirectional  sid = do
-            H3Frame ftyp bdy <- decodeH3Frame bs
-            when (ftyp == H3FrameHeaders) $ do
-                ctxDecoder ctx bdy >>= mapM_ print
-                print _fin
-            (hdr, "") <- ctxEncoder ctx $ map toT serverHeader
-            hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-            bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
-            let hdrbdy = BS.concat [hdrblock,bdyblock]
-            sendStream (ctxConnection ctx) sid hdrbdy True
+            when (bs /= "") $ do
+                H3Frame ftyp bdy <- decodeH3Frame bs
+                when (ftyp == H3FrameHeaders) $ do
+                    ctxDecoder ctx bdy >>= mapM_ print
+                    print _fin
+                (hdr, "") <- ctxEncoder ctx $ map toT serverHeader
+                hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
+                bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
+                let hdrbdy = BS.concat [hdrblock,bdyblock]
+                sendStream (ctxConnection ctx) sid hdrbdy True
       | isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                           = return ()
 
