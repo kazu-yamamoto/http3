@@ -25,8 +25,8 @@ newContext conn ctl enc handleDI dec handleEI = do
 type Handle = ByteString -> IO ()
 
 switch :: Handle -> Handle -> Handle -> H3StreamType -> Handle
-switch ctl handleEI handleDI sid
-  | sid == H3ControlStreams   = ctl
-  | sid == QPACKEncoderStream = handleEI
-  | sid == QPACKDecoderStream = handleDI
-  | otherwise                 = \_ -> putStrLn "switch unknown stream type"
+switch ctl handleEI handleDI styp
+  | styp == H3ControlStreams   = ctl
+  | styp == QPACKEncoderStream = handleEI
+  | styp == QPACKDecoderStream = handleDI
+  | otherwise                  = \_ -> putStrLn "switch unknown stream type"

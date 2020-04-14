@@ -54,8 +54,8 @@ run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
         killThread tid1
   where
     open = do
-        (enc, handleEI, cleanE) <- newEncoder defaultEncoderConfig
-        (dec, handleDI, cleanD) <- newDecoder defaultDecoderConfig
+        (enc, handleDI, cleanE) <- newEncoder defaultEncoderConfig
+        (dec, handleEI, cleanD) <- newDecoder defaultDecoderConfig
         return (enc, handleDI, cleanE, dec, handleEI, cleanD)
     close (_, _, cleanE, _, _, cleanD) = do
         void $ cleanE
@@ -89,7 +89,8 @@ readerServer ctx = loop
     process sid bs _fin
       | isClientInitiatedUnidirectional sid = handle ctx sid bs
       | isClientInitiatedBidirectional  sid = do
-            -- fixme
+            H3Frame ftyp _bdy <- decodeH3Frame bs
+            print ftyp
             (hdr, "") <- ctxEncoder ctx $ map toT serverHeader
             hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
             bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
@@ -108,7 +109,6 @@ handle ctx sid bs = do
         Just (w, bs') -> do
             let typ = toH3StreamType $ fromIntegral w
                 m' = I.insert sid typ m
-            putStrLn $ "Setting up: " ++ show typ
             writeIORef (ctxMap ctx) m'
             when (bs' /= "") $ ctxSwitch ctx typ bs'
       Just typ -> ctxSwitch ctx typ bs
@@ -123,7 +123,8 @@ handleControl :: TQueue ByteString -> IO ()
 handleControl q = forever $ do
     bs <- atomically $ readTQueue q
     H3Frame H3FrameSettings settings <- decodeH3Frame bs
-    decodeH3Settings settings >>= print
+    -- fixme
+    void $ decodeH3Settings settings
 
 html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
