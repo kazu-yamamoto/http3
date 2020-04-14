@@ -16,8 +16,10 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
   exposed-modules:     Network.HTTP3.Client
+                       Network.HTTP3.Context
                        Network.HTTP3.Error
                        Network.HTTP3.Frame
+                       Network.HTTP3.Run
                        Network.HTTP3.Server
                        Network.HTTP3.Settings
                        Network.HTTP3.Stream
@@ -40,6 +42,7 @@ library
                      , case-insensitive
                      , containers
                      , http2
+                     , http-types
                      , network-byte-order
                      , quic
                      , stm
@@ -54,11 +57,14 @@ Test-suite spec
   main-is:             Spec.hs
   other-modules:       Imports
                        Network.HTTP3.Client
+                       Network.HTTP3.Context
                        Network.HTTP3.Error
                        Network.HTTP3.Frame
+                       Network.HTTP3.Run
                        Network.HTTP3.Server
                        Network.HTTP3.Settings
                        Network.HTTP3.Stream
+                       Network.QPACK
                        Network.QPACK.HeaderBlock
                        Network.QPACK.HeaderBlock.Decode
                        Network.QPACK.HeaderBlock.Encode
@@ -79,6 +85,7 @@ Test-suite spec
                      , containers
                      , hspec >= 1.3
                      , http2
+                     , http-types
                      , network-byte-order
                      , quic
                      , stm

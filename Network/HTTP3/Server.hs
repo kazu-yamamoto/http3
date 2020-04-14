@@ -54,4 +54,4 @@ module Network.HTTP3.Server (
   ) where
 
 import Network.HTTP2.Server
-import Network.HTTP2.Internal
+-- import Network.HTTP2.Internal

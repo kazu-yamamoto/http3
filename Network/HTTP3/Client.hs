@@ -41,4 +41,4 @@ module Network.HTTP3.Client (
   ) where
 
 import Network.HTTP2.Client hiding (run, Config, allocSimpleConfig, freeSimpleConfig)
-import Network.HTTP2.Internal
+-- import Network.HTTP2.Internal
