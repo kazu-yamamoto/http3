@@ -24,12 +24,14 @@ import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
-import Network.HPACK (TokenHeaderList, Size, EncodeStrategy(..), CompressionAlgo(..))
+import Network.HPACK (TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..))
+import Network.HPACK.Internal
 
 import Imports
 import Network.QPACK.HeaderBlock
 import Network.QPACK.Instruction
 import Network.QPACK.Table
+import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
@@ -127,13 +129,22 @@ qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl r
 
 handleEncodeInstruction :: DynamicTable -> TQueue ByteString -> IO ()
 handleEncodeInstruction dyntbl q = forever $ do
-    _ <- getInsertionPoint dyntbl -- fixme
     bs <- atomically $ readTQueue q
     ins <- decodeEncoderInstructions bs
     print ins
     mapM_ handle ins
   where
-    handle (SetDynamicTableCapacity _) = return ()
-    handle (InsertWithNameReference _ _) = return ()
-    handle (InsertWithoutNameReference _ _) = return ()
+    handle (SetDynamicTableCapacity _) = return () -- fixme
+    handle (InsertWithNameReference ii val) = do
+        idx <- case ii of
+                 Left  ai -> return $ SIndex ai
+                 Right ri -> do
+                     ip <- getInsertionPoint dyntbl
+                     return $ DIndex $ fromInsRelativeIndex ri ip
+        ent0 <- toIndexedEntry dyntbl idx
+        let ent = toEntryToken (entryToken ent0) val
+        insertEntryToDecoder ent dyntbl
+    handle (InsertWithoutNameReference t val) = do
+        let ent = toEntryToken t val
+        insertEntryToDecoder ent dyntbl
     handle (Duplicate _) = return ()

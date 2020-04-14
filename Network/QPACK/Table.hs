@@ -13,7 +13,8 @@ module Network.QPACK.Table (
   , getLargestReference
   , updateLargestReference
   -- * Entry
-  , insertEntry
+  , insertEntryToEncoder
+  , insertEntryToDecoder
   , toIndexedEntry
   -- * Reverse index
   , RevIndex

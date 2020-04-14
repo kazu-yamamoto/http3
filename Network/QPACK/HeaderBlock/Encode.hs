@@ -103,7 +103,7 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                                   return $ Right $ toInsRelativeIndex i ip
                   let ins = InsertWithNameReference insidx val
                   encodeEI wbuf2 True ins
-                  dai <- insertEntry (toEntryToken t val) dyntbl
+                  dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
                   -- 4.5.3.  Indexed Header Field With Post-Base Index
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf1 dyntbl dai
             | otherwise         -> do
@@ -113,7 +113,7 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
             | shouldBeIndexed t -> do
                   let ins = InsertWithoutNameReference t val
                   encodeEI wbuf2 True ins
-                  dai <- insertEntry (toEntryToken t val) dyntbl
+                  dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
                   encodeIndexedHeaderFieldWithPostBaseIndex wbuf1 dyntbl dai
             | otherwise         -> do
                   -- 4.5.6.  Literal Header Field Without Name Reference

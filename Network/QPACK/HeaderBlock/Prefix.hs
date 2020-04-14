@@ -100,6 +100,6 @@ decodePrefix rbuf dyntbl = do
     w8' <- read8 rbuf
     let s = w8' `testBit` 7
         w8'' = w8' .&. 0b01111111
-    delta <- decodeI 8 w8'' rbuf
+    delta <- decodeI 7 w8'' rbuf
     let baseIndex = decodeBase reqInsCnt s delta
     return (reqInsCnt,baseIndex)

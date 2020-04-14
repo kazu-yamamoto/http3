@@ -134,8 +134,8 @@ updateLargestReference DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
-insertEntry :: Entry -> DynamicTable -> IO AbsoluteIndex
-insertEntry ent dyntbl@DynamicTable{..} = do
+insertEntryToEncoder :: Entry -> DynamicTable -> IO AbsoluteIndex
+insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     InsertionPoint insp <- atomically $ do
         x <- readTVar insertionPoint
         writeTVar insertionPoint (x + 1)
@@ -148,6 +148,17 @@ insertEntry ent dyntbl@DynamicTable{..} = do
     let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
     return ai
+
+insertEntryToDecoder :: Entry -> DynamicTable -> IO ()
+insertEntryToDecoder ent DynamicTable{..} = do
+    InsertionPoint insp <- atomically $ do
+        x <- readTVar insertionPoint
+        writeTVar insertionPoint (x + 1)
+        return x
+    maxN <- readIORef maxNumOfEntries
+    let i = insp `mod` maxN
+    table <- readIORef circularTable
+    unsafeWrite table i ent
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> IO Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
