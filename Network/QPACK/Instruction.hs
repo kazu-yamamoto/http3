@@ -1,4 +1,5 @@
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Network.QPACK.Instruction (
   -- * Encoder instructions
@@ -7,6 +8,7 @@ module Network.QPACK.Instruction (
   , InsIndex
   , encodeEncoderInstructions
   , decodeEncoderInstructions
+  , decodeEncoderInstructions'
   , encodeEI
   , decodeEI
   -- * Decoder instructions
@@ -17,6 +19,7 @@ module Network.QPACK.Instruction (
   , decodeDI
   ) where
 
+import qualified Control.Exception as E
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK.Internal
@@ -56,17 +59,29 @@ encodeEI wbuf _    (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 id
 
 ----------------------------------------------------------------
 
-decodeEncoderInstructions :: ByteString -> IO [EncoderInstruction]
-decodeEncoderInstructions bs = fmap snd .  withWriteBuffer' 4096 $ \wbuf ->
-    withReadBuffer bs $ loop (decodeH wbuf) []
+decodeEncoderInstructions' :: ByteString -> IO ([EncoderInstruction], ByteString)
+decodeEncoderInstructions' bs = fmap snd . withWriteBuffer' 4096 $ \wbuf->
+  decodeEncoderInstructions (decodeH wbuf) bs
+
+decodeEncoderInstructions :: HuffmanDecoder -> ByteString -> IO ([EncoderInstruction],ByteString)
+decodeEncoderInstructions hufdec bs = withReadBuffer bs $ loop id
   where
-    loop hdec rs rbuf = do
+    loop build rbuf = do
         n <- remainingSize rbuf
-        if n == 0 then
-            return $ reverse rs
+        if n == 0 then do
+            let eis = build []
+            return (eis, "")
           else do
-            r <- decodeEI hdec rbuf
-            loop hdec (r:rs) rbuf
+            save rbuf
+            er <- E.try $ decodeEI hufdec rbuf
+            case er of
+              Right r -> loop (build . (r :)) rbuf
+              Left BufferOverrun -> do
+                  goBack rbuf
+                  rn <- remainingSize rbuf
+                  left <- extractByteString rbuf rn
+                  let eis = build []
+                  return (eis, left)
 
 decodeEI :: HuffmanDecoder -> ReadBuffer -> IO EncoderInstruction
 decodeEI hufdec rbuf = do
@@ -123,17 +138,25 @@ encodeDI wbuf (InsertCountIncrement n)  = encodeI wbuf id    6 n
 
 ----------------------------------------------------------------
 
-decodeDecoderInstructions :: ByteString -> IO [DecoderInstruction]
-decodeDecoderInstructions bs = withReadBuffer bs $ loop []
+decodeDecoderInstructions :: ByteString -> IO ([DecoderInstruction],ByteString)
+decodeDecoderInstructions bs = withReadBuffer bs $ loop id
   where
-    loop rs rbuf = do
+    loop build rbuf = do
         n <- remainingSize rbuf
-        if n == 0 then
-            return $ reverse rs
+        if n == 0 then do
+            let dis = build []
+            return (dis, "")
           else do
-            r <- decodeDI rbuf
-            loop (r:rs) rbuf
-
+            save rbuf
+            er <- E.try $ decodeDI rbuf
+            case er of
+              Right r -> loop (build . (r :)) rbuf
+              Left BufferOverrun -> do
+                  goBack rbuf
+                  rn <- remainingSize rbuf
+                  left <- extractByteString rbuf rn
+                  let dis = build []
+                  return (dis, left)
 
 decodeDI :: ReadBuffer -> IO DecoderInstruction
 decodeDI rbuf = do

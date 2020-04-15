@@ -2,6 +2,7 @@
 
 module QPACK.InstructionSpec where
 
+import Data.ByteString ()
 import Network.HPACK.Token
 import Test.Hspec
 
@@ -18,10 +19,10 @@ spec = do
                        ,Duplicate 40
                        ]
             bs1  <- encodeEncoderInstructions eis0 True
-            eis1 <- decodeEncoderInstructions bs1
+            (eis1,"") <- decodeEncoderInstructions' bs1
             eis1 `shouldBe` eis0
             bs2  <- encodeEncoderInstructions eis0 False
-            eis2 <- decodeEncoderInstructions bs2
+            (eis2,"") <- decodeEncoderInstructions' bs2
             eis2 `shouldBe` eis0
     describe "encodeDecoderInstructions and decodeDecoderInstructions" $ do
         it "encode/decodes decode instructions properly" $ do
@@ -30,5 +31,5 @@ spec = do
                        ,InsertCountIncrement 200
                        ]
             bs1  <- encodeDecoderInstructions eis0
-            eis1 <- decodeDecoderInstructions bs1
+            (eis1,"") <- decodeDecoderInstructions bs1
             eis1 `shouldBe` eis0

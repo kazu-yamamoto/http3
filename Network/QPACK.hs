@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.QPACK (
@@ -71,7 +72,7 @@ newEncoder EncoderConfig{..} = do
     wbuf3 <- newWriteBuffer buf3 ecInstructionBufferSize
     dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
     q <- newTQueueIO
-    tid <- forkIO $ handleDecodeInstruction dyntbl q
+    tid <- forkIO $ handleDecoderInstruction dyntbl q
     let enc = qpackEncoder encStrategy wbuf1 wbuf2 wbuf3 dyntbl
         handle = atomically . writeTQueue q
         clean = do
@@ -92,11 +93,11 @@ qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
     let hb = prefix `B.append` hb0
     return (hb, ins)
 
-handleDecodeInstruction :: DynamicTable -> TQueue ByteString -> IO ()
-handleDecodeInstruction dyntbl q = forever $ do
+handleDecoderInstruction :: DynamicTable -> TQueue ByteString -> IO ()
+handleDecoderInstruction dyntbl q = forever $ do
     _ <- getInsertionPoint dyntbl -- fixme
     bs <- atomically $ readTQueue q
-    ins <- decodeDecoderInstructions bs
+    (ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
     print ins
 
 ----------------------------------------------------------------
@@ -116,7 +117,7 @@ newDecoder :: DecoderConfig -> IO (Decoder, HandleInstruction, Cleanup)
 newDecoder DecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     q <- newTQueueIO
-    tid <- forkIO $ handleEncodeInstruction dyntbl q
+    tid <- forkIO $ handleEncoderInstruction dyntbl q
     let dec = qpackDecoder dyntbl
         handle = atomically . writeTQueue q
         clean = do
@@ -127,10 +128,11 @@ newDecoder DecoderConfig{..} = do
 qpackDecoder :: DynamicTable -> ByteString -> IO TokenHeaderList
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
 
-handleEncodeInstruction :: DynamicTable -> TQueue ByteString -> IO ()
-handleEncodeInstruction dyntbl q = forever $ do
+handleEncoderInstruction :: DynamicTable -> TQueue ByteString -> IO ()
+handleEncoderInstruction dyntbl q = forever $ do
     bs <- atomically $ readTQueue q
-    ins <- decodeEncoderInstructions bs
+    let hufdec = getHuffmanDecoder dyntbl
+    (ins,"") <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     print ins
     mapM_ handle ins
   where
