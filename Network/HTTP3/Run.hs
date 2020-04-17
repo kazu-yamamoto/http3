@@ -15,6 +15,7 @@ import Network.HPACK.Token
 import Network.HTTP.Types
 import Network.QUIC
 import Network.QUIC.Connection
+import Network.QUIC.Types.Integer
 
 import Imports
 import Network.HTTP3.Context
@@ -46,7 +47,8 @@ run :: Connection -> IO ()
 run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
     q <- newTQueueIO
     ctx <- newContext conn (write q) enc handleDI dec handleEI
-    tid0 <- forkIO $ handleControl q
+    ref <- newIORef IInit
+    tid0 <- forkIO $ controlStream ref q
     tid1 <- forkIO $ reader ctx
     setupUnidirectional conn
     sender ctx `E.finally` do
@@ -93,7 +95,6 @@ readerServer ctx = loop
                 H3Frame ftyp bdy <- decodeH3Frame bs
                 when (ftyp == H3FrameHeaders) $ do
                     ctxDecoder ctx bdy >>= mapM_ print
-                    print _fin
                 (hdr, "") <- ctxEncoder ctx $ map toT serverHeader
                 hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
                 bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
@@ -122,12 +123,23 @@ sender _ctx = forever $ threadDelay 1000000
 write :: TQueue ByteString -> ByteString -> IO ()
 write q bs = atomically $ writeTQueue q bs
 
-handleControl :: TQueue ByteString -> IO ()
-handleControl q = forever $ do
+controlStream :: IORef IFrame -> TQueue ByteString -> IO ()
+controlStream ref q = forever $ do
     bs <- atomically $ readTQueue q
-    H3Frame H3FrameSettings settings <- decodeH3Frame bs
-    -- fixme
-    void $ decodeH3Settings settings
+    readIORef ref >>= loop bs >>= writeIORef ref
+ where
+    loop bs st0 = do
+        case parseH3Frame st0 bs of
+          IDone typ payload leftover -> do
+              putStrLn $ "control: " ++ show typ
+              case typ of
+                H3FrameCancelPush -> print $ decodeInt payload
+                H3FrameSettings   -> decodeH3Settings payload >>= print
+                H3FrameGoaway     -> print $ decodeInt payload
+                H3FrameMaxPushId  -> print $ decodeInt payload
+                _                 -> putStrLn "controlStream: error"
+              loop leftover IInit
+          st1 -> return st1
 
 html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
