@@ -12,8 +12,9 @@ import Data.IORef
 import Network.HPACK (TokenHeader, HeaderValue)
 import Network.HPACK.Token
 import Network.HTTP.Types
+import Network.HTTP2.Internal (InpObj(..))
 import Network.QUIC
-import Network.QUIC.Connection
+import Network.QUIC.Connection (isServer)
 import Network.QUIC.Types.Integer
 
 import Imports
@@ -49,10 +50,12 @@ run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
     ref <- newIORef IInit
     tid0 <- forkIO $ controlStream ref q
     tid1 <- forkIO $ reader ctx
+    tid2 <- forkIO $ worker ctx
     setupUnidirectional conn
     sender ctx `E.finally` do
         killThread tid0
         killThread tid1
+        killThread tid2
   where
     open = do
         (enc, handleDI, cleanE) <- newQEncoder defaultQEncoderConfig
@@ -87,18 +90,13 @@ readerServer ctx = loop
         (sid, bs, fin) <- recv ctx
         process sid bs fin
         loop
-    process sid bs _fin
+    process sid bs fin
       | isClientInitiatedUnidirectional sid = unidirectional ctx sid bs
       | isClientInitiatedBidirectional  sid = do
-            when (bs /= "") $ do
-                H3Frame ftyp bdy <- decodeH3Frame bs
-                when (ftyp == H3FrameHeaders) $ do
-                    qpackDecode ctx bdy >>= mapM_ print
-                (hdr, "") <- qpackEncode ctx $ map toT serverHeader
-                hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-                bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
-                let hdrbdy = BS.concat [hdrblock,bdyblock]
-                send ctx sid hdrbdy True
+            reqstrm <- getRequestStream ctx sid
+            ost <- getOpenState reqstrm
+            ost' <- requestStream ctx ost sid bs fin
+            setOpenState reqstrm ost'
       | isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                           = return ()
 
@@ -126,6 +124,67 @@ controlStream ref q = forever $ do
               loop leftover IInit
           st1 -> return st1
 
+requestStream :: Context -> OpenState -> StreamId -> ByteString -> Fin -> IO OpenState
+requestStream _   ost _ "" False = return ost
+requestStream _   ost _ "" True  = return ost -- fixme: removing state
+requestStream ctx JustOpened sid bs fin = do
+    let iframe = parseH3Frame IInit bs
+    case iframe of
+      IType _ -> Continued <$> newIORef iframe
+      ILen H3FrameHeaders _ -> Continued <$> newIORef iframe
+      IPay H3FrameHeaders _ _ _ -> Continued <$> newIORef iframe
+      IDone H3FrameHeaders payload leftover -> do
+          when (fin && leftover /= "") $ error "requestStream(3)"
+          vt <- qpackDecode ctx payload
+          ost <- if fin then do
+              inpobj <- InpObj vt Nothing (return "") <$> newIORef Nothing
+              putInput ctx $ Input sid inpobj Nothing
+              return $ NoBody vt
+            else do
+              q <- newTQueueIO
+              let getBody = atomically $ readTQueue q
+              inpobj <- InpObj vt Nothing getBody <$> newIORef Nothing
+              putInput ctx $ Input sid inpobj (Just q)
+              HasBody vt q <$> newIORef IInit
+          if leftover == "" then
+              return ost
+            else
+              requestStream ctx ost sid leftover fin
+      _ -> error "requestStream(4)"
+requestStream _ctx ost0@(HasBody _vt q ref) _sid bs fin = do
+    iframe0 <- readIORef ref
+    let iframe1 = parseH3Frame iframe0 bs
+    case iframe1 of
+      IType _ -> writeIORef ref iframe1 >> return ost0
+      ILen H3FrameData _ -> writeIORef ref iframe1 >> return ost0
+      IPay H3FrameData r t bss -> do
+          mapM_ (\b -> atomically $ writeTQueue q b) bss
+          writeIORef ref $ IPay H3FrameData r t []
+          Body q ref Nothing <$> newIORef 0 <*> newIORef Nothing
+      IDone H3FrameData payload leftover -> do
+          when (fin && leftover /= "") $ error "requestStream(5)"
+          atomically $ writeTQueue q payload
+          writeIORef ref IInit
+          Body q ref Nothing <$> newIORef 0 <*> newIORef Nothing
+      _ -> error "requestStream(6)"
+requestStream _ctx ost0@(Body q ref _ _ _) _sid bs fin = do
+    iframe0 <- readIORef ref
+    let iframe1 = parseH3Frame iframe0 bs
+    case iframe1 of
+      IType _ -> writeIORef ref iframe1 >> return ost0
+      ILen H3FrameData _ -> writeIORef ref iframe1 >> return ost0
+      IPay H3FrameData r t bss -> do
+          mapM_ (\b -> atomically $ writeTQueue q b) bss
+          writeIORef ref $ IPay H3FrameData r t []
+          return ost0
+      IDone H3FrameData payload leftover -> do
+          when (fin && leftover /= "") $ error "requestStream(7)"
+          atomically $ writeTQueue q payload
+          writeIORef ref IInit
+          return ost0
+      _ -> error "requestStream(8)"
+requestStream _ _ _ _ _ = error "requestStream (final)"
+
 html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
 
@@ -141,3 +200,13 @@ toT (k,v) = (toToken $ foldedCase k, v)
 
 name :: ByteString
 name = "HaskellQuic/0.0.0"
+
+worker :: Context -> IO ()
+worker ctx = forever $ do
+    Input sid inpobj _q <- takeInput ctx
+    print inpobj
+    (hdr, "") <- qpackEncode ctx $ map toT serverHeader
+    hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
+    bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
+    let hdrbdy = BS.concat [hdrblock,bdyblock]
+    send ctx sid hdrbdy True
