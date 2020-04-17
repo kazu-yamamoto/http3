@@ -107,12 +107,11 @@ unidirectional _   _   "" = return ()
 unidirectional ctx sid bs = do
     mtyp <- lookupUniMap ctx sid
     case mtyp of
-      Nothing -> case BS.uncons bs of
-        Nothing -> return ()
-        Just (w, bs') -> do
-            let typ = toH3StreamType $ fromIntegral w
-            registerUniMap ctx sid typ
-            when (bs' /= "") $ switchUnidirectional ctx typ bs'
+      Nothing -> do
+          let typ = toH3StreamType $ fromIntegral $ BS.head bs
+          registerUniMap ctx sid typ
+          let bs' = BS.tail bs
+          when (bs' /= "") $ switchUnidirectional ctx typ bs'
       Just typ -> switchUnidirectional ctx typ bs
 
 sender :: Context -> IO ()
