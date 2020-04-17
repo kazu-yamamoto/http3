@@ -9,7 +9,6 @@ import Control.Concurrent.STM
 import qualified Data.ByteString as BS
 import Data.CaseInsensitive hiding (map)
 import Data.IORef
-import qualified Data.IntMap as I
 import Network.HPACK (TokenHeader, HeaderValue)
 import Network.HPACK.Token
 import Network.HTTP.Types
@@ -56,8 +55,8 @@ run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
         killThread tid1
   where
     open = do
-        (enc, handleDI, cleanE) <- newEncoder defaultEncoderConfig
-        (dec, handleEI, cleanD) <- newDecoder defaultDecoderConfig
+        (enc, handleDI, cleanE) <- newQEncoder defaultQEncoderConfig
+        (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
         return (enc, handleDI, cleanE, dec, handleEI, cleanD)
     close (_, _, cleanE, _, _, cleanD) = do
         void $ cleanE
@@ -65,57 +64,56 @@ run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
 
 reader :: Context -> IO ()
 reader ctx
-  | isServer (ctxConnection ctx) = readerServer ctx
-  | otherwise                    = readerClient ctx
+  | isH3Server ctx = readerServer ctx
+  | otherwise      = readerClient ctx
 
 readerClient :: Context -> IO ()
 readerClient ctx = loop
   where
     loop = do
-        (sid, bs, fin) <- recvStream $ ctxConnection ctx
+        (sid, bs, fin) <- recv ctx
         process sid bs fin
         loop
     process sid bs _fin
       | isClientInitiatedUnidirectional sid = return () -- error
       | isClientInitiatedBidirectional  sid = return ()
-      | isServerInitiatedUnidirectional sid = handle ctx sid bs
+      | isServerInitiatedUnidirectional sid = unidirectional ctx sid bs
       | otherwise                           = return ()
 
 readerServer :: Context -> IO ()
 readerServer ctx = loop
   where
     loop = do
-        (sid, bs, fin) <- recvStream $ ctxConnection ctx
+        (sid, bs, fin) <- recv ctx
         process sid bs fin
         loop
     process sid bs _fin
-      | isClientInitiatedUnidirectional sid = handle ctx sid bs
+      | isClientInitiatedUnidirectional sid = unidirectional ctx sid bs
       | isClientInitiatedBidirectional  sid = do
             when (bs /= "") $ do
                 H3Frame ftyp bdy <- decodeH3Frame bs
                 when (ftyp == H3FrameHeaders) $ do
-                    ctxDecoder ctx bdy >>= mapM_ print
-                (hdr, "") <- ctxEncoder ctx $ map toT serverHeader
+                    qpackDecode ctx bdy >>= mapM_ print
+                (hdr, "") <- qpackEncode ctx $ map toT serverHeader
                 hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
                 bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
                 let hdrbdy = BS.concat [hdrblock,bdyblock]
-                sendStream (ctxConnection ctx) sid hdrbdy True
+                send ctx sid hdrbdy True
       | isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                           = return ()
 
-handle :: Context -> StreamId -> ByteString -> IO ()
-handle _   _   "" = return ()
-handle ctx sid bs = do
-    m <- readIORef $ ctxMap ctx
-    case I.lookup sid m of
+unidirectional :: Context -> StreamId -> ByteString -> IO ()
+unidirectional _   _   "" = return ()
+unidirectional ctx sid bs = do
+    mtyp <- lookupUniMap ctx sid
+    case mtyp of
       Nothing -> case BS.uncons bs of
         Nothing -> return ()
         Just (w, bs') -> do
             let typ = toH3StreamType $ fromIntegral w
-                m' = I.insert sid typ m
-            writeIORef (ctxMap ctx) m'
-            when (bs' /= "") $ ctxSwitch ctx typ bs'
-      Just typ -> ctxSwitch ctx typ bs
+            registerUniMap ctx sid typ
+            when (bs' /= "") $ switchUnidirectional ctx typ bs'
+      Just typ -> switchUnidirectional ctx typ bs
 
 sender :: Context -> IO ()
 sender _ctx = forever $ threadDelay 1000000

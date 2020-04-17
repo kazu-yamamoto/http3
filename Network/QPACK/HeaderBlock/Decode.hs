@@ -3,7 +3,7 @@
 module Network.QPACK.HeaderBlock.Decode where
 
 import Network.ByteOrder
-import Network.HPACK (TokenHeaderList, TokenHeader)
+import Network.HPACK (TokenHeader, HeaderTable)
 import Network.HPACK.Internal
 import Network.HPACK.Token (toToken)
 
@@ -14,26 +14,19 @@ import Network.QPACK.Types
 
 decodeTokenHeader :: DynamicTable
                   -> ReadBuffer
-                  -> IO TokenHeaderList
+                  -> IO HeaderTable
 decodeTokenHeader dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
     checkInsertionPoint dyntbl reqip
-    builder <- loop bp id
-    return $ builder []
-  where
-    loop bp build = do
-        i <- readInt8 rbuf
-        if i < 0 then
-            return build
-          else do
-            b <- switch bp $ fromIntegral i
-            loop bp (build . (b :))
-    switch bp w8
-      | w8 `testBit` 7 = decodeIndexedHeaderField rbuf dyntbl bp w8
-      | w8 `testBit` 6 = decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8
-      | w8 `testBit` 5 = decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl bp w8
-      | w8 `testBit` 4 = decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8
-      | otherwise      = decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8
+    decodeSophisticated (toTokenHeader dyntbl bp) rbuf
+
+toTokenHeader :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader
+toTokenHeader dyntbl bp w8 rbuf
+  | w8 `testBit` 7 = decodeIndexedHeaderField rbuf dyntbl bp w8
+  | w8 `testBit` 6 = decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8
+  | w8 `testBit` 5 = decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl bp w8
+  | w8 `testBit` 4 = decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8
+  | otherwise      = decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8
 
 -- 4.5.2.  Indexed Header Field
 decodeIndexedHeaderField :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader

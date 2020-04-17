@@ -3,15 +3,15 @@
 
 module Network.QPACK (
   -- Encoder
-    EncoderConfig(..)
-  , defaultEncoderConfig
-  , Encoder
-  , newEncoder
+    QEncoderConfig(..)
+  , defaultQEncoderConfig
+  , QEncoder
+  , newQEncoder
   -- Decoder
-  , DecoderConfig(..)
-  , defaultDecoderConfig
-  , Decoder
-  , newDecoder
+  , QDecoderConfig(..)
+  , defaultQDecoderConfig
+  , QDecoder
+  , newQDecoder
   -- * Types
   , HandleInstruction
   , Cleanup
@@ -25,7 +25,7 @@ import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
-import Network.HPACK (TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..))
+import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..))
 import Network.HPACK.Internal
 
 import Imports
@@ -36,8 +36,8 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-type Encoder = TokenHeaderList -> IO (ByteString, ByteString)
-type Decoder = ByteString -> IO TokenHeaderList
+type QEncoder = TokenHeaderList -> IO (ByteString, ByteString)
+type QDecoder = ByteString -> IO HeaderTable
 
 type HandleInstruction = ByteString -> IO ()
 
@@ -45,7 +45,7 @@ type Cleanup = IO ()
 
 ----------------------------------------------------------------
 
-data EncoderConfig = EncoderConfig {
+data QEncoderConfig = QEncoderConfig {
     ecDynamicTableSize      :: Size
   , ecHeaderBlockBufferSize :: Size
   , ecPrefixBufferSize      :: Size
@@ -53,8 +53,8 @@ data EncoderConfig = EncoderConfig {
   , encStrategy             :: EncodeStrategy
   }
 
-defaultEncoderConfig :: EncoderConfig
-defaultEncoderConfig = EncoderConfig {
+defaultQEncoderConfig :: QEncoderConfig
+defaultQEncoderConfig = QEncoderConfig {
     ecDynamicTableSize      = 4096
   , ecHeaderBlockBufferSize = 4096
   , ecPrefixBufferSize      =  128
@@ -62,8 +62,8 @@ defaultEncoderConfig = EncoderConfig {
   , encStrategy             = EncodeStrategy Static True
   }
 
-newEncoder :: EncoderConfig -> IO (Encoder, HandleInstruction, Cleanup)
-newEncoder EncoderConfig{..} = do
+newQEncoder :: QEncoderConfig -> IO (QEncoder, HandleInstruction, Cleanup)
+newQEncoder QEncoderConfig{..} = do
     buf1  <- mallocBytes ecHeaderBlockBufferSize
     wbuf1 <- newWriteBuffer buf1 ecHeaderBlockBufferSize
     buf2  <- mallocBytes ecPrefixBufferSize
@@ -102,19 +102,19 @@ handleDecoderInstruction dyntbl q = forever $ do
 
 ----------------------------------------------------------------
 
-data DecoderConfig = DecoderConfig {
+data QDecoderConfig = QDecoderConfig {
     dcDynamicTableSize      :: Size
   , dcHuffmanBufferSize     :: Size
   }
 
-defaultDecoderConfig :: DecoderConfig
-defaultDecoderConfig = DecoderConfig {
+defaultQDecoderConfig :: QDecoderConfig
+defaultQDecoderConfig = QDecoderConfig {
     dcDynamicTableSize      = 4096
   , dcHuffmanBufferSize     = 4096
   }
 
-newDecoder :: DecoderConfig -> IO (Decoder, HandleInstruction, Cleanup)
-newDecoder DecoderConfig{..} = do
+newQDecoder :: QDecoderConfig -> IO (QDecoder, HandleInstruction, Cleanup)
+newQDecoder QDecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     q <- newTQueueIO
     tid <- forkIO $ handleEncoderInstruction dyntbl q
@@ -125,7 +125,7 @@ newDecoder DecoderConfig{..} = do
             killThread tid
     return (dec, handle, clean)
 
-qpackDecoder :: DynamicTable -> ByteString -> IO TokenHeaderList
+qpackDecoder :: DynamicTable -> ByteString -> IO HeaderTable
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
 
 handleEncoderInstruction :: DynamicTable -> TQueue ByteString -> IO ()
