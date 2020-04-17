@@ -102,18 +102,6 @@ readerServer ctx = loop
       | isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                           = return ()
 
-unidirectional :: Context -> StreamId -> ByteString -> IO ()
-unidirectional _   _   "" = return ()
-unidirectional ctx sid bs = do
-    mtyp <- lookupUniMap ctx sid
-    case mtyp of
-      Nothing -> do
-          let typ = toH3StreamType $ fromIntegral $ BS.head bs
-          registerUniMap ctx sid typ
-          let bs' = BS.tail bs
-          when (bs' /= "") $ switchUnidirectional ctx typ bs'
-      Just typ -> switchUnidirectional ctx typ bs
-
 sender :: Context -> IO ()
 sender _ctx = forever $ threadDelay 1000000
 

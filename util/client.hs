@@ -296,8 +296,8 @@ clientHQ cmd conn debug = do
 
 clientH3 :: String -> Connection -> (String -> IO ()) -> IO ()
 clientH3 authority conn debug = do
-    (enc, _handleDecIns, cleanEnc)  <- newEncoder defaultEncoderConfig
-    (_dec, _handleEncIns, cleanDec) <- newDecoder defaultDecoderConfig
+    (enc, _handleDecIns, cleanEnc)  <- newQEncoder defaultQEncoderConfig
+    (_dec, _handleEncIns, cleanDec) <- newQDecoder defaultQDecoderConfig
     -- settings
     let st0 = BS.singleton $ fromIntegral $ fromH3StreamType H3ControlStreams
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]

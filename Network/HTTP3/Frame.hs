@@ -10,6 +10,8 @@ module Network.HTTP3.Frame (
   , decodeH3Frame
   , IFrame(..)
   , parseH3Frame
+  , QInt(..)
+  , parseQInt
   ) where
 
 import qualified Data.ByteString as BS
