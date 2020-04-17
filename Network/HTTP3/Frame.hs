@@ -27,10 +27,10 @@ data H3FrameType = H3FrameData
                  | H3FramePushPromise
                  | H3FrameGoaway
                  | H3FrameMaxPushId
-                 | H3FrameUnknown Int
+                 | H3FrameUnknown Int64
                  deriving (Eq, Show)
 
-fromH3FrameType :: H3FrameType -> Int
+fromH3FrameType :: H3FrameType -> Int64
 fromH3FrameType H3FrameData        = 0x0
 fromH3FrameType H3FrameHeaders     = 0x1
 fromH3FrameType H3FrameCancelPush  = 0x3
@@ -40,7 +40,7 @@ fromH3FrameType H3FrameGoaway      = 0x7
 fromH3FrameType H3FrameMaxPushId   = 0xD
 fromH3FrameType (H3FrameUnknown i) =   i
 
-toH3FrameType :: Int -> H3FrameType
+toH3FrameType :: Int64 -> H3FrameType
 toH3FrameType 0x0 = H3FrameData
 toH3FrameType 0x1 = H3FrameHeaders
 toH3FrameType 0x3 = H3FrameCancelPush
@@ -64,17 +64,51 @@ decodeH3Frame hf = withReadBuffer hf $ \rbuf -> do
     bs <- extractByteString rbuf len
     return $ H3Frame typ bs
 
+data QInt = QInit
+          | QMore Word8        -- ^ Masked first byte
+                  Int          -- ^ Bytes required
+                  Int          -- ^ Bytes received so far. (sum . map length)
+                  [ByteString] -- ^ Reverse order
+          | QDone Int64        -- ^ Result
+                  ByteString   -- ^ leftover
+          deriving (Eq,Show)
+
+parseQInt :: QInt -> ByteString -> QInt
+parseQInt st "" = st
+parseQInt QInit bs0
+  | len1 < reqLen = QMore ft reqLen len1 [bs1]
+  | otherwise     = let (bs2,bs3) = BS.splitAt reqLen bs1
+                    in QDone (toLen ft bs2) bs3
+  where
+    hd = BS.head bs0
+    reqLen = requiredLen (hd .&. 0b11000000)
+    ft = hd .&. 0b00111111
+    bs1  = BS.tail bs0
+    len1 = BS.length bs1
+parseQInt (QMore ft reqLen len0 bss0) bs0
+  | len1 < reqLen = QMore ft reqLen len1 (bs0:bss0)
+  | otherwise     = let (bs2,bs3) = BS.splitAt reqLen $ compose bs0 bss0
+                    in QDone (toLen ft bs2) bs3
+  where
+    len1 = len0 + BS.length bs0
+parseQInt (QDone _ _) _ = error "parseQInt"
+
+requiredLen :: Word8 -> Int
+requiredLen 0b00000000 = 0
+requiredLen 0b01000000 = 1
+requiredLen 0b10000000 = 3
+requiredLen _          = 7
+
+toLen :: Word8 -> ByteString -> Int64
+toLen w0 bs = BS.foldl (\n w -> n * 256 + fromIntegral w) (fromIntegral w0) bs
+
 data IFrame =
             -- | Parsing is about to start
               IInit
-            -- | Parsed type only
-            | IType H3FrameType
+            -- | Parsing type
+            | IType QInt
             -- | Parsing length
-            | ILen H3FrameType
-                   Word8 -- ^ Masked first byte
-                   Int   -- ^ Bytes required
-                   Int   -- ^ Bytes received so far. (sum . map length)
-                   [ByteString] -- ^ Reverse order
+            | ILen H3FrameType QInt
             -- | Parsing payload
             | IPay H3FrameType
                    Int -- ^ Bytes required
@@ -88,26 +122,18 @@ data IFrame =
 
 parseH3Frame :: IFrame -> ByteString -> IFrame
 parseH3Frame st "" = st
-parseH3Frame IInit bs = parseH3Frame (IType typ) $ BS.tail bs
-  where
-    typ = toH3FrameType $ fromIntegral $ BS.head bs
-parseH3Frame (IType typ) bs0
-  | len1 < reqLen = ILen typ ft reqLen len1 [bs1]
-  | otherwise    = let (bs2,bs3) = BS.splitAt reqLen bs1
-                   in parseH3Frame (IPay typ (toLen ft bs2) 0 []) bs3
-  where
-    hd = BS.head bs0
-    reqLen = requiredLen (hd .&. 0b11000000)
-    ft = hd .&. 0b00111111
-    bs1  = BS.tail bs0
-    len1 = BS.length bs1
-parseH3Frame (ILen typ ft reqLen len0 bss0) bs0
-   | len1 < reqLen = ILen typ ft reqLen len1 (bs0:bss0)
-   | otherwise     = let bs = compose bs0 bss0
-                         (bslen,bstl) = BS.splitAt reqLen bs
-                     in parseH3Frame (IPay typ (toLen ft bslen) 0 []) bstl
-  where
-    len1 = len0 + BS.length bs0
+parseH3Frame IInit bs = case parseQInt QInit bs of
+    QDone i bs' -> let typ = toH3FrameType i
+                   in parseH3Frame (ILen typ QInit) bs'
+    ist         -> IType ist
+parseH3Frame (IType ist) bs = case parseQInt ist bs of
+    QDone i bs' -> let typ = toH3FrameType i
+                   in parseH3Frame (ILen typ QInit) bs'
+    ist'        -> IType ist'
+parseH3Frame (ILen typ ist) bs = case parseQInt ist bs of
+    QDone i bs' -> let reqLen = fromIntegral i
+                   in parseH3Frame (IPay typ reqLen 0 []) bs'
+    ist'        -> ILen typ ist'
 parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
     LT -> IPay typ reqLen len1 (bs0:bss0)
     EQ -> IDone typ (compose bs0 bss0) ""
@@ -115,16 +141,19 @@ parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
           in IDone typ (compose bs2 bss0) leftover
   where
     len1 = len0 + BS.length bs0
-parseH3Frame (IDone _ _ _) bs = parseH3Frame IInit bs
+parseH3Frame (IDone _ _ _) _ = error "parseH3Frame"
 
 compose :: ByteString -> [ByteString] -> ByteString
 compose bs bss = BS.concat $ reverse (bs:bss)
 
-requiredLen :: Word8 -> Int
-requiredLen 0b00000000 = 0
-requiredLen 0b01000000 = 1
-requiredLen 0b10000000 = 3
-requiredLen _          = 7
-
-toLen :: Word8 -> ByteString -> Int
-toLen w0 bs = BS.foldl (\n w -> n * 256 + fromIntegral w) (fromIntegral w0) bs
+{-
+test :: Int64 -> QInt
+tset i = loop QInit bss0
+  where
+    loop st [] = st
+    loop st (bs:bss) = case parseQInt st bs of
+        st1@(QDone _ _) -> st1
+        st1             -> loop st1 bss
+    bs0 = encodeInt i
+    bss0 = map BS.singleton $ BS.unpack bs0
+-}
