@@ -10,6 +10,7 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import Network.HPACK (toHeaderTable)
 import Network.HTTP.Types
 import Network.QUIC
 import Network.TLS.Extra.Cipher
@@ -309,7 +310,8 @@ clientH3 authority conn debug = do
     -- from decoder to encoder
     let st3 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKDecoderStream
     sendStream conn clientDecoderStream st3 False
-    (hdr, "") <- enc $ map toT (clientHeader authority)
+    (ths, _) <- toHeaderTable $ clientHeader authority
+    (hdr, "") <- enc ths
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
     sendStream conn  0 hdrblock True
     loop

@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Network.HTTP3.Run (run, toT) where
+module Network.HTTP3.Run (
+    run
+  ) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -8,11 +10,8 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder
 import qualified Data.ByteString.Lazy as BZ
-import Data.CaseInsensitive hiding (map)
 import Data.IORef
-import Network.HPACK (TokenHeader, HeaderValue)
-import Network.HPACK.Token
-import Network.HTTP.Types
+import Network.HPACK (toHeaderTable)
 import Network.HTTP2.Internal (InpObj(..), OutObj(..), OutBody(..))
 import Network.HTTP2.Server (Server)
 import Network.HTTP2.Server.Internal
@@ -188,20 +187,18 @@ requestStream _ctx ost0@(Body q ref _ _ _) _sid bs fin = do
       _ -> error "requestStream(8)"
 requestStream _ _ _ _ _ = error "requestStream (final)"
 
-toT :: (HeaderName, HeaderValue) -> TokenHeader
-toT (k,v) = (toToken $ foldedCase k, v)
-
 worker :: Context -> Server -> IO ()
 worker ctx server = forever $ do
     Input sid inpobj _q <- takeInput ctx
     let req = Request inpobj
     server req undefined $ sendResponse ctx sid
 
-
 sendResponse :: Context -> StreamId -> Response -> p -> IO ()
 sendResponse ctx sid (Response outobj) _pps = do
     let hdrs = outObjHeaders outobj
-    (hdr, "") <- qpackEncode ctx $ map toT hdrs
+    -- fixme: fixHeaders
+    (ths, _) <- toHeaderTable hdrs
+    (hdr, "") <- qpackEncode ctx ths
     let html = case outObjBody outobj of
           OutBodyBuilder builder -> BZ.toStrict $ toLazyByteString builder
           _                      -> undefined
