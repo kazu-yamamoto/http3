@@ -335,5 +335,5 @@ clientHeader authority = [
   , (":scheme", "http")
   , (":path", "/")
   , (":authority", C8.pack authority)
-  , ("User-Agent", name)
+  , ("User-Agent", "HaskellQuic/0.0.0")
   ]

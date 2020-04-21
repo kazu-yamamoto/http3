@@ -1,18 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Network.HTTP3.Run where
-
-import qualified Control.Exception as E
+module Network.HTTP3.Run (run, toT) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
+import Data.ByteString.Builder
+import qualified Data.ByteString.Lazy as BZ
 import Data.CaseInsensitive hiding (map)
 import Data.IORef
 import Network.HPACK (TokenHeader, HeaderValue)
 import Network.HPACK.Token
 import Network.HTTP.Types
-import Network.HTTP2.Internal (InpObj(..))
+import Network.HTTP2.Internal (InpObj(..), OutObj(..), OutBody(..))
+import Network.HTTP2.Server (Server)
+import Network.HTTP2.Server.Internal
 import Network.QUIC
 import Network.QUIC.Connection (isServer)
 import Network.QUIC.Types.Integer
@@ -43,14 +46,14 @@ setupUnidirectional conn = do
         sendStream conn clientEncoderStream bs1 False
         sendStream conn clientDecoderStream bs2 False
 
-run :: Connection -> IO ()
-run conn = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
+run :: Connection -> Server -> IO ()
+run conn svr = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
     q <- newTQueueIO
     ctx <- newContext conn (write q) enc handleDI dec handleEI
     ref <- newIORef IInit
     tid0 <- forkIO $ controlStream ref q
     tid1 <- forkIO $ reader ctx
-    tid2 <- forkIO $ worker ctx
+    tid2 <- forkIO $ worker ctx svr
     setupUnidirectional conn
     sender ctx `E.finally` do
         killThread tid0
@@ -185,27 +188,23 @@ requestStream _ctx ost0@(Body q ref _ _ _) _sid bs fin = do
       _ -> error "requestStream(8)"
 requestStream _ _ _ _ _ = error "requestStream (final)"
 
-html :: ByteString
-html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
-
-serverHeader :: ResponseHeaders
-serverHeader = [
-    (":status", "200")
-  , ("Content-Type", "text/html; charset=utf-8")
-  , ("Server", name)
-  ]
-
 toT :: (HeaderName, HeaderValue) -> TokenHeader
 toT (k,v) = (toToken $ foldedCase k, v)
 
-name :: ByteString
-name = "HaskellQuic/0.0.0"
-
-worker :: Context -> IO ()
-worker ctx = forever $ do
+worker :: Context -> Server -> IO ()
+worker ctx server = forever $ do
     Input sid inpobj _q <- takeInput ctx
-    print inpobj
-    (hdr, "") <- qpackEncode ctx $ map toT serverHeader
+    let req = Request inpobj
+    server req undefined $ sendResponse ctx sid
+
+
+sendResponse :: Context -> StreamId -> Response -> p -> IO ()
+sendResponse ctx sid (Response outobj) _pps = do
+    let hdrs = outObjHeaders outobj
+    (hdr, "") <- qpackEncode ctx $ map toT hdrs
+    let html = case outObjBody outobj of
+          OutBodyBuilder builder -> BZ.toStrict $ toLazyByteString builder
+          _                      -> undefined
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
     bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
     let hdrbdy = BS.concat [hdrblock,bdyblock]

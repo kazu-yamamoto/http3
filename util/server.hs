@@ -20,6 +20,8 @@ import System.Environment (getArgs)
 import System.Exit
 import System.IO
 import System.Timeout
+import Network.HTTP2.Server hiding (run)
+import qualified Network.HTTP.Types as H
 
 import Network.HTTP3
 
@@ -163,5 +165,14 @@ serverHQ conn = connDebugLog conn "Connection terminated" `onE` loop
                 else
                   loop
 
+html :: ByteString
+html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
+
 serverH3 :: Connection -> IO ()
-serverH3 conn = run conn
+serverH3 conn = run conn $ \req ~_aux sendResponse -> do
+    print $ requestHeaders req
+    let hdr = [ ("Content-Type", "text/html; charset=utf-8")
+              , ("Server", "HaskellQuic/0.0.0")
+              ]
+        rsp = responseBuilder H.ok200 hdr "Hello, world!"
+    sendResponse rsp []
