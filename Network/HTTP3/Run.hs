@@ -12,7 +12,7 @@ import Data.ByteString.Builder
 import qualified Data.ByteString.Lazy as BZ
 import Data.IORef
 import Network.HPACK (toHeaderTable)
-import Network.HTTP2.Internal (InpObj(..), OutObj(..), OutBody(..))
+import Network.HTTP2.Internal (InpObj(..), OutObj(..), OutBody(..), start)
 import Network.HTTP2.Server (Server)
 import Network.HTTP2.Server.Internal
 import Network.QUIC
@@ -46,13 +46,22 @@ setupUnidirectional conn = do
         sendStream conn clientDecoderStream bs2 False
 
 run :: Connection -> Server -> IO ()
-run conn svr = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
+run conn server = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
     q <- newTQueueIO
     ctx <- newContext conn (write q) enc handleDI dec handleEI
     ref <- newIORef IInit
     tid0 <- forkIO $ controlStream ref q
     tid1 <- forkIO $ reader ctx
-    tid2 <- forkIO $ worker ctx svr
+    let wc = WorkerConf {
+            readInputQ = takeInput ctx
+          , writeOutputQ = putOutput ctx
+          , workerCleanup = \_ -> return ()
+          , isPushable = return False
+          , insertStream = \_ _ -> undefined
+          , makePushStream = \_ _ -> undefined
+          }
+    mgr <- start
+    tid2 <- forkIO $ worker wc mgr server
     setupUnidirectional conn
     sender ctx `E.finally` do
         killThread tid0
@@ -102,9 +111,6 @@ readerServer ctx = loop
       | isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                           = return ()
 
-sender :: Context -> IO ()
-sender _ctx = forever $ threadDelay 1000000
-
 write :: TQueue ByteString -> ByteString -> IO ()
 write q bs = atomically $ writeTQueue q bs
 
@@ -140,13 +146,13 @@ requestStream ctx JustOpened sid bs fin = do
           vt <- qpackDecode ctx payload
           ost <- if fin then do
               inpobj <- InpObj vt Nothing (return "") <$> newIORef Nothing
-              putInput ctx $ Input sid inpobj Nothing
+              putInput ctx $ Input (Stream sid Nothing) inpobj
               return $ NoBody vt
             else do
               q <- newTQueueIO
               let getBody = atomically $ readTQueue q
               inpobj <- InpObj vt Nothing getBody <$> newIORef Nothing
-              putInput ctx $ Input sid inpobj (Just q)
+              putInput ctx $ Input (Stream sid (Just q)) inpobj
               HasBody vt q <$> newIORef IInit
           if leftover == "" then
               return ost
@@ -187,14 +193,9 @@ requestStream _ctx ost0@(Body q ref _ _ _) _sid bs fin = do
       _ -> error "requestStream(8)"
 requestStream _ _ _ _ _ = error "requestStream (final)"
 
-worker :: Context -> Server -> IO ()
-worker ctx server = forever $ do
-    Input sid inpobj _q <- takeInput ctx
-    let req = Request inpobj
-    server req undefined $ sendResponse ctx sid
-
-sendResponse :: Context -> StreamId -> Response -> p -> IO ()
-sendResponse ctx sid (Response outobj) _pps = do
+sender :: Context -> IO ()
+sender ctx = do
+    Output (Stream sid _) outobj _ _ _ <- takeOutput ctx
     let hdrs = outObjHeaders outobj
     -- fixme: fixHeaders
     (ths, _) <- toHeaderTable hdrs

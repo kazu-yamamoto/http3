@@ -11,9 +11,13 @@ module Network.HTTP3.Context (
   , recv
   , qpackEncode
   , qpackDecode
+  , Stream(..)
   , Input(..)
+  , Output(..)
   , putInput
   , takeInput
+  , putOutput
+  , takeOutput
   , OpenState(..)
   , RequestStream(..)
   , getRequestStream
@@ -26,7 +30,7 @@ import Data.IORef
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as I
 import Network.HPACK (HeaderTable)
-import Network.HTTP2.Internal (InpObj(..))
+import Network.HTTP2.Internal (Input(..), Output(..))
 import Network.QUIC
 import Network.QUIC.Connection (isServer, isClient)
 
@@ -42,15 +46,16 @@ data Context = Context {
   , ctxUniSwitch  :: H3StreamType -> Handle
   , ctxUniTable   :: IORef (IntMap (Either QInt Handle))
   , ctxReqTable   :: IORef (IntMap RequestStream)
-  , inputQ        :: TQueue Input
+  , inputQ        :: TQueue (Input Stream)
+  , outputQ       :: TQueue (Output Stream)
   }
 
-data Input = Input StreamId InpObj (Maybe (TQueue ByteString))
+data Stream = Stream StreamId (Maybe (TQueue ByteString))
 
 newContext :: Connection -> Handle -> QEncoder -> HandleInstruction -> QDecoder -> HandleInstruction -> IO Context
 newContext conn ctl enc handleDI dec handleEI = do
     let sw = switch ctl handleEI handleDI
-    Context conn enc dec sw <$> newIORef I.empty <*> newIORef I.empty <*> newTQueueIO
+    Context conn enc dec sw <$> newIORef I.empty <*> newIORef I.empty <*> newTQueueIO <*> newTQueueIO
 
 type Handle = ByteString -> IO ()
 
@@ -135,11 +140,17 @@ data RequestStream = RequestStream StreamId (IORef OpenState)
 newRequestStream :: StreamId -> IO RequestStream
 newRequestStream sid = RequestStream sid <$> newIORef JustOpened
 
-putInput :: Context -> Input -> IO ()
+putInput :: Context -> Input Stream -> IO ()
 putInput Context{..} inp = atomically $ writeTQueue inputQ inp
 
-takeInput :: Context -> IO Input
+takeInput :: Context -> IO (Input Stream)
 takeInput Context{..} = atomically $ readTQueue inputQ
+
+putOutput :: Context -> Output Stream -> IO ()
+putOutput Context{..} inp = atomically $ writeTQueue outputQ inp
+
+takeOutput :: Context -> IO (Output Stream)
+takeOutput Context{..} = atomically $ readTQueue outputQ
 
 getRequestStream :: Context -> StreamId -> IO RequestStream
 getRequestStream Context{..} sid = do
