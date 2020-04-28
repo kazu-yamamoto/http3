@@ -13,15 +13,13 @@ module Network.QPACK (
   , QDecoder
   , newQDecoder
   -- * Types
-  , HandleInstruction
+  , InstructionHandler
   , Cleanup
   , Size
   , EncodeStrategy(..)
   , CompressionAlgo(..)
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
@@ -39,7 +37,7 @@ import Network.QPACK.Types
 type QEncoder = TokenHeaderList -> IO (ByteString, ByteString)
 type QDecoder = ByteString -> IO HeaderTable
 
-type HandleInstruction = ByteString -> IO ()
+type InstructionHandler = (Int -> IO ByteString) -> IO ()
 
 type Cleanup = IO ()
 
@@ -62,7 +60,7 @@ defaultQEncoderConfig = QEncoderConfig {
   , encStrategy             = EncodeStrategy Static True
   }
 
-newQEncoder :: QEncoderConfig -> IO (QEncoder, HandleInstruction, Cleanup)
+newQEncoder :: QEncoderConfig -> IO (QEncoder, InstructionHandler, Cleanup)
 newQEncoder QEncoderConfig{..} = do
     buf1  <- mallocBytes ecHeaderBlockBufferSize
     wbuf1 <- newWriteBuffer buf1 ecHeaderBlockBufferSize
@@ -71,17 +69,14 @@ newQEncoder QEncoderConfig{..} = do
     buf3  <- mallocBytes ecInstructionBufferSize
     wbuf3 <- newWriteBuffer buf3 ecInstructionBufferSize
     dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
-    q <- newTQueueIO
-    tid <- forkIO $ handleDecoderInstruction dyntbl q
     let enc = qpackEncoder encStrategy wbuf1 wbuf2 wbuf3 dyntbl
-        handle = atomically . writeTQueue q
+        handler = decoderInstructionHandler dyntbl
         clean = do
             free buf1
             free buf2
             free buf3
             clearDynamicTable dyntbl
-            killThread tid
-    return (enc, handle, clean)
+    return (enc, handler, clean)
 
 qpackEncoder :: EncodeStrategy -> WriteBuffer -> WriteBuffer -> WriteBuffer -> DynamicTable -> TokenHeaderList -> IO (ByteString, ByteString)
 qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
@@ -93,12 +88,16 @@ qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
     let hb = prefix `B.append` hb0
     return (hb, ins)
 
-handleDecoderInstruction :: DynamicTable -> TQueue ByteString -> IO ()
-handleDecoderInstruction dyntbl q = forever $ do
-    _ <- getInsertionPoint dyntbl -- fixme
-    bs <- atomically $ readTQueue q
-    (ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
-    print ins
+decoderInstructionHandler :: DynamicTable -> (Int -> IO ByteString) -> IO ()
+decoderInstructionHandler dyntbl recv = loop
+  where
+    loop = do
+        _ <- getInsertionPoint dyntbl -- fixme
+        bs <- recv 1024
+        when (bs /= "") $ do
+            (ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
+            print ins
+            loop
 
 ----------------------------------------------------------------
 
@@ -113,29 +112,28 @@ defaultQDecoderConfig = QDecoderConfig {
   , dcHuffmanBufferSize     = 4096
   }
 
-newQDecoder :: QDecoderConfig -> IO (QDecoder, HandleInstruction, Cleanup)
+newQDecoder :: QDecoderConfig -> IO (QDecoder, InstructionHandler, Cleanup)
 newQDecoder QDecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
-    q <- newTQueueIO
-    tid <- forkIO $ handleEncoderInstruction dyntbl q
     let dec = qpackDecoder dyntbl
-        handle = atomically . writeTQueue q
-        clean = do
-            clearDynamicTable dyntbl
-            killThread tid
-    return (dec, handle, clean)
+        handler = encoderInstructionHandler dyntbl
+        clean = clearDynamicTable dyntbl
+    return (dec, handler, clean)
 
 qpackDecoder :: DynamicTable -> ByteString -> IO HeaderTable
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
 
-handleEncoderInstruction :: DynamicTable -> TQueue ByteString -> IO ()
-handleEncoderInstruction dyntbl q = forever $ do
-    bs <- atomically $ readTQueue q
-    let hufdec = getHuffmanDecoder dyntbl
-    (ins,"") <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
-    print ins
-    mapM_ handle ins
+encoderInstructionHandler :: DynamicTable -> (Int -> IO ByteString) -> IO ()
+encoderInstructionHandler dyntbl recv = loop
   where
+    loop = do
+        bs <- recv 1024
+        when (bs /= "") $ do
+            (ins,"") <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
+            print ins
+            mapM_ handle ins
+            loop
+    hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity _) = return () -- fixme
     handle (InsertWithNameReference ii val) = do
         idx <- case ii of
