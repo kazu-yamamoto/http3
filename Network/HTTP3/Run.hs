@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Network.HTTP3.Run (
     run
@@ -107,66 +108,75 @@ controlStream ref recv = loop
               parse leftover IInit
           st1 -> return st1
 
+data Source = Source {
+    sourceRead    :: IO ByteString
+  , sourcePending :: IORef (Maybe ByteString)
+  }
+
+newSource :: Stream -> IO Source
+newSource strm = Source (recvStream strm 1024) <$> newIORef Nothing
+
+readSource :: Source -> IO ByteString
+readSource Source{..} = do
+    mx <- readIORef sourcePending
+    case mx of
+      Nothing -> sourceRead
+      Just x  -> do
+          writeIORef sourcePending Nothing
+          return x
+
+pushbackSource :: Source -> ByteString -> IO ()
+pushbackSource Source{..} "" = return ()
+pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
+
 request :: Context -> Server -> Stream -> IO ()
 request ctx server strm = do
     th <- registerThread ctx
-    mvt <- parseHeader ctx strm
+    src <- newSource strm
+    mvt <- parseHeader ctx src
     case mvt of
       Nothing -> return ()
       Just vt -> do
-          req <- Request . InpObj vt Nothing (return "") <$> newIORef Nothing
+          -- fixme Content-Length
+          refI <- newIORef IInit
+          refH <- newIORef Nothing
+          let readB = readBody ctx src refI refH
+              req = Request $ InpObj vt Nothing readB refH
           let aux = Aux th
           server req aux $ sendResponse ctx strm
 
-parseHeader :: Context -> Stream -> IO (Maybe HeaderTable)
-parseHeader ctx strm = loop IInit
+parseHeader :: Context -> Source -> IO (Maybe HeaderTable)
+parseHeader ctx src = loop IInit
   where
     loop st = do
-        bs <- recvStream strm 1024
+        bs <- readSource src
         if bs == "" then
             return Nothing
-          else do
-            let iframe = parseH3Frame st bs
-            case iframe of
-              -- fixme -- leftover
-              IDone H3FrameHeaders payload _leftover -> Just <$> qpackDecode ctx payload
-              _ -> loop iframe
+          else case parseH3Frame st bs of
+                 IDone H3FrameHeaders payload leftover -> do
+                     pushbackSource src leftover
+                     Just <$> qpackDecode ctx payload
+                 st' -> loop st'
 
-{-
-requestStream _ctx ost0@(HasBody _vt q ref) _sid bs fin = do
-    iframe0 <- readIORef ref
-    let iframe1 = parseH3Frame iframe0 bs
-    case iframe1 of
-      IType _ -> writeIORef ref iframe1 >> return ost0
-      ILen H3FrameData _ -> writeIORef ref iframe1 >> return ost0
-      IPay H3FrameData r t bss -> do
-          mapM_ (\b -> atomically $ writeTQueue q b) bss
-          writeIORef ref $ IPay H3FrameData r t []
-          Body q ref Nothing <$> newIORef 0 <*> newIORef Nothing
-      IDone H3FrameData payload leftover -> do
-          when (fin && leftover /= "") $ error "requestStream(5)"
-          atomically $ writeTQueue q payload
-          writeIORef ref IInit
-          Body q ref Nothing <$> newIORef 0 <*> newIORef Nothing
-      _ -> error "requestStream(6)"
-requestStream _ctx ost0@(Body q ref _ _ _) _sid bs fin = do
-    iframe0 <- readIORef ref
-    let iframe1 = parseH3Frame iframe0 bs
-    case iframe1 of
-      IType _ -> writeIORef ref iframe1 >> return ost0
-      ILen H3FrameData _ -> writeIORef ref iframe1 >> return ost0
-      IPay H3FrameData r t bss -> do
-          mapM_ (\b -> atomically $ writeTQueue q b) bss
-          writeIORef ref $ IPay H3FrameData r t []
-          return ost0
-      IDone H3FrameData payload leftover -> do
-          when (fin && leftover /= "") $ error "requestStream(7)"
-          atomically $ writeTQueue q payload
-          writeIORef ref IInit
-          return ost0
-      _ -> error "requestStream(8)"
-requestStream _ _ _ _ _ = error "requestStream (final)"
--}
+readBody :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
+readBody ctx src refI refH = do
+    st <- readIORef refI
+    loop st
+  where
+    loop st = do
+        bs <- readSource src
+        if bs == "" then
+            return ""
+          else case parseH3Frame st bs of
+                 IPay typ siz received bss -> do
+                     writeIORef refI $ IPay typ siz received []
+                     return $ BS.concat $ reverse bss
+                 IDone H3FrameHeaders payload leftover -> do
+                     writeIORef refI IInit
+                     pushbackSource src leftover
+                     parseHeader ctx src >>= writeIORef refH
+                     return payload
+                 st' -> loop st'
 
 sendResponse :: Context -> Stream -> Response -> [PushPromise] -> IO ()
 sendResponse ctx strm (Response outobj) _pp = do
@@ -179,6 +189,5 @@ sendResponse ctx strm (Response outobj) _pp = do
           _                      -> undefined
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
     bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
-    let hdrbdy = BS.concat [hdrblock,bdyblock]
-    sendStream strm hdrbdy
+    sendStreamMany strm [hdrblock,bdyblock]
     shutdownStream strm
