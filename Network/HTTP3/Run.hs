@@ -43,19 +43,14 @@ setupUnidirectional conn = do
     sendStream s2 bs2
 
 run :: Connection -> Server -> IO ()
-run conn server = E.bracket open close $ \(enc, handleDI, _, dec, handleEI, _) -> do
-    ref <- newIORef IInit
-    ctx <- newContext conn (controlStream ref) enc handleDI dec handleEI
+run conn server = E.bracket open close $ \ctx -> do
     setupUnidirectional conn
     readerServer ctx server
   where
     open = do
-        (enc, handleDI, cleanE) <- newQEncoder defaultQEncoderConfig
-        (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
-        return (enc, handleDI, cleanE, dec, handleEI, cleanD)
-    close (_, _, cleanE, _, _, cleanD) = do
-        void $ cleanE
-        void $ cleanD
+        ref <- newIORef IInit
+        newContext conn (controlStream ref)
+    close = clearContext
 
 {-
 readerClient :: Context -> IO ()
@@ -114,12 +109,13 @@ controlStream ref recv = loop
 
 request :: Context -> Server -> Stream -> IO ()
 request ctx server strm = do
+    th <- registerThread ctx
     mvt <- parseHeader ctx strm
     case mvt of
       Nothing -> return ()
       Just vt -> do
           req <- Request . InpObj vt Nothing (return "") <$> newIORef Nothing
-          let ~aux = undefined
+          let aux = Aux th
           server req aux $ sendResponse ctx strm
 
 parseHeader :: Context -> Stream -> IO (Maybe HeaderTable)

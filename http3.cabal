@@ -46,6 +46,7 @@ library
                      , network-byte-order
                      , quic
                      , stm
+                     , time-manager
   if impl(ghc >= 8)
       default-extensions:  Strict StrictData
 
