@@ -96,6 +96,7 @@ sendRequest ctx scheme auth (Request outobj) processResponse = do
     strm <- newStream ctx
     sendHeader ctx strm th hdr'
     sendBody ctx strm th outobj
+    shutdownStream strm
     src <- newSource strm
     mvt <- recvHeader ctx src
     case mvt of
