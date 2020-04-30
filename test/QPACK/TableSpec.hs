@@ -1,11 +1,9 @@
 module QPACK.TableSpec where
 
-import Test.QuickCheck
+import Network.QPACK.Internal
 import Test.Hspec
 import Test.Hspec.QuickCheck
-
-import Network.QPACK.HeaderBlock.Prefix
-import Network.QPACK.Types
+import Test.QuickCheck
 
 spec :: Spec
 spec = do
