@@ -45,7 +45,9 @@ sendBody ctx strm th outobj = case outObjBody outobj of
         sendNext ctx strm th next tlrrmkr
     OutBodyStreaming strmbdy -> do
         tbq <- newTBQueueIO 10
-        let takeQ = atomically $ tryReadTBQueue tbq
+        let takeQ = atomically $ do
+                x <- readTBQueue tbq
+                return $ Just x
         let next = fillStreamBodyGetNext takeQ
         void $ forkIO $ processStreaming ctx strmbdy tbq
         sendNext ctx strm th next tlrrmkr
@@ -55,7 +57,7 @@ sendBody ctx strm th outobj = case outObjBody outobj of
 sendNext :: Context -> Stream -> T.Handle -> DynaNext -> TrailersMaker -> IO ()
 sendNext ctx strm th curr tlrmkr0 = do
     (bs, mnext, tlrmkr) <- newByteStringWith tlrmkr0 curr
-    encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+    when (bs /= "") $ encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
     T.tickle th
     case mnext of
       Nothing -> do
@@ -64,13 +66,16 @@ sendNext ctx strm th curr tlrmkr0 = do
       Just next -> sendNext ctx strm th next tlrmkr
 
 newByteStringWith :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
-newByteStringWith tlrmkr0 action= do
+newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     withForeignPtr fp $ \buf -> do
         Next len mnext1 <- action buf 2048 65536 -- window size
-        NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
-        let bs = PS fp 0 len
-        return (bs, mnext1, tlrmkr1)
+        if len == 0 then
+            return ("", Nothing, tlrmkr0)
+          else do
+            NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
+            let bs = PS fp 0 len
+            return (bs, mnext1, tlrmkr1)
 
 processStreaming :: Context
                  -> ((BS.Builder -> IO ()) -> IO () -> IO ())
