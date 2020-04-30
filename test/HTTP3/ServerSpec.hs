@@ -9,9 +9,9 @@ import qualified Control.Exception as E
 import Control.Monad
 import Crypto.Hash (Context, SHA1) -- cryptonite
 import qualified Crypto.Hash as CH
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Builder (byteString)
-import Data.ByteString.Char8
 import qualified Data.ByteString.Char8 as C8
 import Data.IP ()
 import Network.HPACK
@@ -151,8 +151,8 @@ quicClientConf = defaultClientConfig {
 quicServerConf :: ServerConfig
 quicServerConf = defaultServerConfig {
     scAddresses    = [(read host, read port)]
-  , scKey          = "serverkey.pem"
-  , scCert         = "servercert.pem"
+  , scKey          = "test/serverkey.pem"
+  , scCert         = "test/servercert.pem"
   , scConfig     = defaultConfig {
         confParameters = exampleParameters
       , confCiphers    = quicCiphers
