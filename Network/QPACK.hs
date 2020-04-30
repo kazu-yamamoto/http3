@@ -95,8 +95,8 @@ decoderInstructionHandler dyntbl recv = loop
         _ <- getInsertionPoint dyntbl -- fixme
         bs <- recv 1024
         when (bs /= "") $ do
-            (ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
-            print ins
+            (_ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
+            -- print ins
             loop
 
 ----------------------------------------------------------------
@@ -130,7 +130,7 @@ encoderInstructionHandler dyntbl recv = loop
         bs <- recv 1024
         when (bs /= "") $ do
             (ins,"") <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
-            print ins
+            -- print ins
             mapM_ handle ins
             loop
     hufdec = getHuffmanDecoder dyntbl

@@ -15,7 +15,7 @@ import Network.HTTP3.Frame
 import Network.HTTP3.Settings
 import Network.HTTP3.Stream
 import Network.QPACK
-import Network.QUIC.Types.Integer
+-- import Network.QUIC.Types.Integer
 
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
@@ -45,13 +45,13 @@ controlStream ref recv = loop
             loop
     parse bs st0 = do
         case parseH3Frame st0 bs of
-          IDone typ payload leftover -> do
-              putStrLn $ "control: " ++ show typ
+          IDone typ _payload leftover -> do
+              -- putStrLn $ "control: " ++ show typ
               case typ of
-                H3FrameCancelPush -> print $ decodeInt payload
+                H3FrameCancelPush -> return () -- print $ decodeInt payload
                 H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
-                H3FrameGoaway     -> print $ decodeInt payload
-                H3FrameMaxPushId  -> print $ decodeInt payload
+                H3FrameGoaway     -> return () -- print $ decodeInt payload
+                H3FrameMaxPushId  -> return () -- print $ decodeInt payload
                 _                 -> putStrLn "controlStream: error"
               parse leftover IInit
           st1 -> return st1

@@ -143,7 +143,7 @@ parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
           in IDone typ (compose bs2 bss0) leftover
   where
     len1 = len0 + BS.length bs0
-parseH3Frame (IDone _ _ _) _ = error "parseH3Frame"
+parseH3Frame st _ = st
 
 compose :: ByteString -> [ByteString] -> ByteString
 compose bs bss = BS.concat $ reverse (bs:bss)
