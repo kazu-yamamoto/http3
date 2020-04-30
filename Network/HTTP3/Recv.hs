@@ -62,8 +62,12 @@ recvBody ctx src refI refH = do
             return ""
           else case parseH3Frame st bs of
                  IPay typ siz received bss -> do
-                     writeIORef refI $ IPay typ siz received []
-                     return $ BS.concat $ reverse bss
+                     let st' = IPay typ siz received []
+                     if null bss then
+                         loop st'
+                       else do
+                         writeIORef refI st'
+                         return $ BS.concat $ reverse bss
                  IDone H3FrameHeaders payload leftover -> do
                      writeIORef refI IInit
                      pushbackSource src leftover
