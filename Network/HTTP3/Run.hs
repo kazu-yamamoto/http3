@@ -3,15 +3,19 @@
 
 module Network.HTTP3.Run (
     setupUnidirectional
+  , controlStream
   ) where
 
 import qualified Data.ByteString as BS
+import Data.IORef
 import Network.QUIC
 
 import Imports
 import Network.HTTP3.Frame
 import Network.HTTP3.Settings
 import Network.HTTP3.Stream
+import Network.QPACK
+import Network.QUIC.Types.Integer
 
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
@@ -31,20 +35,23 @@ setupUnidirectional conn = do
     sendStream s1 bs1
     sendStream s2 bs2
 
-{-
-readerClient :: Context -> IO ()
-readerClient ctx = loop
+controlStream :: IORef IFrame -> InstructionHandler
+controlStream ref recv = loop
   where
     loop = do
-        estrm <- accept ctx
-        case estrm of
-          Right strm -> process strm >> loop
-          _          -> return ()
-    process strm
-      | isClientInitiatedUnidirectional sid = return () -- error
-      | isClientInitiatedBidirectional  sid = return ()
-      | isServerInitiatedUnidirectional sid = unidirectional ctx strm
-      | otherwise                           = return ()
-      where
-        sid = streamId strm
--}
+        bs <- recv 1024
+        when (bs /= "") $ do
+            readIORef ref >>= parse bs >>= writeIORef ref
+            loop
+    parse bs st0 = do
+        case parseH3Frame st0 bs of
+          IDone typ payload leftover -> do
+              putStrLn $ "control: " ++ show typ
+              case typ of
+                H3FrameCancelPush -> print $ decodeInt payload
+                H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
+                H3FrameGoaway     -> print $ decodeInt payload
+                H3FrameMaxPushId  -> print $ decodeInt payload
+                _                 -> putStrLn "controlStream: error"
+              parse leftover IInit
+          st1 -> return st1

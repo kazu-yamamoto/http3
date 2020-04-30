@@ -71,14 +71,12 @@ import Network.HTTP2.Internal
 import Network.HTTP2.Server hiding (run)
 import Network.HTTP2.Server.Internal
 import Network.QUIC
-import Network.QUIC.Types.Integer
 import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Context
 import Network.HTTP3.Frame
 import Network.HTTP3.Run
-import Network.QPACK
 
 run :: Connection -> Server -> IO ()
 run conn server = E.bracket open close $ \ctx -> do
@@ -89,7 +87,6 @@ run conn server = E.bracket open close $ \ctx -> do
         ref <- newIORef IInit
         newContext conn (controlStream ref)
     close = clearContext
-
 
 readerServer :: Context -> Server -> IO ()
 readerServer ctx server = loop
@@ -106,27 +103,6 @@ readerServer ctx server = loop
       | otherwise                           = return ()
       where
         sid = streamId strm
-
-controlStream :: IORef IFrame -> InstructionHandler
-controlStream ref recv = loop
-  where
-    loop = do
-        bs <- recv 1024
-        when (bs /= "") $ do
-            readIORef ref >>= parse bs >>= writeIORef ref
-            loop
-    parse bs st0 = do
-        case parseH3Frame st0 bs of
-          IDone typ payload leftover -> do
-              putStrLn $ "control: " ++ show typ
-              case typ of
-                H3FrameCancelPush -> print $ decodeInt payload
-                H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
-                H3FrameGoaway     -> print $ decodeInt payload
-                H3FrameMaxPushId  -> print $ decodeInt payload
-                _                 -> putStrLn "controlStream: error"
-              parse leftover IInit
-          st1 -> return st1
 
 data Source = Source {
     sourceRead    :: IO ByteString
