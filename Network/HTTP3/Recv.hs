@@ -61,16 +61,21 @@ recvBody ctx src refI refH = do
         if bs == "" then
             return ""
           else case parseH3Frame st bs of
-                 IPay typ siz received bss -> do
-                     let st' = IPay typ siz received []
+                 IDone H3FrameHeaders payload _leftover -> do
+                     writeIORef refI IInit
+                     -- pushbackSource src leftover -- fixme
+                     hdr <- qpackDecode ctx payload
+                     writeIORef refH $ Just hdr
+                     return ""
+                 IPay H3FrameData siz received bss -> do
+                     let st' = IPay H3FrameData siz received []
                      if null bss then
                          loop st'
                        else do
                          writeIORef refI st'
                          return $ BS.concat $ reverse bss
-                 IDone H3FrameHeaders payload leftover -> do
+                 IDone H3FrameData payload leftover -> do
                      writeIORef refI IInit
                      pushbackSource src leftover
-                     recvHeader ctx src >>= writeIORef refH
                      return payload
                  st' -> loop st'
