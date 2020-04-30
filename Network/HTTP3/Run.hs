@@ -6,17 +6,21 @@ module Network.HTTP3.Run (
   ) where
 
 import Control.Concurrent
+import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
-import Data.ByteString.Builder
-import qualified Data.ByteString.Lazy as BZ
+import qualified Data.ByteString.Builder as BS
+import qualified Data.ByteString.Internal as BS
 import Data.IORef
+import Foreign.ForeignPtr
 import Network.HPACK (toHeaderTable, HeaderTable)
-import Network.HTTP2.Internal (InpObj(..), OutObj(..), OutBody(..))
-import Network.HTTP2.Server (Server, PushPromise)
+import qualified Network.HTTP.Types as HT
+import Network.HTTP2.Internal
+import Network.HTTP2.Server hiding (run)
 import Network.HTTP2.Server.Internal
 import Network.QUIC
 import Network.QUIC.Types.Integer
+import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Context
@@ -143,7 +147,7 @@ request ctx server strm = do
           let readB = readBody ctx src refI refH
               req = Request $ InpObj vt Nothing readB refH
           let aux = Aux th
-          server req aux $ sendResponse ctx strm
+          server req aux $ sendResponse ctx strm th
 
 parseHeader :: Context -> Source -> IO (Maybe HeaderTable)
 parseHeader ctx src = loop IInit
@@ -178,16 +182,73 @@ readBody ctx src refI refH = do
                      return payload
                  st' -> loop st'
 
-sendResponse :: Context -> Stream -> Response -> [PushPromise] -> IO ()
-sendResponse ctx strm (Response outobj) _pp = do
-    let hdrs = outObjHeaders outobj
+sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
+sendResponse ctx strm th rsp@(Response outobj) _pp = do
+    sendHeader ctx strm th $ outObjHeaders outobj
+    sendBody   ctx strm th rsp
+    shutdownStream strm
+
+sendHeader :: Context -> Stream -> T.Handle -> HT.ResponseHeaders -> IO ()
+sendHeader ctx strm th hdrs = do
     -- fixme: fixHeaders
     (ths, _) <- toHeaderTable hdrs
     (hdr, "") <- qpackEncode ctx ths
-    let html = case outObjBody outobj of
-          OutBodyBuilder builder -> BZ.toStrict $ toLazyByteString builder
-          _                      -> undefined
     hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-    bdyblock <- encodeH3Frame $ H3Frame H3FrameData html
-    sendStreamMany strm [hdrblock,bdyblock]
-    shutdownStream strm
+    sendStream strm hdrblock
+    T.tickle th
+
+sendBody :: Context -> Stream -> T.Handle -> Response -> IO ()
+sendBody ctx strm th (Response outobj) = case outObjBody outobj of
+    OutBodyNone -> return ()
+    OutBodyFile (FileSpec path fileoff bytecount) -> do
+        (pread, sentinel') <- defaultPositionReadMaker path
+        refresh <- case sentinel' of
+                     Closer closer       -> timeoutClose ctx closer
+                     Refresher refresher -> return refresher
+        let next = fillFileBodyGetNext pread fileoff bytecount refresh
+        sendNext ctx strm th next tlrrmkr
+    OutBodyBuilder builder -> do
+        let next = fillBuilderBodyGetNext builder
+        sendNext ctx strm th next tlrrmkr
+    OutBodyStreaming strmbdy -> do
+        tbq <- newTBQueueIO 10
+        let takeQ = atomically $ tryReadTBQueue tbq
+        let next = fillStreamBodyGetNext takeQ
+        void $ forkIO $ processStreaming ctx strmbdy tbq
+        sendNext ctx strm th next tlrrmkr
+  where
+    tlrrmkr = outObjTrailers outobj
+
+sendNext :: Context -> Stream -> T.Handle -> DynaNext -> TrailersMaker -> IO ()
+sendNext ctx strm th curr tlrmkr0 = do
+    (bs, mnext, tlrmkr) <- newByteStringWith tlrmkr0 curr
+    encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+    T.tickle th
+    case mnext of
+      Nothing -> do
+          Trailers trailers <- tlrmkr Nothing
+          unless (null trailers) $ sendHeader ctx strm th trailers
+      Just next -> sendNext ctx strm th next tlrmkr
+
+newByteStringWith :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
+newByteStringWith tlrmkr0 action= do
+    fp <- BS.mallocByteString 2048
+    withForeignPtr fp $ \buf -> do
+        Next len mnext1 <- action buf 2048 65536 -- window size
+        NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
+        let bs = PS fp 0 len
+        return (bs, mnext1, tlrmkr1)
+
+processStreaming :: Context
+                 -> ((BS.Builder -> IO ()) -> IO () -> IO ())
+                 -> TBQueue StreamingChunk
+                 -> IO ()
+processStreaming ctx strmbdy tbq = do
+    th <- registerThread ctx
+    let push b = do
+            T.pause th
+            atomically $ writeTBQueue tbq (StreamingBuilder b)
+            T.resume th
+        flush  = atomically $ writeTBQueue tbq StreamingFlush
+    strmbdy push flush
+    atomically $ writeTBQueue tbq StreamingFinished

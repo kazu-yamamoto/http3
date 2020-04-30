@@ -12,13 +12,14 @@ module Network.HTTP3.Context (
   , qpackEncode
   , qpackDecode
   , registerThread
+  , timeoutClose
   ) where
 
 import Control.Concurrent
 import qualified Data.ByteString as BS
 import Network.QUIC
 import Network.QUIC.Connection (isServer, isClient)
-import qualified System.TimeManager as TM
+import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Stream
@@ -30,7 +31,7 @@ data Context = Context {
   , ctxQDecoder   :: QDecoder
   , ctxUniSwitch  :: H3StreamType -> InstructionHandler
   , ctxCleanup    :: Cleanup
-  , ctxManager    :: TM.Manager
+  , ctxManager    :: T.Manager
   }
 
 newContext :: Connection -> InstructionHandler -> IO Context
@@ -39,12 +40,12 @@ newContext conn ctl = do
     (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
     let sw = switch ctl handleEI handleDI
         clean = cleanE >> cleanD
-    Context conn enc dec sw clean <$> TM.initialize 30000000
+    Context conn enc dec sw clean <$> T.initialize 30000000
 
 clearContext :: Context -> IO ()
 clearContext Context{..} = do
     ctxCleanup
-    TM.stopManager ctxManager
+    T.stopManager ctxManager
 
 switch :: InstructionHandler -> InstructionHandler -> InstructionHandler -> H3StreamType -> InstructionHandler
 switch ctl handleEI handleDI styp
@@ -74,5 +75,10 @@ unidirectional Context{..} strm = do
     let typ = toH3StreamType $ fromIntegral w8
     void $ forkIO $ ctxUniSwitch typ (recvStream strm)
 
-registerThread :: Context -> IO TM.Handle
-registerThread Context{..} = TM.registerKillThread ctxManager (return ())
+registerThread :: Context -> IO T.Handle
+registerThread Context{..} = T.registerKillThread ctxManager (return ())
+
+timeoutClose :: Context -> IO () -> IO (IO ())
+timeoutClose Context{..} closer = do
+    th <- T.register ctxManager closer
+    return $ T.tickle th

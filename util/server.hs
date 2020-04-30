@@ -171,7 +171,7 @@ html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
 
 serverH3 :: Connection -> IO ()
-serverH3 conn = run conn $ \req ~_aux sendResponse -> do
+serverH3 conn = run conn $ \req _aux sendResponse -> do
     print $ requestHeaders req
     let hdr = [ ("Content-Type", "text/html; charset=utf-8")
               , ("Server", "HaskellQuic/0.0.0")
