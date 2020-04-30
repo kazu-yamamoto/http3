@@ -28,7 +28,7 @@ host :: String
 host = "127.0.0.1"
 
 port :: String
-port = "4433"
+port = "44333"
 
 spec :: Spec
 spec = do
@@ -95,7 +95,8 @@ runClient = runQUICClient quicClientConf $ \conn ->
   where
     authority = C8.pack host
     client sendRequest = mapConcurrently_ ($ sendRequest) clients
-    clients = [client0,client1,client2,client3]
+--    clients = [client0,client1,client2,client3]
+    clients = [client0,client1,client2]
 
 client0 :: C.Client ()
 client0 sendRequest = do
