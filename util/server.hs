@@ -12,6 +12,9 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.List as L
+import qualified Network.HTTP.Types as H
+import Network.HTTP2.Server hiding (run)
+import Network.HTTP3.Server
 import Network.QUIC
 import Network.TLS.Extra.Cipher
 import qualified Network.TLS.SessionManager as SM
@@ -20,10 +23,6 @@ import System.Environment (getArgs)
 import System.Exit
 import System.IO
 import System.Timeout
-import Network.HTTP2.Server hiding (run)
-import qualified Network.HTTP.Types as H
-
-import Network.HTTP3.Server
 
 import Common
 

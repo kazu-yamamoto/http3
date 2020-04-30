@@ -10,17 +10,14 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
-import Network.HPACK (toHeaderTable)
 import Network.HTTP.Types
+import Network.HTTP3.Client
 import Network.QUIC
 import Network.TLS.Extra.Cipher
 import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
-
-import Network.HTTP3
-import Network.QPACK
 
 import Common
 
@@ -262,10 +259,14 @@ runClient2 conf Options{..} cmd addr debug res = do
         info <- getConnectionInfo conn
         if rtt0 then do
             debug "------------------------ Response for early data"
-            (sid, bs, _fin) <- recvStream conn
-            debug $ "SID: " ++ show sid
-            debug $ show $ BS.unpack bs
-            debug "------------------------ Response for early data"
+            es0 <- acceptStream conn
+            case es0 of
+              Right s0 -> do
+                  bs <- recvStream s0 1024
+                  debug $ "SID: " ++ show (streamId s0)
+                  debug $ show $ BS.unpack bs
+                  debug "------------------------ Response for early data"
+              _ -> return ()
           else do
             let client = case alpn info of
                   Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ cmd
@@ -276,66 +277,31 @@ runClient2 conf Options{..} cmd addr debug res = do
     rtt0 = opt0RTT && is0RTTPossible res
     conf' | rtt0 = conf {
                 ccResumption = res
-              , ccEarlyData  = Just (0, cmd) -- fixme
+              , ccEarlyData  = Just cmd
               }
           | otherwise = conf { ccResumption = res }
 
 clientHQ :: ByteString -> Connection -> (String -> IO ()) -> IO ()
 clientHQ cmd conn debug = do
-    sendStream conn 0 cmd True
-    shutdownStream conn 0
-    loop
+    s <- stream conn
+    sendStream s cmd
+    shutdownStream s
+    loop s
   where
-    loop = do
-        (sid, bs, fin) <- recvStream conn
-        when (sid /= 0) $ debug $ "SID: " ++ show sid
-        when (bs /= "") $ debug $ C8.unpack bs
-        if fin then
+    loop s = do
+        bs <- recvStream s 1024
+        if bs == "" then
             debug "Connection finished"
-          else
-            loop
+          else do
+            debug $ C8.unpack bs
+            loop s
 
 clientH3 :: String -> Connection -> (String -> IO ()) -> IO ()
-clientH3 authority conn debug = do
-    (enc, _handleDecIns, cleanEnc)  <- newQEncoder defaultQEncoderConfig
-    (_dec, _handleEncIns, cleanDec) <- newQDecoder defaultQDecoderConfig
-    -- settings
-    let st0 = BS.singleton $ fromIntegral $ fromH3StreamType H3ControlStreams
-    settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    bs0 <- encodeH3Frame $ H3Frame H3FrameSettings settings
-    sendStream conn clientControlStream (st0 `BS.append` bs0) False
-    -- from encoder to decoder
-    let st2 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKEncoderStream
-    sendStream conn clientEncoderStream st2 False
-    -- from decoder to encoder
-    let st3 = BS.singleton $ fromIntegral $ fromH3StreamType QPACKDecoderStream
-    sendStream conn clientDecoderStream st3 False
-    (ths, _) <- toHeaderTable $ clientHeader authority
-    (hdr, "") <- enc ths
-    hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-    sendStream conn  0 hdrblock True
-    loop
-    cleanEnc
-    cleanDec
+clientH3 authority conn debug = run conn "http" auth client
   where
-    loop = do
-        (sid, bs, fin) <- recvStream conn
-        if sid == 3 then do
-            H3Frame H3FrameSettings settings <- decodeH3Frame $ BS.tail bs
-            decodeH3Settings settings >>= print
-          else do
-            debug $ "SID: " ++ show sid
-            when (bs /= "") $ debug $ show $ BS.unpack bs
-        if fin then
-            debug "Connection finished"
-          else
-            loop
-
-clientHeader :: String -> RequestHeaders
-clientHeader authority = [
-    (":method", "GET")
-  , (":scheme", "http")
-  , (":path", "/")
-  , (":authority", C8.pack authority)
-  , ("User-Agent", "HaskellQuic/0.0.0")
-  ]
+    auth = C8.pack authority
+    client sendRequest = do
+        let req = requestNoBody methodGet "/" [("User-Agent", "HaskellQuic/0.0.0")]
+        sendRequest req $ \rsp -> do
+            debug $ show rsp
+            getResponseBodyChunk rsp >>= C8.putStrLn
