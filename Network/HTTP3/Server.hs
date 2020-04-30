@@ -103,20 +103,20 @@ processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = do
     th <- registerThread ctx
     src <- newSource strm
-    mvt <- parseHeader ctx src
+    mvt <- recvHeader ctx src
     case mvt of
       Nothing -> return ()
       Just vt -> do
           -- fixme Content-Length
           refI <- newIORef IInit
           refH <- newIORef Nothing
-          let readB = readBody ctx src refI refH
+          let readB = recvBody ctx src refI refH
               req = Request $ InpObj vt Nothing readB refH
           let aux = Aux th
           server req aux $ sendResponse ctx strm th
 
 sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
-sendResponse ctx strm th rsp@(Response outobj) _pp = do
+sendResponse ctx strm th (Response outobj) _pp = do
     sendHeader ctx strm th $ outObjHeaders outobj
-    sendBody   ctx strm th rsp
+    sendBody   ctx strm th outobj
     shutdownStream strm

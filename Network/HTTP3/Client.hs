@@ -1,3 +1,6 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+
 module Network.HTTP3.Client (
   -- * Runner
     run
@@ -41,21 +44,26 @@ module Network.HTTP3.Client (
   , defaultPositionReadMaker
   ) where
 
+import Control.Concurrent
 import qualified Control.Exception as E
 import Data.IORef
 import Network.HTTP2.Client hiding (run, Config, allocSimpleConfig, freeSimpleConfig)
+import Network.HTTP2.Client.Internal
+import Network.HTTP2.Internal
 import Network.QUIC
 
 import Network.HTTP3.Context
 import Network.HTTP3.Control
 import Network.HTTP3.Frame
--- import Network.HTTP3.Recv
--- import Network.HTTP3.Send
+import Network.HTTP3.Recv
+import Network.HTTP3.Send
 
-run :: Connection -> Client a -> IO ()
-run conn _client = E.bracket open close $ \ctx -> do
+run :: Connection -> Scheme -> Authority -> Client a -> IO a
+run conn scheme auth client = E.bracket open close $ \ctx -> do
     setupUnidirectional conn
-    readerClient ctx
+    tid <- forkIO $ readerClient ctx
+    client (sendRequest ctx scheme auth) `E.finally` do
+        killThread tid
   where
     open = do
         ref <- newIORef IInit
@@ -74,6 +82,27 @@ readerClient ctx = loop
       | isClientInitiatedUnidirectional sid = return () -- error
       | isClientInitiatedBidirectional  sid = return ()
       | isServerInitiatedUnidirectional sid = unidirectional ctx strm
-      | otherwise                           = return ()
+      | otherwise                           = return () -- push?
       where
         sid = streamId strm
+
+sendRequest :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
+sendRequest ctx scheme auth (Request outobj) processResponse = do
+    th <- registerThread ctx
+    let hdr = outObjHeaders outobj
+        hdr' = (":scheme", scheme)
+             : (":authority", auth)
+             : hdr
+    strm <- newStream ctx
+    sendHeader ctx strm th hdr'
+    sendBody ctx strm th outobj
+    src <- newSource strm
+    mvt <- recvHeader ctx src
+    case mvt of
+      Nothing -> error ""
+      Just vt -> do
+          refI <- newIORef IInit
+          refH <- newIORef Nothing
+          let readB = recvBody ctx src refI refH
+              rsp = Response $ InpObj vt Nothing readB refH
+          processResponse rsp

@@ -4,8 +4,8 @@
 module Network.HTTP3.Recv (
     Source
   , newSource
-  , parseHeader
-  , readBody
+  , recvHeader
+  , recvBody
   ) where
 
 import qualified Data.ByteString as BS
@@ -38,8 +38,8 @@ pushbackSource :: Source -> ByteString -> IO ()
 pushbackSource Source{..} "" = return ()
 pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
 
-parseHeader :: Context -> Source -> IO (Maybe HeaderTable)
-parseHeader ctx src = loop IInit
+recvHeader :: Context -> Source -> IO (Maybe HeaderTable)
+recvHeader ctx src = loop IInit
   where
     loop st = do
         bs <- readSource src
@@ -51,8 +51,8 @@ parseHeader ctx src = loop IInit
                      Just <$> qpackDecode ctx payload
                  st' -> loop st'
 
-readBody :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
-readBody ctx src refI refH = do
+recvBody :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
+recvBody ctx src refI refH = do
     st <- readIORef refI
     loop st
   where
@@ -67,6 +67,6 @@ readBody ctx src refI refH = do
                  IDone H3FrameHeaders payload leftover -> do
                      writeIORef refI IInit
                      pushbackSource src leftover
-                     parseHeader ctx src >>= writeIORef refH
+                     recvHeader ctx src >>= writeIORef refH
                      return payload
                  st' -> loop st'

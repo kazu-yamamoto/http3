@@ -14,8 +14,6 @@ import Foreign.ForeignPtr
 import Network.HPACK (toHeaderTable)
 import qualified Network.HTTP.Types as HT
 import Network.HTTP2.Internal
-import Network.HTTP2.Server hiding (run)
-import Network.HTTP2.Server.Internal
 import Network.QUIC
 import qualified System.TimeManager as T
 
@@ -32,8 +30,8 @@ sendHeader ctx strm th hdrs = do
     sendStream strm hdrblock
     T.tickle th
 
-sendBody :: Context -> Stream -> T.Handle -> Response -> IO ()
-sendBody ctx strm th (Response outobj) = case outObjBody outobj of
+sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO ()
+sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyNone -> return ()
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel') <- defaultPositionReadMaker path

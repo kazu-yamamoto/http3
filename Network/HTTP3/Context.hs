@@ -13,6 +13,7 @@ module Network.HTTP3.Context (
   , qpackDecode
   , registerThread
   , timeoutClose
+  , newStream
   ) where
 
 import Control.Concurrent
@@ -82,3 +83,6 @@ timeoutClose :: Context -> IO () -> IO (IO ())
 timeoutClose Context{..} closer = do
     th <- T.register ctxManager closer
     return $ T.tickle th
+
+newStream :: Context -> IO Stream
+newStream Context{..} = stream ctxConnection
