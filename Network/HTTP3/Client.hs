@@ -47,8 +47,10 @@ import Network.HTTP2.Client hiding (run, Config, allocSimpleConfig, freeSimpleCo
 import Network.QUIC
 
 import Network.HTTP3.Context
+import Network.HTTP3.Control
 import Network.HTTP3.Frame
-import Network.HTTP3.Run
+-- import Network.HTTP3.Recv
+-- import Network.HTTP3.Send
 
 run :: Connection -> Client a -> IO ()
 run conn _client = E.bracket open close $ \ctx -> do

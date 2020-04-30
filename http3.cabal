@@ -21,9 +21,11 @@ library
                        Network.QPACK.Internal
   other-modules:       Imports
                        Network.HTTP3.Context
+                       Network.HTTP3.Control
                        Network.HTTP3.Error
                        Network.HTTP3.Frame
-                       Network.HTTP3.Run
+                       Network.HTTP3.Recv
+                       Network.HTTP3.Send
                        Network.HTTP3.Settings
                        Network.HTTP3.Stream
                        Network.QPACK.HeaderBlock

@@ -23,7 +23,7 @@ import System.Timeout
 import Network.HTTP2.Server hiding (run)
 import qualified Network.HTTP.Types as H
 
-import Network.HTTP3
+import Network.HTTP3.Server
 
 import Common
 

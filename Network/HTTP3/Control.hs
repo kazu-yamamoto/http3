@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Network.HTTP3.Run (
+module Network.HTTP3.Control (
     setupUnidirectional
   , controlStream
   ) where
