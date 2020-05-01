@@ -95,8 +95,7 @@ runClient = runQUICClient quicClientConf $ \conn ->
   where
     authority = C8.pack host
     client sendRequest = mapConcurrently_ ($ sendRequest) clients
---    clients = [client0,client1,client2,client3]
-    clients = [client0,client1,client2]
+    clients = [client0,client1,client2,client3]
 
 client0 :: C.Client ()
 client0 sendRequest = do
