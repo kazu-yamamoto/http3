@@ -6,10 +6,10 @@ module Network.HTTP3.Send (
   , sendBody
   ) where
 
-import Control.Concurrent
-import Control.Concurrent.STM
-import qualified Data.ByteString.Builder as BS
+import Data.ByteString.Builder (Builder)
+import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
+import Data.IORef
 import Foreign.ForeignPtr
 import Network.HPACK (toHeaderTable)
 import qualified Network.HTTP.Types as HT
@@ -39,20 +39,13 @@ sendBody ctx strm th outobj = case outObjBody outobj of
                      Closer closer       -> timeoutClose ctx closer
                      Refresher refresher -> return refresher
         let next = fillFileBodyGetNext pread fileoff bytecount refresh
-        sendNext ctx strm th next tlrrmkr
+        sendNext ctx strm th next tlrmkr
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
-        sendNext ctx strm th next tlrrmkr
-    OutBodyStreaming strmbdy -> do
-        tbq <- newTBQueueIO 10
-        let takeQ = atomically $ do
-                x <- readTBQueue tbq
-                return $ Just x
-        let next = fillStreamBodyGetNext takeQ
-        void $ forkIO $ processStreaming ctx strmbdy tbq
-        sendNext ctx strm th next tlrrmkr
+        sendNext ctx strm th next tlrmkr
+    OutBodyStreaming strmbdy -> sendStreaming ctx strm th strmbdy tlrmkr
   where
-    tlrrmkr = outObjTrailers outobj
+    tlrmkr = outObjTrailers outobj
 
 sendNext :: Context -> Stream -> T.Handle -> DynaNext -> TrailersMaker -> IO ()
 sendNext ctx strm th curr tlrmkr0 = do
@@ -77,16 +70,42 @@ newByteStringWith tlrmkr0 action = do
             let bs = PS fp 0 len
             return (bs, mnext1, tlrmkr1)
 
-processStreaming :: Context
-                 -> ((BS.Builder -> IO ()) -> IO () -> IO ())
-                 -> TBQueue StreamingChunk
-                 -> IO ()
-processStreaming ctx strmbdy tbq = do
-    th <- registerThread ctx
-    let push b = do
-            T.pause th
-            atomically $ writeTBQueue tbq (StreamingBuilder b)
-            T.resume th
-        flush  = atomically $ writeTBQueue tbq StreamingFlush
-    strmbdy push flush
-    atomically $ writeTBQueue tbq StreamingFinished
+newByteStringAndSend :: Stream -> T.Handle -> TrailersMaker -> B.BufferWriter
+                     -> IO (B.Next, TrailersMaker)
+newByteStringAndSend strm th tlrmkr0 action = do
+    fp <- BS.mallocByteString 2048
+    (bs', signal', tlrmkr') <- withForeignPtr fp $ \buf -> do
+        (len, signal) <- action buf 2048
+        if len == 0 then
+            return ("", B.Done, tlrmkr0) -- fixme: Done
+          else do
+            NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
+            let bs = PS fp 0 len
+            return (bs, signal, tlrmkr1)
+    encodeH3Frame (H3Frame H3FrameData bs') >>= sendStream strm
+    T.tickle th
+    return (signal', tlrmkr')
+
+sendStreaming :: Context -> Stream -> T.Handle -> ((Builder -> IO ()) -> IO () -> IO ()) -> TrailersMaker -> IO ()
+sendStreaming ctx strm th strmbdy tlrmkr0 = do
+    ref <- newIORef tlrmkr0
+    strmbdy (write ref) flush
+    tlrmkr <- readIORef ref
+    Trailers trailers <- tlrmkr Nothing
+    unless (null trailers) $ sendHeader ctx strm th trailers
+  where
+    flush = return ()
+    write ref builder = do
+        tlrmkr <- readIORef ref
+        (signal, tlrmkr') <- newByteStringAndSend strm th tlrmkr $ B.runBuilder builder
+        loop signal tlrmkr'
+      where
+        loop B.Done tlrmkr1 = writeIORef ref tlrmkr1
+        loop (B.More _ writer) tlrmkr1 = do
+            (signal, tlrmkr2) <- newByteStringAndSend strm th tlrmkr1 writer
+            loop signal tlrmkr2
+        loop (B.Chunk bs writer) tlrmkr1 = do
+            encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+            T.tickle th
+            (signal, tlrmkr2) <- newByteStringAndSend strm th tlrmkr1 writer
+            loop signal tlrmkr2
