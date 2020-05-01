@@ -61,30 +61,27 @@ sendNext ctx strm th curr tlrmkr0 = do
 newByteStringWith :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
 newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
-    withForeignPtr fp $ \buf -> do
-        Next len mnext1 <- action buf 2048 65536 -- window size
-        if len == 0 then
-            return ("", Nothing, tlrmkr0)
-          else do
-            NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
-            let bs = PS fp 0 len
-            return (bs, mnext1, tlrmkr1)
+    Next len mnext1 <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
+    if len == 0 then
+        return ("", Nothing, tlrmkr0)
+      else do
+        let bs = PS fp 0 len
+        NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+        return (bs, mnext1, tlrmkr1)
 
 newByteStringAndSend :: Stream -> T.Handle -> TrailersMaker -> B.BufferWriter
                      -> IO (B.Next, TrailersMaker)
 newByteStringAndSend strm th tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
-    (bs', signal', tlrmkr') <- withForeignPtr fp $ \buf -> do
-        (len, signal) <- action buf 2048
-        if len == 0 then
-            return ("", B.Done, tlrmkr0) -- fixme: Done
-          else do
-            NextTrailersMaker tlrmkr1 <- runTrailersMaker tlrmkr0 buf len
-            let bs = PS fp 0 len
-            return (bs, signal, tlrmkr1)
-    encodeH3Frame (H3Frame H3FrameData bs') >>= sendStream strm
-    T.tickle th
-    return (signal', tlrmkr')
+    (len, signal) <- withForeignPtr fp $ \buf -> action buf 2048
+    if len == 0 then
+        return (B.Done, tlrmkr0) -- fixme: Done
+      else do
+        let bs = PS fp 0 len
+        NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+        encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+        T.tickle th
+        return (signal, tlrmkr1)
 
 sendStreaming :: Context -> Stream -> T.Handle -> ((Builder -> IO ()) -> IO () -> IO ()) -> TrailersMaker -> IO ()
 sendStreaming ctx strm th strmbdy tlrmkr0 = do
@@ -96,16 +93,15 @@ sendStreaming ctx strm th strmbdy tlrmkr0 = do
   where
     flush = return ()
     write ref builder = do
-        tlrmkr <- readIORef ref
-        (signal, tlrmkr') <- newByteStringAndSend strm th tlrmkr $ B.runBuilder builder
-        loop signal tlrmkr'
+        tlrmkr1 <- readIORef ref
+        tlrmkr2 <- newByteStringAndSend strm th tlrmkr1 (B.runBuilder builder) >>= loop
+        writeIORef ref tlrmkr2
       where
-        loop B.Done tlrmkr1 = writeIORef ref tlrmkr1
-        loop (B.More _ writer) tlrmkr1 = do
-            (signal, tlrmkr2) <- newByteStringAndSend strm th tlrmkr1 writer
-            loop signal tlrmkr2
-        loop (B.Chunk bs writer) tlrmkr1 = do
+        loop (B.Done,           tlrmkr1) = return tlrmkr1
+        loop (B.More _ writer,  tlrmkr1) =
+            newByteStringAndSend strm th tlrmkr1 writer >>= loop
+        loop (B.Chunk bs writer, tlrmkr1) = do
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+            NextTrailersMaker tlrmkr2 <- tlrmkr1 $ Just bs
             T.tickle th
-            (signal, tlrmkr2) <- newByteStringAndSend strm th tlrmkr1 writer
-            loop signal tlrmkr2
+            newByteStringAndSend strm th tlrmkr2 writer >>= loop
