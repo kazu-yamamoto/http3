@@ -20,8 +20,6 @@ import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
 import Network.QUIC
 import Network.Socket ()
-import Network.TLS.Cipher
-import Network.TLS.Extra.Cipher
 import Test.Hspec
 
 host :: String
@@ -132,19 +130,12 @@ client3 sendRequest = do
 firstTrailerValue :: HeaderTable -> HeaderValue
 firstTrailerValue = snd . Prelude.head . fst
 
-quicCiphers :: [Cipher]
-quicCiphers = [cipher_TLS13_AES256GCM_SHA384
-              ,cipher_TLS13_AES128GCM_SHA256
-              ,cipher_TLS13_AES128CCM_SHA256
-              ]
-
 quicClientConf :: ClientConfig
 quicClientConf = defaultClientConfig {
     ccServerName = host
   , ccPortName   = port
   , ccConfig     = defaultConfig {
         confParameters = exampleParameters
-      , confCiphers    = quicCiphers
       }
   }
 
@@ -155,6 +146,5 @@ quicServerConf = defaultServerConfig {
   , scCert         = "test/servercert.pem"
   , scConfig     = defaultConfig {
         confParameters = exampleParameters
-      , confCiphers    = quicCiphers
       }
   }

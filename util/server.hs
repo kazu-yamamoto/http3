@@ -16,7 +16,6 @@ import qualified Network.HTTP.Types as H
 import Network.HTTP2.Server hiding (run)
 import Network.HTTP3.Server
 import Network.QUIC
-import Network.TLS.Extra.Cipher
 import qualified Network.TLS.SessionManager as SM
 import System.Console.GetOpt
 import System.Environment (getArgs)
@@ -130,10 +129,6 @@ main = do
                     }
               , confKeyLog     = getLogger optKeyLogFile
               , confGroups     = getGroups optGroups
-              , confCiphers    = [ cipher_TLS13_AES256GCM_SHA384
-                                 , cipher_TLS13_AES128GCM_SHA256
-                                 , cipher_TLS13_AES128CCM_SHA256
-                                 ]
               , confDebugLog   = getDirLogger optDebugLogDir ".txt"
               , confQLog       = getDirLogger optQLogDir ".qlog"
               }
@@ -170,8 +165,7 @@ html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
 
 serverH3 :: Connection -> IO ()
-serverH3 conn = run conn $ \req _aux sendResponse -> do
-    print $ requestHeaders req
+serverH3 conn = run conn $ \_req _aux sendResponse -> do
     let hdr = [ ("Content-Type", "text/html; charset=utf-8")
               , ("Server", "HaskellQuic/0.0.0")
               ]

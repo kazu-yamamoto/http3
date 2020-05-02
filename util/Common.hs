@@ -14,7 +14,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.ByteString.Base16 (encode)
 import qualified Data.ByteString.Char8 as C8
-import Data.Default.Class
 import Data.Maybe
 import Network.TLS hiding (Version)
 import System.FilePath
@@ -37,7 +36,7 @@ namedGroups =
     ]
 
 getGroups :: Maybe String -> [Group]
-getGroups Nothing   = supportedGroups def
+getGroups Nothing   = confGroups defaultConfig
 getGroups (Just gs) = catMaybes $ map (`lookup` namedGroups) $ split ',' gs
 
 split :: Char -> String -> [String]
