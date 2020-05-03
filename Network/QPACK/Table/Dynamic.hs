@@ -40,11 +40,11 @@ getBasePoint DynamicTable{..} = readIORef basePoint
 
 setBasePointToInsersionPoint :: DynamicTable -> IO ()
 setBasePointToInsersionPoint DynamicTable{..} = do
-    InsertionPoint ip <- atomically $ readTVar insertionPoint
+    InsertionPoint ip <- readTVarIO insertionPoint
     writeIORef basePoint $ BasePoint ip
 
 getInsertionPoint :: DynamicTable -> IO InsertionPoint
-getInsertionPoint DynamicTable{..} = atomically $ readTVar insertionPoint
+getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint
 
 checkInsertionPoint :: DynamicTable -> InsertionPoint -> IO ()
 checkInsertionPoint DynamicTable{..} reqip = atomically $ do
