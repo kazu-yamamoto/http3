@@ -16,7 +16,7 @@ module Network.HTTP3.Frame (
 
 import qualified Data.ByteString as BS
 import Network.ByteOrder
-import Network.QUIC.Types
+import Network.QUIC.Internal
 
 import Imports
 

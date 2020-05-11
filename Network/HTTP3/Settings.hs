@@ -1,7 +1,7 @@
 module Network.HTTP3.Settings where
 
 import Network.ByteOrder
-import Network.QUIC.Types
+import Network.QUIC.Internal
 
 type H3Settings = [(H3SettingsKey,Int)]
 

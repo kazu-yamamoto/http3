@@ -19,7 +19,7 @@ module Network.HTTP3.Context (
 import Control.Concurrent
 import qualified Data.ByteString as BS
 import Network.QUIC
-import Network.QUIC.Connection (isServer, isClient)
+import Network.QUIC.Internal (isServer, isClient)
 import qualified System.TimeManager as T
 
 import Imports
