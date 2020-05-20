@@ -58,10 +58,10 @@ import Network.HTTP3.Recv
 import Network.HTTP3.Send
 
 run :: Connection -> Scheme -> Authority -> Client a -> IO a
-run conn scheme auth client = E.bracket open close $ \ctx -> do
+run conn scm auth client = E.bracket open close $ \ctx -> do
     setupUnidirectional conn
     tid <- forkIO $ readerClient ctx
-    client (sendRequest ctx scheme auth) `E.finally` do
+    client (sendRequest ctx scm auth) `E.finally` do
         killThread tid
   where
     open = do
@@ -86,10 +86,10 @@ readerClient ctx = loop
         sid = streamId strm
 
 sendRequest :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
-sendRequest ctx scheme auth (Request outobj) processResponse = do
+sendRequest ctx scm auth (Request outobj) processResponse = do
     th <- registerThread ctx
     let hdr = outObjHeaders outobj
-        hdr' = (":scheme", scheme)
+        hdr' = (":scheme", scm)
              : (":authority", auth)
              : hdr
     strm <- newStream ctx
