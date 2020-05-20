@@ -17,7 +17,6 @@ import qualified Data.ByteString.Char8 as C8
 import Data.Maybe
 import Network.TLS hiding (Version)
 import System.FilePath
-import Text.Printf
 
 import Network.QUIC
 
@@ -66,6 +65,6 @@ getDirLogger (Just dir) suffix = \cid msg -> do
 makeProtos :: Version -> (ByteString, ByteString)
 makeProtos ver = (h3X,hqX)
   where
-    verbs = C8.pack $ printf "%d" $ fromVersion ver
+    verbs = C8.pack $ show $ fromVersion ver
     h3X = "h3-" `BS.append` verbs
     hqX = "hq-" `BS.append` verbs
