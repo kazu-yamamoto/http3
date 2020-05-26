@@ -169,9 +169,7 @@ runClient conf opts@Options{..} cmd addr debug = do
           Just mtyp -> do
               debug $ "Migration by " ++ show mtyp
               migration conn mtyp
-        debug "------------------------"
         client conn debug
-        debug "\n------------------------"
         i2 <- getConnectionInfo conn
         r <- getResumptionInfo conn
         return (i1, i2, r, m, client)
@@ -252,9 +250,7 @@ runClient2 conf Options{..} debug res client = do
     debug "------------------------"
     runQUICClient conf' $ \conn -> do
         if rtt0 then do
-            debug "------------------------ Response for early data"
             void $ client conn debug
-            debug "------------------------ Response for early data"
            else do
             void $ client conn debug
         getConnectionInfo conn
@@ -275,8 +271,9 @@ clientHQ cmd conn debug = do
   where
     loop s = do
         bs <- recvStream s 1024
-        if bs == "" then
+        if bs == "" then do
             debug "Connection finished"
+            getConnectionStats conn >>= print
           else do
             debug $ C8.unpack bs
             loop s
@@ -287,6 +284,10 @@ clientH3 authority conn debug = run conn "http" auth client
     auth = C8.pack authority
     client sendRequest = do
         let req = requestNoBody methodGet "/" [("User-Agent", "HaskellQuic/0.0.0")]
-        sendRequest req $ \rsp -> do
+        _ <- sendRequest req $ \rsp -> do
+            debug "------------------------"
             debug $ show rsp
+            debug "------------------------"
             getResponseBodyChunk rsp >>= C8.putStrLn
+            debug "------------------------"
+        getConnectionStats conn >>= print
