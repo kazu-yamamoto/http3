@@ -20,6 +20,7 @@ import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
 import Network.QUIC
 import Network.Socket ()
+import Network.TLS (credentialLoadX509, Credentials(..))
 import Test.Hspec
 
 host :: String
@@ -37,7 +38,10 @@ spec = do
                 runClient
 
 runServer :: IO ()
-runServer = runQUICServer quicServerConf (`run` server)
+runServer = do
+    Right cred <- credentialLoadX509 "test/servercert.pem" "test/serverkey.pem"
+    let creds = Credentials [cred]
+    runQUICServer (quicServerConf creds) (`run` server)
 
 server :: Server
 server req _aux sendResponse = case requestMethod req of
@@ -134,17 +138,12 @@ quicClientConf :: ClientConfig
 quicClientConf = defaultClientConfig {
     ccServerName = host
   , ccPortName   = port
-  , ccConfig     = defaultConfig {
-        confParameters = exampleParameters
-      }
   }
 
-quicServerConf :: ServerConfig
-quicServerConf = defaultServerConfig {
+quicServerConf :: Credentials -> ServerConfig
+quicServerConf creds = defaultServerConfig {
     scAddresses    = [(read host, read port)]
-  , scKey          = "test/serverkey.pem"
-  , scCert         = "test/servercert.pem"
   , scConfig     = defaultConfig {
-        confParameters = exampleParameters
+        confCredentials = creds
       }
   }
