@@ -49,6 +49,9 @@ recvHeader ctx src = loop IInit
                  IDone H3FrameHeaders payload leftover -> do
                      pushbackSource src leftover
                      Just <$> qpackDecode ctx payload
+                 IDone _ _ leftover -> do -- greasing
+                     pushbackSource src leftover
+                     loop IInit
                  st' -> loop st'
 
 recvBody :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
