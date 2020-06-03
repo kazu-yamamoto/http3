@@ -164,6 +164,6 @@ encodeLiteralHeaderFieldWithNameReference wbuf dyntbl hi val huff = do
 -- 4.5.6.  Literal Header Field Without Name Reference
 encodeLiteralHeaderFieldWithoutNameReference :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
 encodeLiteralHeaderFieldWithoutNameReference wbuf token val huff = do
-    let key = tokenCIKey token
+    let key = tokenFoldedKey token
     encodeS wbuf huff set0010 set00001 3 key
     encodeS wbuf huff id set1 7 val
