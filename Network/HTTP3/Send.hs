@@ -33,7 +33,7 @@ sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO ()
 sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyNone -> return ()
     OutBodyFile (FileSpec path fileoff bytecount) -> do
-        (pread, sentinel') <- defaultPositionReadMaker path
+        (pread, sentinel') <- pReadMaker ctx path
         refresh <- case sentinel' of
                      Closer closer       -> timeoutClose ctx closer
                      Refresher refresher -> return refresher

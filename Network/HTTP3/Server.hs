@@ -4,82 +4,87 @@ module Network.HTTP3.Server (
   -- * Runner
     run
   -- * Runner arguments
+  , Config(..)
   -- * HTTP\/3 server
   , Server
   -- * Request
   , Request
   -- ** Accessing request
-  , requestMethod
-  , requestPath
-  , requestAuthority
-  , requestScheme
-  , requestHeaders
-  , requestBodySize
-  , getRequestBodyChunk
-  , getRequestTrailers
+  , H2.requestMethod
+  , H2.requestPath
+  , H2.requestAuthority
+  , H2.requestScheme
+  , H2.requestHeaders
+  , H2.requestBodySize
+  , H2.getRequestBodyChunk
+  , H2.getRequestTrailers
   -- * Aux
   , Aux
   , auxTimeHandle
   -- * Response
   , Response
   -- ** Creating response
-  , responseNoBody
-  , responseFile
-  , responseStreaming
-  , responseBuilder
+  , H2.responseNoBody
+  , H2.responseFile
+  , H2.responseStreaming
+  , H2.responseBuilder
   -- ** Accessing response
-  , responseBodySize
+  , H2.responseBodySize
   -- ** Trailers maker
-  , TrailersMaker
-  , NextTrailersMaker(..)
-  , defaultTrailersMaker
-  , setResponseTrailersMaker
+  , H2.TrailersMaker
+  , H2.NextTrailersMaker(..)
+  , H2.defaultTrailersMaker
+  , H2.setResponseTrailersMaker
   -- * Push promise
   , PushPromise
-  , pushPromise
-  , promiseRequestPath
-  , promiseResponse
-  , promiseWeight
+  , H2.pushPromise
+  , H2.promiseRequestPath
+  , H2.promiseResponse
+  , H2.promiseWeight
   -- * Types
-  , Path
-  , Authority
-  , Scheme
-  , FileSpec(..)
-  , FileOffset
-  , ByteCount
+  , H2.Path
+  , H2.Authority
+  , H2.Scheme
+  , H2.FileSpec(..)
+  , H2.FileOffset
+  , H2.ByteCount
   -- * RecvN
-  , defaultReadN
+  , H2.defaultReadN
   -- * Position read for files
-  , PositionReadMaker
-  , PositionRead
-  , Sentinel(..)
-  , defaultPositionReadMaker
+  , H2.PositionReadMaker
+  , H2.PositionRead
+  , H2.Sentinel(..)
+  , H2.defaultPositionReadMaker
   ) where
 
 import Control.Concurrent
 import qualified Control.Exception as E
 import Data.IORef
-import Network.HTTP2.Internal
-import Network.HTTP2.Server hiding (run)
-import Network.HTTP2.Server.Internal
-import Network.QUIC
+import Network.HTTP2.Internal (InpObj(..))
+import qualified Network.HTTP2.Internal as H2
+import Network.HTTP2.Server (Server, PushPromise)
+import qualified Network.HTTP2.Server as H2
+import Network.HTTP2.Server.Internal (Request(..), Response(..), Aux(..))
+import Network.QUIC (Connection, Stream)
+import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
 
 import Imports
+import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 
-run :: Connection -> Server -> IO ()
-run conn server = E.bracket open close $ \ctx -> do
+run :: Connection -> Config -> Server -> IO ()
+run conn conf server = E.bracket open close $ \ctx -> do
     setupUnidirectional conn
     readerServer ctx server
   where
     open = do
         ref <- newIORef IInit
-        newContext conn (controlStream ref)
+        newContext conn conf (controlStream ref)
     close = clearContext
 
 readerServer :: Context -> Server -> IO ()
@@ -91,12 +96,12 @@ readerServer ctx server = loop
           Right strm -> process strm >> loop
           _          -> return ()
     process strm
-      | isClientInitiatedUnidirectional sid = unidirectional ctx strm
-      | isClientInitiatedBidirectional  sid = void $ forkIO $ processRequest ctx server strm
-      | isServerInitiatedUnidirectional sid = return () -- error
-      | otherwise                           = return ()
+      | QUIC.isClientInitiatedUnidirectional sid = unidirectional ctx strm
+      | QUIC.isClientInitiatedBidirectional  sid = void $ forkIO $ processRequest ctx server strm
+      | QUIC.isServerInitiatedUnidirectional sid = return () -- error
+      | otherwise                                = return ()
       where
-        sid = streamId strm
+        sid = QUIC.streamId strm
 
 processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = do
@@ -116,6 +121,6 @@ processRequest ctx server strm = do
 
 sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
 sendResponse ctx strm th (Response outobj) _pp = do
-    sendHeader ctx strm th $ outObjHeaders outobj
+    sendHeader ctx strm th $ H2.outObjHeaders outobj
     sendBody   ctx strm th outobj
-    shutdownStream strm
+    QUIC.shutdownStream strm

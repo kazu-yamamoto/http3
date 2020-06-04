@@ -1,72 +1,84 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Network.HTTP3.Client (
   -- * Runner
     run
+  -- * Runner arguments
+  , ClientConfig(..)
+  , Config(..)
   , Scheme
   , Authority
-  -- * Runner arguments
   -- * HTTP\/3 client
   , Client
   -- * Request
   , Request
   -- * Creating request
-  , requestNoBody
-  , requestFile
-  , requestStreaming
-  , requestBuilder
+  , H2.requestNoBody
+  , H2.requestFile
+  , H2.requestStreaming
+  , H2.requestBuilder
   -- ** Trailers maker
-  , TrailersMaker
-  , NextTrailersMaker(..)
-  , defaultTrailersMaker
-  , setRequestTrailersMaker
+  , H2.TrailersMaker
+  , H2.NextTrailersMaker(..)
+  , H2.defaultTrailersMaker
+  , H2.setRequestTrailersMaker
   -- * Response
   , Response
   -- ** Accessing response
-  , responseStatus
-  , responseHeaders
-  , responseBodySize
-  , getResponseBodyChunk
-  , getResponseTrailers
+  , H2.responseStatus
+  , H2.responseHeaders
+  , H2.responseBodySize
+  , H2.getResponseBodyChunk
+  , H2.getResponseTrailers
   -- * Types
-  , Method
-  , Path
-  , FileSpec(..)
-  , FileOffset
-  , ByteCount
+  , H2.Method
+  , H2.Path
+  , H2.FileSpec(..)
+  , H2.FileOffset
+  , H2.ByteCount
   -- * RecvN
-  , defaultReadN
+  , H2.defaultReadN
   -- * Position read for files
-  , PositionReadMaker
-  , PositionRead
-  , Sentinel(..)
-  , defaultPositionReadMaker
+  , H2.PositionReadMaker
+  , H2.PositionRead
+  , H2.Sentinel(..)
+  , H2.defaultPositionReadMaker
   ) where
 
 import Control.Concurrent
 import qualified Control.Exception as E
 import Data.IORef
-import Network.HTTP2.Client hiding (run, Config, allocSimpleConfig, freeSimpleConfig)
-import Network.HTTP2.Client.Internal
-import Network.HTTP2.Internal
-import Network.QUIC
+import Network.HTTP2.Client (Scheme, Authority, Client)
+import qualified Network.HTTP2.Client as H2
+import Network.HTTP2.Client.Internal (Request(..), Response(..))
+import Network.HTTP2.Internal (InpObj(..))
+import qualified Network.HTTP2.Internal as H2
+import Network.QUIC (Connection)
+import qualified Network.QUIC as QUIC
 
+import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 
-run :: Connection -> Scheme -> Authority -> Client a -> IO a
-run conn scm auth client = E.bracket open close $ \ctx -> do
+data ClientConfig = ClientConfig {
+    scheme :: Scheme
+  , authority :: Authority
+  }
+
+run :: Connection -> ClientConfig -> Config -> H2.Client a -> IO a
+run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
     setupUnidirectional conn
     tid <- forkIO $ readerClient ctx
-    client (sendRequest ctx scm auth) `E.finally` do
+    client (sendRequest ctx scheme authority) `E.finally` do
         killThread tid
   where
     open = do
         ref <- newIORef IInit
-        newContext conn (controlStream ref)
+        newContext conn conf (controlStream ref)
     close = clearContext
 
 readerClient :: Context -> IO ()
@@ -78,24 +90,24 @@ readerClient ctx = loop
           Right strm -> process strm >> loop
           _          -> return ()
     process strm
-      | isClientInitiatedUnidirectional sid = return () -- error
-      | isClientInitiatedBidirectional  sid = return ()
-      | isServerInitiatedUnidirectional sid = unidirectional ctx strm
-      | otherwise                           = return () -- push?
+      | QUIC.isClientInitiatedUnidirectional sid = return () -- error
+      | QUIC.isClientInitiatedBidirectional  sid = return ()
+      | QUIC.isServerInitiatedUnidirectional sid = unidirectional ctx strm
+      | otherwise                                = return () -- push?
       where
-        sid = streamId strm
+        sid = QUIC.streamId strm
 
 sendRequest :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse = do
     th <- registerThread ctx
-    let hdr = outObjHeaders outobj
+    let hdr = H2.outObjHeaders outobj
         hdr' = (":scheme", scm)
              : (":authority", auth)
              : hdr
     strm <- newStream ctx
     sendHeader ctx strm th hdr'
     sendBody ctx strm th outobj
-    shutdownStream strm
+    QUIC.shutdownStream strm
     src <- newSource strm
     mvt <- recvHeader ctx src
     case mvt of

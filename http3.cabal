@@ -20,6 +20,7 @@ library
                        Network.QPACK
                        Network.QPACK.Internal
   other-modules:       Imports
+                       Network.HTTP3.Config
                        Network.HTTP3.Context
                        Network.HTTP3.Control
                        Network.HTTP3.Error
