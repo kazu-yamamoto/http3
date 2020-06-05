@@ -15,7 +15,7 @@ import qualified Data.List as L
 import qualified Network.HTTP.Types as H
 import Network.HTTP2.Server hiding (run)
 import Network.HTTP3.Server
-import Network.QUIC
+import qualified Network.QUIC as QUIC
 import Network.TLS (credentialLoadX509, Credentials(..))
 import qualified Network.TLS.SessionManager as SM
 import System.Console.GetOpt
@@ -86,7 +86,7 @@ serverOpts argv =
       (o,n,[]  ) -> return (foldl (flip id) defaultOptions o, n)
       (_,_,errs) -> showUsageAndExit $ concat errs
 
-chooseALPN :: Version -> [ByteString] -> IO ByteString
+chooseALPN :: QUIC.Version -> [ByteString] -> IO ByteString
 chooseALPN ver protos = return $ case mh3idx of
     Nothing    -> case mhqidx of
       Nothing    -> ""
@@ -110,23 +110,23 @@ main = do
         aps = (,port) <$> addrs
     smgr <- SM.newSessionManager SM.defaultConfig
     Right cred <- credentialLoadX509 optCertFile optKeyFile
-    let conf = defaultServerConfig {
-            scAddresses      = aps
-          , scALPN           = Just chooseALPN
-          , scRequireRetry   = optRetry
-          , scSessionManager = smgr
-          , scEarlyDataSize  = 1024
-          , scConfig         = defaultConfig {
-                confKeyLog      = getLogger optKeyLogFile
-              , confGroups      = getGroups optGroups
-              , confDebugLog    = getDirLogger optDebugLogDir ".txt"
-              , confQLog        = getDirLogger optQLogDir ".qlog"
-              , confCredentials = Credentials [cred]
+    let conf = QUIC.defaultServerConfig {
+            QUIC.scAddresses      = aps
+          , QUIC.scALPN           = Just chooseALPN
+          , QUIC.scRequireRetry   = optRetry
+          , QUIC.scSessionManager = smgr
+          , QUIC.scEarlyDataSize  = 1024
+          , QUIC.scConfig         = QUIC.defaultConfig {
+                QUIC.confKeyLog      = getLogger optKeyLogFile
+              , QUIC.confGroups      = getGroups optGroups
+              , QUIC.confDebugLog    = getDirLogger optDebugLogDir ".txt"
+              , QUIC.confQLog        = getDirLogger optQLogDir ".qlog"
+              , QUIC.confCredentials = Credentials [cred]
               }
           }
-    runQUICServer conf $ \conn -> do
-        info <- getConnectionInfo conn
-        let server = case alpn info of
+    QUIC.runQUICServer conf $ \conn -> do
+        info <- QUIC.getConnectionInfo conn
+        let server = case QUIC.alpn info of
               Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ
               _                                       -> serverH3
         server conn
@@ -134,28 +134,28 @@ main = do
 onE :: IO b -> IO a -> IO a
 h `onE` b = b `E.onException` h
 
-serverHQ :: Connection -> IO ()
-serverHQ conn = connDebugLog conn "Connection terminated" `onE` loop
+serverHQ :: QUIC.Connection -> IO ()
+serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` loop
   where
     loop = do
-        es <- acceptStream conn
+        es <- QUIC.acceptStream conn
         case es of
           Left  e -> print e
           Right s -> do
-              bs <- recvStream s 1024
-              sendStream s html
-              shutdownStream s
+              bs <- QUIC.recvStream s 1024
+              QUIC.sendStream s html
+              QUIC.shutdownStream s
               if bs == "" then
-                  connDebugLog conn "Connection finished"
+                  QUIC.connDebugLog conn "Connection finished"
                 else do
-                  connDebugLog conn $ C8.unpack bs
+                  QUIC.connDebugLog conn $ C8.unpack bs
                   loop
 
 html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
 
-serverH3 :: Connection -> IO ()
-serverH3 conn = run conn $ \_req _aux sendResponse -> do
+serverH3 :: QUIC.Connection -> IO ()
+serverH3 conn = run conn defaultConfig $ \_req _aux sendResponse -> do
     let hdr = [ ("Content-Type", "text/html; charset=utf-8")
               , ("Server", "HaskellQuic/0.0.0")
               ]

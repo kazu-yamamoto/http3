@@ -12,7 +12,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import Network.HTTP3.Client
-import Network.QUIC
+import qualified Network.QUIC as QUIC
 import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
@@ -32,7 +32,7 @@ data Options = Options {
   , opt0RTT       :: Bool
   , optRetry      :: Bool
   , optQuantum    :: Bool
-  , optMigration  :: Maybe Migration
+  , optMigration  :: Maybe QUIC.Migration
   } deriving Show
 
 defaultOptions :: Options
@@ -90,16 +90,16 @@ options = [
     (NoArg (\o -> o { optQuantum = True }))
     "try sending large Initials"
   , Option ['M'] ["change-server-cid"]
-    (NoArg (\o -> o { optMigration = Just ChangeServerCID }))
+    (NoArg (\o -> o { optMigration = Just QUIC.ChangeServerCID }))
     "use a new server CID"
   , Option ['N'] ["change-client-cid"]
-    (NoArg (\o -> o { optMigration = Just ChangeClientCID }))
+    (NoArg (\o -> o { optMigration = Just QUIC.ChangeClientCID }))
     "use a new client CID"
   , Option ['B'] ["nat-rebinding"]
-    (NoArg (\o -> o { optMigration = Just NATRebiding }))
+    (NoArg (\o -> o { optMigration = Just QUIC.NATRebiding }))
     "use a new local port"
   , Option ['A'] ["address-mobility"]
-    (NoArg (\o -> o { optMigration = Just MigrateTo }))
+    (NoArg (\o -> o { optMigration = Just QUIC.MigrateTo }))
     "use a new address and a new server CID"
   ]
 
@@ -126,52 +126,52 @@ main = do
              | otherwise   = "/"
         cmd = C8.pack ("GET " ++ path ++ "\r\n")
         addr:port:_ = ips
-        conf = defaultClientConfig {
-            ccServerName = addr
-          , ccPortName   = port
-          , ccALPN       = \ver -> let (h3X, hqX) = makeProtos ver
-                                       protos
-                                         | optHQ     = [hqX,h3X]
-                                         | otherwise = [h3X,hqX]
-                                   in return $ Just protos
-          , ccValidate   = optValidate
-          , ccConfig     = defaultConfig {
-                confVersions   = if optVerNego then
-                                   GreasingVersion : confVersions defaultConfig
+        conf = QUIC.defaultClientConfig {
+            QUIC.ccServerName = addr
+          , QUIC.ccPortName   = port
+          , QUIC.ccALPN       = \ver -> let (h3X, hqX) = makeProtos ver
+                                            protos
+                                              | optHQ     = [hqX,h3X]
+                                              | otherwise = [h3X,hqX]
+                                        in return $ Just protos
+          , QUIC.ccValidate   = optValidate
+          , QUIC.ccConfig     = QUIC.defaultConfig {
+                QUIC.confVersions   = if optVerNego then
+                                        QUIC.GreasingVersion : QUIC.confVersions QUIC.defaultConfig
+                                      else
+                                        QUIC.confVersions QUIC.defaultConfig
+              , QUIC.confParameters = if optQuantum then
+                                        QUIC.defaultParameters {
+                                            QUIC.greaseParameter = Just (BS.pack (replicate 1200 0))
+                                        }
                                  else
-                                   confVersions defaultConfig
-              , confParameters = if optQuantum then
-                                   defaultParameters {
-                                       greaseParameter = Just (BS.pack (replicate 1200 0))
-                                     }
-                                 else
-                                   defaultParameters
-              , confKeyLog     = getLogger optKeyLogFile
-              , confGroups     = getGroups optGroups
-              , confDebugLog   = getStdoutLogger optDebugLog
-              , confQLog       = getDirLogger optQLogDir ".qlog"
+                                   QUIC.defaultParameters
+              , QUIC.confKeyLog     = getLogger optKeyLogFile
+              , QUIC.confGroups     = getGroups optGroups
+              , QUIC.confDebugLog   = getStdoutLogger optDebugLog
+              , QUIC.confQLog       = getDirLogger optQLogDir ".qlog"
               }
           }
         debug | optDebugLog = putStrLn
               | otherwise   = \_ -> return ()
     runClient conf opts cmd addr debug
 
-runClient :: ClientConfig -> Options -> ByteString -> String -> (String -> IO ()) -> IO ()
+runClient :: QUIC.ClientConfig -> Options -> ByteString -> String -> (String -> IO ()) -> IO ()
 runClient conf opts@Options{..} cmd addr debug = do
     debug "------------------------"
-    (info1,info2,res,mig,client') <- runQUICClient conf $ \conn -> do
-        i1 <- getConnectionInfo conn
-        let client = case alpn i1 of
+    (info1,info2,res,mig,client') <- QUIC.runQUICClient conf $ \conn -> do
+        i1 <- QUIC.getConnectionInfo conn
+        let client = case QUIC.alpn i1 of
               Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ cmd
               _                                       -> clientH3 addr
         m <- case optMigration of
           Nothing   -> return False
           Just mtyp -> do
               debug $ "Migration by " ++ show mtyp
-              migration conn mtyp
+              QUIC.migration conn mtyp
         client conn debug
-        i2 <- getConnectionInfo conn
-        r <- getResumptionInfo conn
+        i2 <- QUIC.getConnectionInfo conn
+        r <- QUIC.getResumptionInfo conn
         return (i1, i2, r, m, client)
     if optVerNego then do
         putStrLn "Result: (V) version negotiation  ... OK"
@@ -180,9 +180,9 @@ runClient conf opts@Options{..} cmd addr debug = do
         putStrLn "Result: (Q) quantum ... OK"
         exitSuccess
       else if optResumption then do
-        if isResumptionPossible res then do
+        if QUIC.isResumptionPossible res then do
             info3 <- runClient2 conf opts debug res client'
-            if handshakeMode info3 == PreSharedKey then do
+            if QUIC.handshakeMode info3 == PreSharedKey then do
                 putStrLn "Result: (R) TLS resumption ... OK"
                 exitSuccess
               else do
@@ -192,9 +192,9 @@ runClient conf opts@Options{..} cmd addr debug = do
             putStrLn "Result: (R) TLS resumption ... NG"
             exitFailure
       else if opt0RTT then do
-        if is0RTTPossible res then do
+        if QUIC.is0RTTPossible res then do
             info3 <- runClient2 conf opts debug res client'
-            if handshakeMode info3 == RTT0 then do
+            if QUIC.handshakeMode info3 == RTT0 then do
                 putStrLn "Result: (Z) 0-RTT ... OK"
                 exitSuccess
               else do
@@ -204,34 +204,34 @@ runClient conf opts@Options{..} cmd addr debug = do
             putStrLn "Result: (Z) 0-RTT ... NG"
             exitFailure
       else if optRetry then do
-        if retry info1 then do
+        if QUIC.retry info1 then do
             putStrLn "Result: (S) retry ... OK"
             exitSuccess
           else do
             putStrLn "Result: (S) retry ... NG"
             exitFailure
       else case optMigration of
-             Just ChangeServerCID -> do
-                 let changed = remoteCID info1 /= remoteCID info2
-                 if mig && remoteCID info1 /= remoteCID info2 then do
+             Just QUIC.ChangeServerCID -> do
+                 let changed = QUIC.remoteCID info1 /= QUIC.remoteCID info2
+                 if mig && QUIC.remoteCID info1 /= QUIC.remoteCID info2 then do
                      putStrLn "Result: (M) change server CID ... OK"
                      exitSuccess
                    else do
                      putStrLn $ "Result: (M) change server CID ... NG " ++ show (mig,changed)
                      exitFailure
-             Just ChangeClientCID -> do
-                 let changed = localCID info1 /= localCID info2
+             Just QUIC.ChangeClientCID -> do
+                 let changed = QUIC.localCID info1 /= QUIC.localCID info2
                  if mig && changed then do
                      putStrLn "Result: (N) change client CID ... OK"
                      exitSuccess
                    else do
                      putStrLn $ "Result: (N) change client CID ... NG " ++ show (mig,changed)
                      exitFailure
-             Just NATRebiding -> do
+             Just QUIC.NATRebiding -> do
                  putStrLn "Result: (B) NAT rebinding ... OK"
                  exitSuccess
-             Just MigrateTo -> do
-                 let changed = remoteCID info1 /= remoteCID info2
+             Just QUIC.MigrateTo -> do
+                 let changed = QUIC.remoteCID info1 /= QUIC.remoteCID info2
                  if mig && changed then do
                      putStrLn "Result: (A) address mobility ... OK"
                      exitSuccess
@@ -243,45 +243,48 @@ runClient conf opts@Options{..} cmd addr debug = do
                  putStrLn "Result: (D) stream data ... OK"
                  exitSuccess
 
-runClient2 :: ClientConfig -> Options -> (String -> IO ()) -> ResumptionInfo -> (Connection -> (String -> IO ()) -> IO ()) -> IO ConnectionInfo
+runClient2 :: QUIC.ClientConfig -> Options -> (String -> IO ()) -> QUIC.ResumptionInfo -> (QUIC.Connection -> (String -> IO ()) -> IO ()) -> IO QUIC.ConnectionInfo
 runClient2 conf Options{..} debug res client = do
     threadDelay 100000
     debug "<<<< next connection >>>>"
     debug "------------------------"
-    runQUICClient conf' $ \conn -> do
+    QUIC.runQUICClient conf' $ \conn -> do
         if rtt0 then do
             void $ client conn debug
            else do
             void $ client conn debug
-        getConnectionInfo conn
+        QUIC.getConnectionInfo conn
   where
-    rtt0 = opt0RTT && is0RTTPossible res
+    rtt0 = opt0RTT && QUIC.is0RTTPossible res
     conf' | rtt0 = conf {
-                ccResumption = res
-              , ccUse0RTT    = True
+                QUIC.ccResumption = res
+              , QUIC.ccUse0RTT    = True
               }
-          | otherwise = conf { ccResumption = res }
+          | otherwise = conf { QUIC.ccResumption = res }
 
-clientHQ :: ByteString -> Connection -> (String -> IO ()) -> IO ()
+clientHQ :: ByteString -> QUIC.Connection -> (String -> IO ()) -> IO ()
 clientHQ cmd conn debug = do
-    s <- stream conn
-    sendStream s cmd
-    shutdownStream s
+    s <- QUIC.stream conn
+    QUIC.sendStream s cmd
+    QUIC.shutdownStream s
     loop s
   where
     loop s = do
-        bs <- recvStream s 1024
+        bs <- QUIC.recvStream s 1024
         if bs == "" then do
             debug "Connection finished"
-            getConnectionStats conn >>= print
+            QUIC.getConnectionStats conn >>= print
           else do
             debug $ C8.unpack bs
             loop s
 
-clientH3 :: String -> Connection -> (String -> IO ()) -> IO ()
-clientH3 authority conn debug = run conn "http" auth client
+clientH3 :: String -> QUIC.Connection -> (String -> IO ()) -> IO ()
+clientH3 auth conn debug = run conn cliconf defaultConfig client
   where
-    auth = C8.pack authority
+    cliconf = ClientConfig {
+        scheme = "https"
+      , authority = C8.pack auth
+      }
     client sendRequest = do
         let req = requestNoBody methodGet "/" [("User-Agent", "HaskellQuic/0.0.0")]
         _ <- sendRequest req $ \rsp -> do
@@ -290,4 +293,4 @@ clientH3 authority conn debug = run conn "http" auth client
             debug "------------------------"
             getResponseBodyChunk rsp >>= C8.putStrLn
             debug "------------------------"
-        getConnectionStats conn >>= print
+        QUIC.getConnectionStats conn >>= print
