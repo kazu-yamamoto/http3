@@ -51,6 +51,6 @@ controlStream ref recv = loop
                 H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
                 H3FrameGoaway     -> return () -- print $ decodeInt payload
                 H3FrameMaxPushId  -> return () -- print $ decodeInt payload
-                _                 -> putStrLn "controlStream: error"
+                _                 -> return () -- greasing
               parse leftover IInit
           st1 -> return st1
