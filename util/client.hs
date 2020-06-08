@@ -241,6 +241,10 @@ runClient conf opts@Options{..} cmd addr debug = do
              Nothing -> do
                  putStrLn "Result: (H) handshake ... OK"
                  putStrLn "Result: (D) stream data ... OK"
+                 case QUIC.alpn info1 of
+                   Nothing   -> return ()
+                   Just alpn -> when ("h3" `BS.isPrefixOf` alpn) $
+                     putStrLn "Result: (3) H3 transaction ... OK"
                  exitSuccess
 
 runClient2 :: QUIC.ClientConfig -> Options -> (String -> IO ()) -> QUIC.ResumptionInfo -> (QUIC.Connection -> (String -> IO ()) -> IO ()) -> IO QUIC.ConnectionInfo
