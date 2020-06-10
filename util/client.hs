@@ -10,6 +10,9 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import Data.Char
+import Data.UnixTime
+import Foreign.C.Types
 import Network.HTTP.Types
 import Network.HTTP3.Client
 import qualified Network.QUIC as QUIC
@@ -17,11 +20,13 @@ import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
+import Text.Printf
 
 import Common
 
 data Options = Options {
     optDebugLog   :: Bool
+  , optShow       :: Bool
   , optQLogDir    :: Maybe FilePath
   , optKeyLogFile :: Maybe FilePath
   , optGroups     :: Maybe String
@@ -32,12 +37,14 @@ data Options = Options {
   , opt0RTT       :: Bool
   , optRetry      :: Bool
   , optQuantum    :: Bool
+  , optThroughput :: Bool
   , optMigration  :: Maybe QUIC.Migration
   } deriving Show
 
 defaultOptions :: Options
 defaultOptions = Options {
     optDebugLog   = False
+  , optShow       = False
   , optQLogDir    = Nothing
   , optKeyLogFile = Nothing
   , optGroups     = Nothing
@@ -48,6 +55,7 @@ defaultOptions = Options {
   , opt0RTT       = False
   , optRetry      = False
   , optQuantum    = False
+  , optThroughput = False
   , optMigration  = Nothing
   }
 
@@ -59,6 +67,9 @@ options = [
     Option ['d'] ["debug"]
     (NoArg (\o -> o { optDebugLog = True }))
     "print debug info"
+  , Option ['v'] ["show-content"]
+    (NoArg (\o -> o { optShow = True }))
+    "print downloaded content"
   , Option ['q'] ["qlog-dir"]
     (ReqArg (\dir o -> o { optQLogDir = Just dir }) "<dir>")
     "directory to store qlog"
@@ -101,6 +112,9 @@ options = [
   , Option ['A'] ["address-mobility"]
     (NoArg (\o -> o { optMigration = Just QUIC.MigrateTo }))
     "use a new address and a new server CID"
+  , Option ['T'] ["throughput"]
+    (NoArg (\o -> o { optThroughput = True }))
+    "try measuring throughput. path must be specified"
   ]
 
 showUsageAndExit :: String -> IO a
@@ -115,6 +129,15 @@ clientOpts argv =
       (o,n,[]  ) -> return (foldl (flip id) defaultOptions o, n)
       (_,_,errs) -> showUsageAndExit $ concat errs
 
+data Aux = Aux {
+    auxPath :: String
+  , auxAuthority :: String
+  , auxDebug :: String -> IO ()
+  , auxShow :: ByteString -> IO ()
+  }
+
+type Cli = Aux -> QUIC.Connection -> IO ()
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -122,9 +145,8 @@ main = do
     let ipslen = length ips
     when (ipslen /= 2 && ipslen /= 3) $
         showUsageAndExit "cannot recognize <addr> and <port>\n"
-    let path | ipslen == 3 = "/" ++ (ips !! 2)
+    let path | ipslen == 3 = ips !! 2
              | otherwise   = "/"
-        cmd = C8.pack ("GET " ++ path ++ "\r\n")
         addr:port:_ = ips
         conf = QUIC.defaultClientConfig {
             QUIC.ccServerName = addr
@@ -154,24 +176,35 @@ main = do
           }
         debug | optDebugLog = putStrLn
               | otherwise   = \_ -> return ()
-    runClient conf opts cmd addr debug
+        showContent | optShow = C8.putStrLn
+                    | otherwise = \_ -> return ()
+        aux = Aux {
+            auxPath = path
+          , auxAuthority = addr
+          , auxDebug = debug
+          , auxShow = showContent
+          }
+    runClient conf opts aux
 
-runClient :: QUIC.ClientConfig -> Options -> ByteString -> String -> (String -> IO ()) -> IO ()
-runClient conf opts@Options{..} cmd addr debug = do
-    debug "------------------------"
+runClient :: QUIC.ClientConfig -> Options -> Aux -> IO ()
+runClient conf opts@Options{..} aux@Aux{..} = do
+    auxDebug "------------------------"
     (info1,info2,res,mig,client') <- QUIC.runQUICClient conf $ \conn -> do
         i1 <- QUIC.getConnectionInfo conn
         let client = case QUIC.alpn i1 of
-              Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ cmd
-              _                                       -> clientH3 addr
+              Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ
+              _                                       -> clientH3
         m <- case optMigration of
           Nothing   -> return False
           Just mtyp -> do
-              debug $ "Migration by " ++ show mtyp
+              auxDebug $ "Migration by " ++ show mtyp
               QUIC.migration conn mtyp
-        client conn debug
+        t1 <- getUnixTime
+        client aux conn
+        t2 <- getUnixTime
         i2 <- QUIC.getConnectionInfo conn
         r <- QUIC.getResumptionInfo conn
+        printThroughput t1 t2 aux
         return (i1, i2, r, m, client)
     if optVerNego then do
         putStrLn "Result: (V) version negotiation ... OK"
@@ -181,7 +214,7 @@ runClient conf opts@Options{..} cmd addr debug = do
         exitSuccess
       else if optResumption then do
         if QUIC.isResumptionPossible res then do
-            info3 <- runClient2 conf opts debug res client'
+            info3 <- runClient2 conf opts aux res client'
             if QUIC.handshakeMode info3 == PreSharedKey then do
                 putStrLn "Result: (R) TLS resumption ... OK"
                 exitSuccess
@@ -193,7 +226,7 @@ runClient conf opts@Options{..} cmd addr debug = do
             exitFailure
       else if opt0RTT then do
         if QUIC.is0RTTPossible res then do
-            info3 <- runClient2 conf opts debug res client'
+            info3 <- runClient2 conf opts aux res client'
             if QUIC.handshakeMode info3 == RTT0 then do
                 putStrLn "Result: (Z) 0-RTT ... OK"
                 exitSuccess
@@ -247,13 +280,14 @@ runClient conf opts@Options{..} cmd addr debug = do
                      putStrLn "Result: (3) H3 transaction ... OK"
                  exitSuccess
 
-runClient2 :: QUIC.ClientConfig -> Options -> (String -> IO ()) -> QUIC.ResumptionInfo -> (QUIC.Connection -> (String -> IO ()) -> IO ()) -> IO QUIC.ConnectionInfo
-runClient2 conf Options{..} debug res client = do
+runClient2 :: QUIC.ClientConfig -> Options -> Aux -> QUIC.ResumptionInfo -> Cli
+           -> IO QUIC.ConnectionInfo
+runClient2 conf Options{..} aux@Aux{..} res client = do
     threadDelay 100000
-    debug "<<<< next connection >>>>"
-    debug "------------------------"
+    auxDebug "<<<< next connection >>>>"
+    auxDebug "------------------------"
     QUIC.runQUICClient conf' $ \conn -> do
-        void $ client conn debug
+        void $ client aux conn
         QUIC.getConnectionInfo conn
   where
     conf' = conf {
@@ -261,8 +295,9 @@ runClient2 conf Options{..} debug res client = do
       , QUIC.ccUse0RTT    = opt0RTT && QUIC.is0RTTPossible res
       }
 
-clientHQ :: ByteString -> QUIC.Connection -> (String -> IO ()) -> IO ()
-clientHQ cmd conn debug = do
+clientHQ :: Cli
+clientHQ Aux{..} conn = do
+    let cmd = C8.pack ("GET " ++ auxPath ++ "\r\n")
     s <- QUIC.stream conn
     QUIC.sendStream s cmd
     QUIC.shutdownStream s
@@ -271,25 +306,39 @@ clientHQ cmd conn debug = do
     loop s = do
         bs <- QUIC.recvStream s 1024
         if bs == "" then do
-            debug "Connection finished"
+            auxDebug "Connection finished"
             QUIC.getConnectionStats conn >>= print
           else do
-            debug $ C8.unpack bs
+            auxShow bs
             loop s
 
-clientH3 :: String -> QUIC.Connection -> (String -> IO ()) -> IO ()
-clientH3 auth conn debug = run conn cliconf defaultConfig client
+clientH3 :: Cli
+clientH3 Aux{..} conn = run conn cliconf defaultConfig client
   where
     cliconf = ClientConfig {
         scheme = "https"
-      , authority = C8.pack auth
+      , authority = C8.pack auxAuthority
       }
     client sendRequest = do
-        let req = requestNoBody methodGet "/" [("User-Agent", "HaskellQuic/0.0.0")]
+        let req = requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
         _ <- sendRequest req $ \rsp -> do
-            debug "------------------------"
-            debug $ show rsp
-            debug "------------------------"
-            getResponseBodyChunk rsp >>= C8.putStrLn
-            debug "------------------------"
+            auxShow "------------------------"
+            loop rsp
+            auxShow "------------------------"
         QUIC.getConnectionStats conn >>= print
+    loop rsp = do
+        x <- getResponseBodyChunk rsp
+        auxShow x
+        when (x /= "") $ loop rsp
+
+printThroughput :: UnixTime -> UnixTime -> Aux -> IO ()
+printThroughput t1 t2 Aux{..} =
+    printf "Throughput %.2f MB/s (%d bytes in %d msecs)\n" bytesPerSeconds amount millisecs
+  where
+    UnixDiffTime (CTime s) u = t2 `diffUnixTime` t1
+    millisecs :: Int
+    millisecs = fromIntegral s * 1000 + fromIntegral u `div` 1000
+    amount :: Int
+    amount = read $ reverse $ takeWhile isNumber $ reverse auxPath
+    bytesPerSeconds :: Double
+    bytesPerSeconds = fromIntegral amount * (1000 :: Double) / fromIntegral millisecs / 1024 / 1024
