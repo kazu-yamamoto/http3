@@ -253,18 +253,13 @@ runClient2 conf Options{..} debug res client = do
     debug "<<<< next connection >>>>"
     debug "------------------------"
     QUIC.runQUICClient conf' $ \conn -> do
-        if rtt0 then do
-            void $ client conn debug
-           else do
-            void $ client conn debug
+        void $ client conn debug
         QUIC.getConnectionInfo conn
   where
-    rtt0 = opt0RTT && QUIC.is0RTTPossible res
-    conf' | rtt0 = conf {
-                QUIC.ccResumption = res
-              , QUIC.ccUse0RTT    = True
-              }
-          | otherwise = conf { QUIC.ccResumption = res }
+    conf' = conf {
+        QUIC.ccResumption = res
+      , QUIC.ccUse0RTT    = opt0RTT && QUIC.is0RTTPossible res
+      }
 
 clientHQ :: ByteString -> QUIC.Connection -> (String -> IO ()) -> IO ()
 clientHQ cmd conn debug = do
