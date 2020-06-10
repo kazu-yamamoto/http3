@@ -28,7 +28,6 @@ executable server
                       , quic
                       , tls
                       , tls-session-manager
-                      , unix-time
   if impl(ghc >= 8)
       Default-Extensions:  Strict StrictData
 
@@ -46,5 +45,6 @@ executable client
                       , http3
                       , quic
                       , tls
+                      , unix-time
   if impl(ghc >= 8)
       Default-Extensions:  Strict StrictData
