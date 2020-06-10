@@ -174,7 +174,7 @@ runClient conf opts@Options{..} cmd addr debug = do
         r <- QUIC.getResumptionInfo conn
         return (i1, i2, r, m, client)
     if optVerNego then do
-        putStrLn "Result: (V) version negotiation  ... OK"
+        putStrLn "Result: (V) version negotiation ... OK"
         exitSuccess
       else if optQuantum then do
         putStrLn "Result: (Q) quantum ... OK"
