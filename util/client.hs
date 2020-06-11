@@ -332,13 +332,17 @@ clientH3 Aux{..} conn = run conn cliconf defaultConfig client
         when (x /= "") $ loop rsp
 
 printThroughput :: UnixTime -> UnixTime -> Aux -> IO ()
-printThroughput t1 t2 Aux{..} =
-    printf "Throughput %.2f MB/s (%d bytes in %d msecs)\n" bytesPerSeconds amount millisecs
+printThroughput t1 t2 Aux{..}
+  | amount /= 0 = printf "Throughput %.2f MB/s (%d bytes in %d msecs)\n" bytesPerSeconds amount millisecs
+  | otherwise   = return ()
   where
     UnixDiffTime (CTime s) u = t2 `diffUnixTime` t1
     millisecs :: Int
     millisecs = fromIntegral s * 1000 + fromIntegral u `div` 1000
+    strnum = reverse $ takeWhile isNumber $ reverse auxPath
     amount :: Int
-    amount = read $ reverse $ takeWhile isNumber $ reverse auxPath
+    amount = case strnum of
+      [] -> 0
+      _  -> read strnum
     bytesPerSeconds :: Double
     bytesPerSeconds = fromIntegral amount * (1000 :: Double) / fromIntegral millisecs / 1024 / 1024
