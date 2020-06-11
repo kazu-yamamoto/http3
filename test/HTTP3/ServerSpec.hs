@@ -18,7 +18,7 @@ import Network.HPACK
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
-import Network.QUIC
+import qualified Network.QUIC as QUIC
 import Network.Socket ()
 import Network.TLS (credentialLoadX509, Credentials(..))
 import Test.Hspec
@@ -41,7 +41,7 @@ runServer :: IO ()
 runServer = do
     Right cred <- credentialLoadX509 "test/servercert.pem" "test/serverkey.pem"
     let creds = Credentials [cred]
-    runQUICServer (quicServerConf creds) (`run` server)
+    QUIC.runQUICServer (quicServerConf creds) (\conn -> run conn defaultConfig server)
 
 server :: Server
 server req _aux sendResponse = case requestMethod req of
@@ -92,10 +92,10 @@ trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
     !ctx' = CH.hashUpdate ctx bs
 
 runClient :: IO ()
-runClient = runQUICClient quicClientConf $ \conn ->
-    C.run conn "http" authority client
+runClient = QUIC.runQUICClient quicClientConf $ \conn ->
+    C.run conn cliconf defaultConfig client
   where
-    authority = C8.pack host
+    cliconf = C.ClientConfig "https" (C8.pack host)
     client sendRequest = mapConcurrently_ ($ sendRequest) clients
     clients = [client0,client1,client2,client3]
 
@@ -134,16 +134,16 @@ client3 sendRequest = do
 firstTrailerValue :: HeaderTable -> HeaderValue
 firstTrailerValue = snd . Prelude.head . fst
 
-quicClientConf :: ClientConfig
-quicClientConf = defaultClientConfig {
-    ccServerName = host
-  , ccPortName   = port
+quicClientConf :: QUIC.ClientConfig
+quicClientConf = QUIC.defaultClientConfig {
+    QUIC.ccServerName = host
+  , QUIC.ccPortName   = port
   }
 
-quicServerConf :: Credentials -> ServerConfig
-quicServerConf creds = defaultServerConfig {
-    scAddresses    = [(read host, read port)]
-  , scConfig     = defaultConfig {
-        confCredentials = creds
+quicServerConf :: Credentials -> QUIC.ServerConfig
+quicServerConf creds = QUIC.defaultServerConfig {
+    QUIC.scAddresses    = [(read host, read port)]
+  , QUIC.scConfig     = QUIC.defaultConfig {
+        QUIC.confCredentials = creds
       }
   }
