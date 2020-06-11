@@ -135,21 +135,27 @@ onE :: IO b -> IO a -> IO a
 h `onE` b = b `E.onException` h
 
 serverHQ :: QUIC.Connection -> IO ()
-serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` loop
-  where
-    loop = do
-        es <- QUIC.acceptStream conn
-        case es of
-          Left  e -> print e
-          Right s -> do
-              bs <- QUIC.recvStream s 1024
+serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` do
+    es <- QUIC.acceptStream conn
+    case es of
+      Left  e -> print e
+      Right s -> do
+          consume conn s
+          let sid = QUIC.streamId s
+          when (QUIC.isClientInitiatedBidirectional sid) $ do
               QUIC.sendStream s html
               QUIC.shutdownStream s
-              if bs == "" then
-                  QUIC.connDebugLog conn "Connection finished"
-                else do
-                  QUIC.connDebugLog conn $ C8.unpack bs
-                  loop
+
+consume :: QUIC.Connection -> QUIC.Stream -> IO ()
+consume conn s = loop
+  where
+    loop = do
+        bs <- QUIC.recvStream s 1024
+        if bs == "" then
+            QUIC.connDebugLog conn "FIN received"
+          else do
+            QUIC.connDebugLog conn $ C8.unpack bs
+            loop
 
 html :: ByteString
 html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
