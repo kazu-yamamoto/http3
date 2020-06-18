@@ -92,12 +92,12 @@ readerServer :: Context -> Server -> IO ()
 readerServer ctx server = loop
   where
     loop = do
-        estrm <- accept ctx
-        case estrm of
-          Right strm -> process strm >> loop
-          _          -> return ()
+        accept ctx >>= process
+        loop
     process strm
-      | QUIC.isClientInitiatedUnidirectional sid = unidirectional ctx strm
+      | QUIC.isClientInitiatedUnidirectional sid = do
+            tid <- unidirectional ctx strm
+            addThreadId ctx tid
       | QUIC.isClientInitiatedBidirectional  sid = void $ forkIO $ processRequest ctx server strm
       | QUIC.isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                                = return ()

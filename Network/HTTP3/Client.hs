@@ -86,14 +86,14 @@ readerClient :: Context -> IO ()
 readerClient ctx = loop
   where
     loop = do
-        estrm <- accept ctx
-        case estrm of
-          Right strm -> process strm >> loop
-          _          -> return ()
+        accept ctx >>= process
+        loop
     process strm
       | QUIC.isClientInitiatedUnidirectional sid = return () -- error
       | QUIC.isClientInitiatedBidirectional  sid = return ()
-      | QUIC.isServerInitiatedUnidirectional sid = unidirectional ctx strm
+      | QUIC.isServerInitiatedUnidirectional sid = do
+            tid <- unidirectional ctx strm
+            addThreadId ctx tid
       | otherwise                                = return () -- push?
       where
         sid = QUIC.streamId strm

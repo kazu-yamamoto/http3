@@ -15,17 +15,19 @@ module Network.HTTP3.Context (
   , timeoutClose
   , newStream
   , pReadMaker
+  , addThreadId
   ) where
 
 import Control.Concurrent
 import qualified Data.ByteString as BS
+import Data.IORef
 import Network.HTTP2.Internal (PositionReadMaker)
-import Network.QUIC (Connection, Stream, QUICError)
+import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (isServer, isClient)
+import System.Mem.Weak
 import qualified System.TimeManager as T
 
-import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Stream
 import Network.QPACK
@@ -38,6 +40,7 @@ data Context = Context {
   , ctxCleanup    :: Cleanup
   , ctxPReadMaker :: PositionReadMaker
   , ctxManager    :: T.Manager
+  , ctxThreads    :: IORef [Weak ThreadId]
   }
 
 newContext :: Connection -> Config -> InstructionHandler -> IO Context
@@ -47,10 +50,11 @@ newContext conn conf ctl = do
     let sw = switch ctl handleEI handleDI
         clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
-    Context conn enc dec sw clean preadM <$> T.initialize 30000000
+    Context conn enc dec sw clean preadM <$> T.initialize 30000000 <*> newIORef []
 
 clearContext :: Context -> IO ()
-clearContext Context{..} = do
+clearContext ctx@Context{..} = do
+    clearThreads ctx
     ctxCleanup
     T.stopManager ctxManager
 
@@ -67,7 +71,7 @@ isH3Server Context{..} = isServer ctxConnection
 isH3Client :: Context -> Bool
 isH3Client Context{..} = isClient ctxConnection
 
-accept :: Context -> IO (Either QUICError Stream)
+accept :: Context -> IO Stream
 accept Context{..} = QUIC.acceptStream ctxConnection
 
 qpackEncode :: Context -> QEncoder
@@ -76,11 +80,11 @@ qpackEncode Context{..} = ctxQEncoder
 qpackDecode :: Context -> QDecoder
 qpackDecode Context{..} = ctxQDecoder
 
-unidirectional :: Context -> Stream -> IO ()
+unidirectional :: Context -> Stream -> IO ThreadId
 unidirectional Context{..} strm = do
     [w8] <- BS.unpack <$> QUIC.recvStream strm 1 -- fixme: variable length
     let typ = toH3StreamType $ fromIntegral w8
-    void $ forkIO $ ctxUniSwitch typ (QUIC.recvStream strm)
+    forkIO $ ctxUniSwitch typ (QUIC.recvStream strm)
 
 registerThread :: Context -> IO T.Handle
 registerThread Context{..} = T.registerKillThread ctxManager (return ())
@@ -95,3 +99,20 @@ newStream Context{..} = QUIC.stream ctxConnection
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
+
+addThreadId :: Context -> ThreadId -> IO ()
+addThreadId Context{..} tid = do
+    wtid <- mkWeakThreadId tid
+    atomicModifyIORef' ctxThreads $ \ts -> (wtid:ts, ())
+
+clearThreads :: Context -> IO ()
+clearThreads Context{..} = do
+    wtids <- readIORef ctxThreads
+    mapM_ kill wtids
+    writeIORef ctxThreads []
+  where
+    kill wtid = do
+        mtid <- deRefWeak wtid
+        case mtid of
+          Nothing  -> return ()
+          Just tid -> killThread tid
