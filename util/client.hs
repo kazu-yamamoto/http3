@@ -197,8 +197,9 @@ runClient conf opts@Options{..} aux@Aux{..} = do
         m <- case optMigration of
           Nothing   -> return False
           Just mtyp -> do
+              x <- QUIC.migration conn mtyp
               auxDebug $ "Migration by " ++ show mtyp
-              QUIC.migration conn mtyp
+              return x
         t1 <- getUnixTime
         client aux conn
         t2 <- getUnixTime

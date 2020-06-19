@@ -136,15 +136,12 @@ h `onE` b = b `E.onException` h
 
 serverHQ :: QUIC.Connection -> IO ()
 serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` do
-    es <- QUIC.acceptStream conn
-    case es of
-      Left  e -> print e
-      Right s -> do
-          consume conn s
-          let sid = QUIC.streamId s
-          when (QUIC.isClientInitiatedBidirectional sid) $ do
-              QUIC.sendStream s html
-              QUIC.shutdownStream s
+    s <- QUIC.acceptStream conn
+    consume conn s
+    let sid = QUIC.streamId s
+    when (QUIC.isClientInitiatedBidirectional sid) $ do
+        QUIC.sendStream s html
+        QUIC.shutdownStream s
 
 consume :: QUIC.Connection -> QUIC.Stream -> IO ()
 consume conn s = loop
