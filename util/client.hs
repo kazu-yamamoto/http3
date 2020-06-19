@@ -39,6 +39,7 @@ data Options = Options {
   , optQuantum    :: Bool
   , optThroughput :: Bool
   , optMigration  :: Maybe QUIC.Migration
+  , optPacketSize :: Maybe Int
   } deriving Show
 
 defaultOptions :: Options
@@ -57,6 +58,7 @@ defaultOptions = Options {
   , optQuantum    = False
   , optThroughput = False
   , optMigration  = Nothing
+  , optPacketSize = Nothing
   }
 
 usage :: String
@@ -85,6 +87,9 @@ options = [
   , Option ['r'] ["hq"]
     (NoArg (\o -> o { optHQ = True }))
     "prefer hq (HTTP/0.9)"
+  , Option ['s'] ["packet-size"]
+    (ReqArg (\n o -> o { optPacketSize = Just (read n) }) "<int>")
+    "specify QUIC packet size (UDP payload size)"
   , Option ['V'] ["vernego"]
     (NoArg (\o -> o { optVerNego = True }))
     "try version negotiation"
@@ -157,6 +162,7 @@ main = do
                                               | otherwise = [h3X,hqX]
                                         in return $ Just protos
           , QUIC.ccValidate   = optValidate
+          , QUIC.ccPacketSize = optPacketSize
           , QUIC.ccConfig     = QUIC.defaultConfig {
                 QUIC.confVersions   = if optVerNego then
                                         QUIC.GreasingVersion : QUIC.confVersions QUIC.defaultConfig
