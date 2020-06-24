@@ -10,7 +10,7 @@ import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as C8
+import Data.ByteString.Builder
 import qualified Data.List as L
 import qualified Network.HTTP.Types as H
 import Network.HTTP2.Server hiding (run)
@@ -116,11 +116,11 @@ main = do
           , QUIC.scRequireRetry   = optRetry
           , QUIC.scSessionManager = smgr
           , QUIC.scEarlyDataSize  = 1024
+          , QUIC.scDebugLog       = optDebugLogDir
           , QUIC.scConfig         = QUIC.defaultConfig {
                 QUIC.confKeyLog      = getLogger optKeyLogFile
               , QUIC.confGroups      = getGroups optGroups
-              , QUIC.confDebugLog    = getDirLogger optDebugLogDir ".txt"
-              , QUIC.confQLog        = getDirLogger optQLogDir ".qlog"
+              , QUIC.confQLog        = optQLogDir
               , QUIC.confCredentials = Credentials [cred]
               }
           }
@@ -151,7 +151,7 @@ consume conn s = loop
         if bs == "" then
             QUIC.connDebugLog conn "FIN received"
           else do
-            QUIC.connDebugLog conn $ C8.unpack bs
+            QUIC.connDebugLog conn $ byteString bs
             loop
 
 html :: ByteString

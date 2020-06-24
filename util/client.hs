@@ -11,6 +11,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.Char
+import Data.IORef
 import Data.UnixTime
 import Foreign.C.Types
 import Network.HTTP.Types
@@ -139,6 +140,7 @@ data Aux = Aux {
   , auxAuthority :: String
   , auxDebug :: String -> IO ()
   , auxShow :: ByteString -> IO ()
+  , auxCheckClose :: IO Bool
   }
 
 type Cli = Aux -> QUIC.Connection -> IO ()
@@ -150,6 +152,7 @@ main = do
     let ipslen = length ips
     when (ipslen /= 2 && ipslen /= 3) $
         showUsageAndExit "cannot recognize <addr> and <port>\n"
+    cref <- newIORef False
     let path | ipslen == 3 = ips !! 2
              | otherwise   = "/"
         addr:port:_ = ips
@@ -163,6 +166,7 @@ main = do
                                         in return $ Just protos
           , QUIC.ccValidate   = optValidate
           , QUIC.ccPacketSize = optPacketSize
+          , QUIC.ccDebugLog   = optDebugLog
           , QUIC.ccConfig     = QUIC.defaultConfig {
                 QUIC.confVersions   = if optVerNego then
                                         QUIC.GreasingVersion : QUIC.confVersions QUIC.defaultConfig
@@ -176,8 +180,10 @@ main = do
                                    QUIC.defaultParameters
               , QUIC.confKeyLog     = getLogger optKeyLogFile
               , QUIC.confGroups     = getGroups optGroups
-              , QUIC.confDebugLog   = getStdoutLogger optDebugLog
-              , QUIC.confQLog       = getDirLogger optQLogDir ".qlog"
+              , QUIC.confQLog       = optQLogDir
+              , QUIC.confHooks      = QUIC.defaultHooks {
+                    QUIC.onCloseReceived = writeIORef cref True
+                  }
               }
           }
         debug | optDebugLog = putStrLn
@@ -189,6 +195,7 @@ main = do
           , auxAuthority = addr
           , auxDebug = debug
           , auxShow = showContent
+          , auxCheckClose = readIORef cref
           }
     runClient conf opts aux
 
@@ -281,6 +288,8 @@ runClient conf opts@Options{..} aux@Aux{..} = do
              Nothing -> do
                  putStrLn "Result: (H) handshake ... OK"
                  putStrLn "Result: (D) stream data ... OK"
+                 closeReceived <- auxCheckClose
+                 when closeReceived $ putStrLn "Result: (C) close received ... OK"
                  case QUIC.alpn info1 of
                    Nothing   -> return ()
                    Just alpn -> when ("h3" `BS.isPrefixOf` alpn) $
