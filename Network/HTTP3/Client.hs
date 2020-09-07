@@ -105,17 +105,17 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         hdr' = (":scheme", scm)
              : (":authority", auth)
              : hdr
-    strm <- newStream ctx
-    sendHeader ctx strm th hdr'
-    sendBody ctx strm th outobj
-    QUIC.shutdownStream strm
-    src <- newSource strm
-    mvt <- recvHeader ctx src
-    case mvt of
-      Nothing -> error ""
-      Just vt -> do
-          refI <- newIORef IInit
-          refH <- newIORef Nothing
-          let readB = recvBody ctx src refI refH
-              rsp = Response $ InpObj vt Nothing readB refH
-          processResponse rsp
+    E.bracket (newStream ctx) (destroyStream ctx) $ \strm -> do
+        sendHeader ctx strm th hdr'
+        sendBody ctx strm th outobj
+        QUIC.shutdownStream strm
+        src <- newSource strm
+        mvt <- recvHeader ctx src
+        case mvt of
+          Nothing -> error ""
+          Just vt -> do
+              refI <- newIORef IInit
+              refH <- newIORef Nothing
+              let readB = recvBody ctx src refI refH
+                  rsp = Response $ InpObj vt Nothing readB refH
+              processResponse rsp
