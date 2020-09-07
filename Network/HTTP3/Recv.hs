@@ -35,7 +35,7 @@ readSource Source{..} = do
           return x
 
 pushbackSource :: Source -> ByteString -> IO ()
-pushbackSource Source{..} "" = return ()
+pushbackSource _ "" = return ()
 pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
 
 recvHeader :: Context -> Source -> IO (Maybe HeaderTable)
