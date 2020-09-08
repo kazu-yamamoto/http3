@@ -10,7 +10,6 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
-import Data.Char
 import Data.IORef
 import Data.UnixTime
 import Foreign.C.Types
@@ -143,7 +142,7 @@ data Aux = Aux {
   , auxCheckClose :: IO Bool
   }
 
-type Cli = Aux -> QUIC.Connection -> IO ()
+type Cli = Aux -> QUIC.Connection -> IO QUIC.ConnectionStats
 
 main :: IO ()
 main = do
@@ -214,11 +213,12 @@ runClient conf opts@Options{..} aux@Aux{..} = do
               auxDebug $ "Migration by " ++ show mtyp
               return x
         t1 <- getUnixTime
-        client aux conn
+        stats <- client aux conn
+        print stats
         t2 <- getUnixTime
         i2 <- QUIC.getConnectionInfo conn
         r <- QUIC.getResumptionInfo conn
-        printThroughput t1 t2 aux
+        printThroughput t1 t2 stats
         return (i1, i2, r, m, client)
     if optVerNego then do
         putStrLn "Result: (V) version negotiation ... OK"
@@ -324,7 +324,7 @@ clientHQ Aux{..} conn = do
         if bs == "" then do
             auxDebug "Connection finished"
             QUIC.closeStream conn s
-            QUIC.getConnectionStats conn >>= print
+            QUIC.getConnectionStats conn
           else do
             auxShow bs
             loop s
@@ -338,28 +338,22 @@ clientH3 Aux{..} conn = run conn cliconf defaultConfig client
       }
     client sendRequest = do
         let req = requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
-        _ <- sendRequest req $ \rsp -> do
+        sendRequest req $ \rsp -> do
             auxShow "------------------------"
             loop rsp
             auxShow "------------------------"
-        QUIC.getConnectionStats conn >>= print
+            QUIC.getConnectionStats conn
     loop rsp = do
         x <- getResponseBodyChunk rsp
         auxShow x
         when (x /= "") $ loop rsp
 
-printThroughput :: UnixTime -> UnixTime -> Aux -> IO ()
-printThroughput t1 t2 Aux{..}
-  | amount /= 0 = printf "Throughput %.2f MB/s (%d bytes in %d msecs)\n" bytesPerSeconds amount millisecs
-  | otherwise   = return ()
+printThroughput :: UnixTime -> UnixTime -> QUIC.ConnectionStats -> IO ()
+printThroughput t1 t2 QUIC.ConnectionStats{..} =
+    printf "Throughput %.2f MB/s (%d bytes in %d msecs)\n" bytesPerSeconds rxBytes millisecs
   where
     UnixDiffTime (CTime s) u = t2 `diffUnixTime` t1
     millisecs :: Int
     millisecs = fromIntegral s * 1000 + fromIntegral u `div` 1000
-    strnum = reverse $ takeWhile isNumber $ reverse auxPath
-    amount :: Int
-    amount = case strnum of
-      [] -> 0
-      _  -> read strnum
     bytesPerSeconds :: Double
-    bytesPerSeconds = fromIntegral amount * (1000 :: Double) / fromIntegral millisecs / 1024 / 1024
+    bytesPerSeconds = fromIntegral rxBytes * (1000 :: Double) / fromIntegral millisecs / 1024 / 1024
