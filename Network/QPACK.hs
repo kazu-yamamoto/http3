@@ -12,18 +12,32 @@ module Network.QPACK (
   , defaultQDecoderConfig
   , QDecoder
   , newQDecoder
+  , QDecoderS
+  , newQDecoderS
   -- * Types
   , InstructionHandler
   , Cleanup
   , Size
   , EncodeStrategy(..)
   , CompressionAlgo(..)
+  -- * Re-exports
+  , HeaderTable
+  , TokenHeaderList
+  , ValueTable
+  , Header
+  , HeaderList
+  , getHeaderValue
+  , toHeaderTable
+  , original
+  , foldedCase
+  , mk
   ) where
 
 import qualified Data.ByteString as B
+import Data.CaseInsensitive
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
-import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..))
+import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..), HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
 
 import Imports
@@ -36,6 +50,7 @@ import Network.QPACK.Types
 
 type QEncoder = TokenHeaderList -> IO (ByteString, ByteString)
 type QDecoder = ByteString -> IO HeaderTable
+type QDecoderS = ByteString -> IO HeaderList
 
 type InstructionHandler = (Int -> IO ByteString) -> IO ()
 
@@ -120,8 +135,19 @@ newQDecoder QDecoderConfig{..} = do
         clean = clearDynamicTable dyntbl
     return (dec, handler, clean)
 
+newQDecoderS :: QDecoderConfig -> IO (QDecoderS, InstructionHandler, Cleanup)
+newQDecoderS QDecoderConfig{..} = do
+    dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
+    let dec = qpackDecoderS dyntbl
+        handler = encoderInstructionHandler dyntbl
+        clean = clearDynamicTable dyntbl
+    return (dec, handler, clean)
+
 qpackDecoder :: DynamicTable -> ByteString -> IO HeaderTable
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+
+qpackDecoderS :: DynamicTable -> ByteString -> IO HeaderList
+qpackDecoderS dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
 
 encoderInstructionHandler :: DynamicTable -> (Int -> IO ByteString) -> IO ()
 encoderInstructionHandler dyntbl recv = loop

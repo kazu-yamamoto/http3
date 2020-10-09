@@ -3,6 +3,7 @@ module Network.QPACK.HeaderBlock (
   , encodeTokenHeader
   , encodePrefix
   , decodeTokenHeader
+  , decodeTokenHeaderS
   ) where
 
 import Network.QPACK.HeaderBlock.Decode

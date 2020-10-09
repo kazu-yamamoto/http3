@@ -3,7 +3,7 @@
 module Network.QPACK.HeaderBlock.Decode where
 
 import Network.ByteOrder
-import Network.HPACK (TokenHeader, HeaderTable)
+import Network.HPACK (TokenHeader, HeaderTable, HeaderList)
 import Network.HPACK.Internal
 import Network.HPACK.Token (toToken)
 
@@ -19,6 +19,14 @@ decodeTokenHeader dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
     checkInsertionPoint dyntbl reqip
     decodeSophisticated (toTokenHeader dyntbl bp) rbuf
+
+decodeTokenHeaderS :: DynamicTable
+                   -> ReadBuffer
+                   -> IO HeaderList
+decodeTokenHeaderS dyntbl rbuf = do
+    (reqip, bp) <- decodePrefix rbuf dyntbl
+    checkInsertionPoint dyntbl reqip
+    decodeSimple (toTokenHeader dyntbl bp) rbuf
 
 toTokenHeader :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader
 toTokenHeader dyntbl bp w8 rbuf
