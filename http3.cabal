@@ -80,6 +80,7 @@ Test-suite spec
                      , iproute
                      , network
                      , quic
+                     , stm
                      , tls
   if impl(ghc >= 8)
       default-extensions:  Strict StrictData

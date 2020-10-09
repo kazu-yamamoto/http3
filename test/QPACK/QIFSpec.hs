@@ -5,6 +5,7 @@ module QPACK.QIFSpec where
 
 import Conduit
 import Control.Concurrent
+import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
@@ -20,7 +21,22 @@ import Network.QPACK
 spec :: Spec
 spec = do
     describe "simple decoder" $ do
-        it "decodes well " $ test "qifs/encoded/qpack-05/quinn/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
+        it "decodes quinn" $ do
+            test "qifs/encoded/qpack-05/quinn/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
+            test "qifs/encoded/qpack-05/quinn/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
+            test "qifs/encoded/qpack-05/quinn/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
+        it "decodes f5" $ do
+            test "qifs/encoded/qpack-05/f5/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
+            test "qifs/encoded/qpack-05/f5/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
+            test "qifs/encoded/qpack-05/f5/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
+        it "decodes nghttp3" $ do
+            test "qifs/encoded/qpack-05/nghttp3/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
+            test "qifs/encoded/qpack-05/nghttp3/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
+            test "qifs/encoded/qpack-05/nghttp3/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
+        it "decodes ls-qpack" $ do
+            test "qifs/encoded/qpack-05/ls-qpack/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
+            test "qifs/encoded/qpack-05/ls-qpack/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
+            test "qifs/encoded/qpack-05/ls-qpack/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
 
 data Block = Block Int ByteString deriving Show
 
@@ -29,20 +45,31 @@ data Block = Block Int ByteString deriving Show
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
     (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
-    var <- newEmptyMVar
-    let recv _ = takeMVar var
-        send = putMVar var
-    _ <- forkIO $ insthdr recv
+    q1 <- newTQueueIO
+    q2 <- newTQueueIO
+    let recv1 _ = atomically $ readTQueue  q1
+        send1 x = atomically $ writeTQueue q1 x
+        recv2   = atomically $ readTQueue  q2
+        send2 x = atomically $ writeTQueue q2 x
     withFile qfile ReadMode $ \h -> do
-      runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . decode h dec send))
+        tid0 <- forkIO $ insthdr recv1
+        tid1 <- forkIO $ decode dec h recv2
+        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send1 send2))
+        killThread tid0
+        killThread tid1
     cleanup
 
-----------------------------------------------------------------
+switch :: (ByteString -> IO ())
+       -> (ByteString -> IO ())
+       -> (PositionRange, Block)
+       -> IO ()
+switch send1 send2 (_, Block n bs)
+  | n == 0    = send1 bs
+  | otherwise = send2 bs
 
-decode :: Handle -> QDecoderS -> (ByteString -> IO ()) -> (PositionRange, Block) -> IO ()
-decode _ _   send (_, Block 0 inst) = send inst
-decode h dec _    (_, Block _ wire) = do
-    hdr <- dec wire
+decode :: (ByteString -> IO HeaderList) -> Handle -> IO ByteString -> IO ()
+decode dec h recv2 = do
+    hdr <- recv2 >>= dec
     hdr' <- fromCaseSensitive <$> headerlist h
     hdr `shouldBe` hdr'
 
