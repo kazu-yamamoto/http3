@@ -7,6 +7,7 @@ import Conduit
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString, ByteString)
@@ -21,22 +22,12 @@ import Network.QPACK
 spec :: Spec
 spec = do
     describe "simple decoder" $ do
-        it "decodes quinn" $ do
-            test "qifs/encoded/qpack-05/quinn/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
-            test "qifs/encoded/qpack-05/quinn/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
-            test "qifs/encoded/qpack-05/quinn/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
-        it "decodes f5" $ do
-            test "qifs/encoded/qpack-05/f5/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
-            test "qifs/encoded/qpack-05/f5/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
-            test "qifs/encoded/qpack-05/f5/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
-        it "decodes nghttp3" $ do
-            test "qifs/encoded/qpack-05/nghttp3/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
-            test "qifs/encoded/qpack-05/nghttp3/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
-            test "qifs/encoded/qpack-05/nghttp3/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
-        it "decodes ls-qpack" $ do
-            test "qifs/encoded/qpack-05/ls-qpack/fb-req-hq.out.4096.0.1" "qifs/qifs/fb-req-hq.qif"
-            test "qifs/encoded/qpack-05/ls-qpack/fb-resp-hq.out.4096.0.1" "qifs/qifs/fb-resp-hq.qif"
-            test "qifs/encoded/qpack-05/ls-qpack/netbsd-hq.out.4096.0.1" "qifs/qifs/netbsd-hq.qif"
+        it "decodes well" $ do
+            forM_ ["fb-req-hq","fb-resp-hq","netbsd-hq"] $ \svc ->
+              forM_ ["f5","ls-qpack","nghttp3","proxygen","qthingey","quinn"] $ \impl -> do
+                let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.1"
+                    out = "qifs/qifs/" ++ svc ++ ".qif"
+                test inp out
 
 data Block = Block Int ByteString deriving Show
 
