@@ -83,7 +83,7 @@ qpackDecode Context{..} = ctxQDecoder
 
 unidirectional :: Context -> Stream -> IO ThreadId
 unidirectional Context{..} strm = do
-    [w8] <- BS.unpack <$> QUIC.recvStream strm 1 -- fixme: variable length
+    w8:_ <- BS.unpack <$> QUIC.recvStream strm 1 -- fixme: variable length
     let typ = toH3StreamType $ fromIntegral w8
     forkIO $ ctxUniSwitch typ (QUIC.recvStream strm)
 
