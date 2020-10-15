@@ -39,6 +39,7 @@ import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
 import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..), HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
+import Network.QUIC.Internal (stdoutLogger, bhow)
 
 import Imports
 import Network.QPACK.HeaderBlock
@@ -95,7 +96,8 @@ newQEncoder QEncoderConfig{..} = do
 
 qpackEncoder :: EncodeStrategy -> WriteBuffer -> WriteBuffer -> WriteBuffer -> DynamicTable -> TokenHeaderList -> IO (ByteString, ByteString)
 qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
-    _ <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+    thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+    when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
     hb0 <- toByteString wbuf1
     ins <- toByteString wbuf3
     encodePrefix wbuf2 dyntbl
@@ -110,7 +112,8 @@ decoderInstructionHandler dyntbl recv = loop
         _ <- getInsertionPoint dyntbl -- fixme
         bs <- recv 1024
         when (bs /= "") $ do
-            (_ins,"") <- decodeDecoderInstructions bs -- fixme: saving leftover
+            (_ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
+            when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
             -- fixme: handle _ins
             -- mapM_ print _ins
             loop
@@ -156,12 +159,14 @@ encoderInstructionHandler dyntbl recv = loop
     loop = do
         bs <- recv 1024
         when (bs /= "") $ do
-            (ins,"") <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
+            (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
+            when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
+
             -- mapM_ print ins
             mapM_ handle ins
             loop
     hufdec = getHuffmanDecoder dyntbl
-    handle (SetDynamicTableCapacity _) = return () -- fixme
+    handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity" <> bhow n) -- fimxe
     handle (InsertWithNameReference ii val) = do
         idx <- case ii of
                  Left  ai -> return $ SIndex ai
@@ -174,4 +179,4 @@ encoderInstructionHandler dyntbl recv = loop
     handle (InsertWithoutNameReference t val) = do
         let ent = toEntryToken t val
         insertEntryToDecoder ent dyntbl
-    handle (Duplicate _) = return ()
+    handle (Duplicate n) = stdoutLogger ("Duplicate" <> bhow n) -- fimxe
