@@ -20,6 +20,7 @@ module Network.QPACK.Instruction (
   ) where
 
 import qualified Control.Exception as E
+import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK.Internal
@@ -36,7 +37,14 @@ data EncoderInstruction = SetDynamicTableCapacity Int
                         | InsertWithNameReference InsIndex HeaderValue
                         | InsertWithoutNameReference Token HeaderValue
                         | Duplicate InsRelativeIndex
-                        deriving (Eq, Show)
+                        deriving (Eq)
+
+instance Show EncoderInstruction where
+    show (SetDynamicTableCapacity n) = "SetDynamicTableCapacity " ++ show n
+    show (InsertWithNameReference (Left idx) v) = "InsertWithNameReference (" ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+    show (InsertWithNameReference (Right idx) v) = "InsertWithNameReference (" ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+    show (InsertWithoutNameReference t v) = "InsertWithoutNameReference \"" ++ BS8.unpack (foldedCase (tokenKey t)) ++ "\" \"" ++ BS8.unpack v ++ "\""
+    show (Duplicate idx) = "Duplicate " ++ show idx
 
 ----------------------------------------------------------------
 
