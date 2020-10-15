@@ -166,7 +166,7 @@ encoderInstructionHandler dyntbl recv = loop
             mapM_ handle ins
             loop
     hufdec = getHuffmanDecoder dyntbl
-    handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity" <> bhow n) -- fimxe
+    handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
     handle (InsertWithNameReference ii val) = do
         idx <- case ii of
                  Left  ai -> return $ SIndex ai
@@ -179,4 +179,4 @@ encoderInstructionHandler dyntbl recv = loop
     handle (InsertWithoutNameReference t val) = do
         let ent = toEntryToken t val
         insertEntryToDecoder ent dyntbl
-    handle (Duplicate n) = stdoutLogger ("Duplicate" <> bhow n) -- fimxe
+    handle (Duplicate n) = stdoutLogger ("Duplicate " <> bhow n) -- fimxe
