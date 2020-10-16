@@ -27,7 +27,7 @@ spec = do
             forM_ ["fb-req-hq","fb-resp-hq","netbsd-hq"] $ \svc ->
               forM_ ["f5","ls-qpack","nghttp3","proxygen","qthingey","quinn"] $ \impl -> do
                 putStrLn $ impl ++ " with " ++ svc
-                let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.1"
+                let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.0"
                     out = "qifs/qifs/" ++ svc ++ ".qif"
                 test inp out
 
