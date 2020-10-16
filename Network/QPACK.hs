@@ -115,7 +115,7 @@ decoderInstructionHandler dyntbl recv = loop
             (_ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
             when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
             -- fixme: handle _ins
-            -- mapM_ print _ins
+            mapM_ print _ins
             loop
 
 ----------------------------------------------------------------
@@ -162,7 +162,7 @@ encoderInstructionHandler dyntbl recv = loop
             (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
             when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
-            -- mapM_ print ins
+            mapM_ print ins
             mapM_ handle ins
             loop
     hufdec = getHuffmanDecoder dyntbl
