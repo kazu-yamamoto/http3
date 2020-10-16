@@ -15,6 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import System.IO
+import System.Timeout
 import Test.Hspec
 
 import Network.QPACK
@@ -25,6 +26,7 @@ spec = do
         it "decodes well" $ do
             forM_ ["fb-req-hq","fb-resp-hq","netbsd-hq"] $ \svc ->
               forM_ ["f5","ls-qpack","nghttp3","proxygen","qthingey","quinn"] $ \impl -> do
+                putStrLn $ impl ++ " with " ++ svc
                 let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.1"
                     out = "qifs/qifs/" ++ svc ++ ".qif"
                 test inp out
@@ -38,14 +40,16 @@ test efile qfile = do
     (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
     q1 <- newTQueueIO
     q2 <- newTQueueIO
+    mvar <- newEmptyMVar
     let recv1 _ = atomically $ readTQueue  q1
         send1 x = atomically $ writeTQueue q1 x
         recv2   = atomically $ readTQueue  q2
         send2 x = atomically $ writeTQueue q2 x
     withFile qfile ReadMode $ \h -> do
         tid0 <- forkIO $ insthdr recv1
-        tid1 <- forkIO $ decode dec h recv2
+        tid1 <- forkIO $ decode dec h recv2 mvar
         runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send1 send2))
+        _ <- timeout 100000 $ takeMVar mvar
         killThread tid0
         killThread tid1
     cleanup
@@ -58,11 +62,21 @@ switch send1 send2 (_, Block n bs)
   | n == 0    = send1 bs
   | otherwise = send2 bs
 
-decode :: (ByteString -> IO HeaderList) -> Handle -> IO ByteString -> IO ()
-decode dec h recv2 = do
-    hdr <- recv2 >>= dec
-    hdr' <- fromCaseSensitive <$> headerlist h
-    hdr `shouldBe` hdr'
+decode :: (ByteString -> IO HeaderList)
+       -> Handle
+       -> IO ByteString
+       -> MVar ()
+       -> IO ()
+decode dec h recv2 mvar = loop
+  where
+    loop = do
+        hdr' <- fromCaseSensitive <$> headerlist h
+        if hdr' == [] then
+            putMVar mvar ()
+          else do
+            hdr <- recv2 >>= dec
+            hdr `shouldBe` hdr'
+            loop
 
 fromCaseSensitive :: HeaderList -> HeaderList
 fromCaseSensitive = map (\(k,v) -> (foldedCase $ mk k,v))
