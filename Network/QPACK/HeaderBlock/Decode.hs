@@ -2,10 +2,12 @@
 
 module Network.QPACK.HeaderBlock.Decode where
 
+import qualified Data.ByteString.Char8 as BS8
+import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK (TokenHeader, HeaderTable, HeaderList)
 import Network.HPACK.Internal
-import Network.HPACK.Token (toToken)
+import Network.HPACK.Token (toToken, tokenKey)
 
 import Imports
 import Network.QPACK.HeaderBlock.Prefix
@@ -43,7 +45,9 @@ decodeIndexedHeaderField rbuf dyntbl bp w8 = do
     let static = w8 `testBit` 6
         hidx | static    = SIndex $ AbsoluteIndex i
              | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
-    entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    putStrLn $ "IndexedHeaderField (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    return ret
 
 -- 4.5.4.  Literal Header Field With Name Reference
 decodeLiteralHeaderFieldWithNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
@@ -55,7 +59,9 @@ decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8 = do
     key <- entryToken <$> toIndexedEntry dyntbl hidx
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
-    return (key,val)
+    let ret = (key,val)
+    putStrLn $ "LiteralHeaderFieldWithNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    return ret
 
 -- 4.5.6.  Literal Header Field Without Name Reference
 decodeLiteralHeaderFieldWithoutNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
@@ -64,14 +70,18 @@ decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl _bp _w8 = do
     let hufdec = getHuffmanDecoder dyntbl
     key <- toToken <$> decodeS (.&. 0b00000111) (`testBit` 3) 3 hufdec rbuf
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
-    return (key,val)
+    let ret = (key,val)
+    putStrLn $ "LiteralHeaderFieldWithoutNameReference " ++ showTokenHeader ret
+    return ret
 
 -- 4.5.3.  Indexed Header Field With Post-Base Index
 decodeIndexedHeaderFieldWithPostBaseIndex :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
 decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    return ret
 
 -- 4.5.5.  Literal Header Field With Post-Base Name Reference
 decodeLiteralHeaderFieldWithPostBaseNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
@@ -81,4 +91,11 @@ decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8 = do
     key <- entryToken <$> toIndexedEntry dyntbl hidx
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
-    return (key,val)
+    let ret = (key,val)
+    putStrLn $ "LiteralHeaderFieldWithPostBaseNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    return ret
+
+showTokenHeader :: TokenHeader -> String
+showTokenHeader (t,val) = "\"" ++ key ++ "\" \"" ++ BS8.unpack val ++ "\""
+  where
+    key = BS8.unpack $ foldedCase $ tokenKey t
