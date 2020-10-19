@@ -3,6 +3,8 @@
 
 module Main where
 
+import Control.Concurrent
+import Control.Concurrent.STM
 import Conduit
 import qualified Control.Exception as E
 import Control.Monad
@@ -12,10 +14,11 @@ import Data.ByteString (ByteString, ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
-import Network.QPACK
 import System.Environment
 import System.Exit
 import System.IO
+
+import Network.QPACK
 
 data Block = Block Int ByteString deriving Show
 
@@ -55,27 +58,39 @@ dumpSwitch dec insthdr (_, Block n bs)
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
     (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig False
-    withFile qfile ReadMode $ \h ->
-        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . testSwitch (decode dec h) insthdr))
+    q <- newTQueueIO
+    let recv   = atomically $ readTQueue  q
+        send x = atomically $ writeTQueue q x
+    mvar <- newEmptyMVar
+    withFile qfile ReadMode $ \h -> do
+        tid <- forkIO $ decode dec h recv mvar
+        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . testSwitch send insthdr))
+        takeMVar mvar
+        killThread tid
     cleanup
 
 testSwitch :: (ByteString -> IO ())
-       -> InstructionHandlerS
-       -> (a, Block) -> IO ()
+           -> InstructionHandlerS
+           -> (a, Block)
+           -> IO ()
 testSwitch send insthdr (_, Block n bs)
   | n == 0    = insthdr bs
   | otherwise = send bs
 
-decode :: (ByteString -> IO HeaderList)
-       -> Handle
-       -> ByteString
-       -> IO ()
-decode dec h bs = do
-    hdr <- dec bs
-    hdr' <- fromCaseSensitive <$> headerlist h
-    when (hdr /= hdr') $ do
-        print hdr
-        exitFailure
+decode :: QDecoderS -> Handle -> IO ByteString -> MVar () -> IO ()
+decode dec h recv mvar = loop
+  where
+    loop = do
+        hdr' <- fromCaseSensitive <$> headerlist h
+        if hdr' == [] then
+            putMVar mvar ()
+          else do
+            hdr <- recv >>= dec
+            when (hdr /= hdr') $ do
+                print hdr
+                print hdr'
+                exitFailure
+            loop
 
 fromCaseSensitive :: HeaderList -> HeaderList
 fromCaseSensitive = map (\(k,v) -> (foldedCase $ mk k,v))
