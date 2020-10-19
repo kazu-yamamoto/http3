@@ -3,11 +3,10 @@
 
 module Main where
 
+import Conduit
 import Control.Concurrent
 import Control.Concurrent.STM
-import Conduit
 import qualified Control.Exception as E
-import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString, ByteString)
@@ -15,7 +14,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import System.Environment
-import System.Exit
 import System.IO
 
 import Network.QPACK
@@ -86,11 +84,12 @@ decode dec h recv mvar = loop
             putMVar mvar ()
           else do
             hdr <- recv >>= dec
-            when (hdr /= hdr') $ do
+            if hdr == hdr' then
+                loop
+              else do
                 print hdr
                 print hdr'
-                exitFailure
-            loop
+                putMVar mvar ()
 
 fromCaseSensitive :: HeaderList -> HeaderList
 fromCaseSensitive = map (\(k,v) -> (foldedCase $ mk k,v))
