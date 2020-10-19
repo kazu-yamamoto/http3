@@ -4,21 +4,14 @@
 module Main where
 
 import Conduit
-import Control.Concurrent
-import Control.Concurrent.STM
-import qualified Control.Exception as E
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString, ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
-import Network.ByteOrder
 import System.Environment
-import System.IO
 
 import Network.QPACK
-import Network.QPACK.Internal
 
 data Block = Block Int ByteString deriving Show
 
@@ -31,23 +24,18 @@ main = do
 
 test :: FilePath -> IO ()
 test efile = do
-    dyntbl <- newDynamicTableForDecoding 4096 4096
-    runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch dyntbl))
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
+    runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch dec insthdr))
+    cleanup
 
-switch :: DynamicTable
-       -> (PositionRange, Block)
-       -> IO ()
-switch dyntbl (_, Block n bs)
+switch dec insthdr (_, Block n bs)
   | n == 0    = do
         putStrLn "---- Stream 0:"
-        (inss, "") <- decodeEncoderInstructions hufdec bs
-        mapM_ print inss
+        insthdr bs
   | otherwise = do
         putStrLn $ "---- Stream " ++ show n ++ ":"
-        _ <- withReadBuffer bs $ decodeTokenHeaderS dyntbl
+        _ <- dec bs
         return ()
-  where
-    hufdec = getHuffmanDecoder dyntbl
 
 block :: Parser Block
 block = do
