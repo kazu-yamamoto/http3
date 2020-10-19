@@ -188,4 +188,8 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     handle (InsertWithoutNameReference t val) = do
         let ent = toEntryToken t val
         insertEntryToDecoder ent dyntbl
-    handle (Duplicate n) = stdoutLogger ("Duplicate " <> bhow n) -- fimxe
+    handle (Duplicate ri) = do
+        ip <- getInsertionPoint dyntbl
+        let idx = DIndex $ fromInsRelativeIndex ri ip
+        ent <- toIndexedEntry dyntbl idx
+        insertEntryToDecoder ent dyntbl
