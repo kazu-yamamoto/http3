@@ -24,6 +24,7 @@ module Network.QPACK.Table (
   -- * Misc
   , getHuffmanDecoder
   , setDebugQPACK
+  , getDebugQPACK
   , qpackDebug
   ) where
 

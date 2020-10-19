@@ -101,6 +101,9 @@ clearDynamicTable DynamicTable{..} = case codeInfo of
 setDebugQPACK :: DynamicTable -> IO ()
 setDebugQPACK DynamicTable{..} = writeIORef debugQPACK True
 
+getDebugQPACK :: DynamicTable -> IO Bool
+getDebugQPACK DynamicTable{..} = readIORef debugQPACK
+
 qpackDebug :: DynamicTable -> IO () -> IO ()
 qpackDebug DynamicTable{..} action = do
     debug <- readIORef debugQPACK

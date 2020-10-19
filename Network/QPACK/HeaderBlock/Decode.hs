@@ -27,7 +27,8 @@ decodeTokenHeaderS :: DynamicTable
                    -> IO HeaderList
 decodeTokenHeaderS dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
-    checkInsertionPoint dyntbl reqip
+    debug <- getDebugQPACK dyntbl
+    unless debug $ checkInsertionPoint dyntbl reqip
     decodeSimple (toTokenHeader dyntbl bp) rbuf
 
 toTokenHeader :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader
