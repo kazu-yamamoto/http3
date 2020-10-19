@@ -12,10 +12,12 @@ module Network.QPACK (
   , defaultQDecoderConfig
   , QDecoder
   , newQDecoder
+  -- Decoder for debugging
   , QDecoderS
   , newQDecoderS
   -- * Types
   , InstructionHandler
+  , InstructionHandlerS
   , Cleanup
   , Size
   , EncodeStrategy(..)
@@ -54,6 +56,7 @@ type QDecoder = ByteString -> IO HeaderTable
 type QDecoderS = ByteString -> IO HeaderList
 
 type InstructionHandler = (Int -> IO ByteString) -> IO ()
+type InstructionHandlerS = ByteString -> IO ()
 
 type Cleanup = IO ()
 
@@ -139,11 +142,11 @@ newQDecoder QDecoderConfig{..} = do
         clean = clearDynamicTable dyntbl
     return (dec, handler, clean)
 
-newQDecoderS :: QDecoderConfig -> IO (QDecoderS, InstructionHandler, Cleanup)
+newQDecoderS :: QDecoderConfig -> IO (QDecoderS, InstructionHandlerS, IO ())
 newQDecoderS QDecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     let dec = qpackDecoderS dyntbl
-        handler = encoderInstructionHandler dyntbl
+        handler = encoderInstructionHandlerS dyntbl
         clean = clearDynamicTable dyntbl
     return (dec, handler, clean)
 
@@ -159,12 +162,17 @@ encoderInstructionHandler dyntbl recv = loop
     loop = do
         bs <- recv 1024
         when (bs /= "") $ do
-            (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
-            when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
-
-            mapM_ print ins
-            mapM_ handle ins
+            encoderInstructionHandlerS dyntbl bs
             loop
+
+encoderInstructionHandlerS :: DynamicTable -> ByteString -> IO ()
+encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
+    (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
+    when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
+
+    mapM_ print ins
+    mapM_ handle ins
+  where
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
     handle (InsertWithNameReference ii val) = do
