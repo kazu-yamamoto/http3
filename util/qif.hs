@@ -29,43 +29,37 @@ main = do
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
     (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
-    q1 <- newTQueueIO
-    q2 <- newTQueueIO
-    let recv1 _ = atomically $ readTQueue  q1
-        send1 x = atomically $ writeTQueue q1 x
-        recv2   = atomically $ readTQueue  q2
-        send2 x = atomically $ writeTQueue q2 x
+    q <- newTQueueIO
+    let recv   = atomically $ readTQueue  q
+        send x = atomically $ writeTQueue q x
     mvar <- newEmptyMVar
     withFile qfile ReadMode $ \h -> do
-        tid0 <- forkIO $ insthdr recv1
-        tid1 <- forkIO $ decode dec h recv2 mvar
-        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send1 send2))
+        tid <- forkIO $ decode dec h recv mvar
+        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
         takeMVar mvar
-        killThread tid0
-        killThread tid1
+        killThread tid
     cleanup
 
 switch :: (ByteString -> IO ())
-       -> (ByteString -> IO ())
-       -> (PositionRange, Block)
-       -> IO ()
-switch send1 send2 (_, Block n bs)
-  | n == 0    = send1 bs
-  | otherwise = send2 bs
+       -> InstructionHandlerS
+       -> (a, Block) -> IO ()
+switch send insthdr (_, Block n bs)
+  | n == 0    = insthdr bs
+  | otherwise = send bs
 
 decode :: (ByteString -> IO HeaderList)
        -> Handle
        -> IO ByteString
        -> MVar ()
        -> IO ()
-decode dec h recv2 mvar = loop
+decode dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
         if hdr' == [] then
             putMVar mvar ()
           else do
-            hdr <- recv2 >>= dec
+            hdr <- recv >>= dec
             putStrLn $ if hdr == hdr' then "OK" else "NG"
             loop
 

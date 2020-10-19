@@ -28,6 +28,10 @@ test efile = do
     runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch dec insthdr))
     cleanup
 
+switch :: (ByteString -> IO HeaderList)
+       -> InstructionHandlerS
+       -> (a, Block)
+       -> IO ()
 switch dec insthdr (_, Block n bs)
   | n == 0    = do
         putStrLn "---- Stream 0:"
