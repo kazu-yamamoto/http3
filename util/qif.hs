@@ -4,9 +4,8 @@
 module Main where
 
 import Conduit
-import Control.Concurrent
-import Control.Concurrent.STM
 import qualified Control.Exception as E
+import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString, ByteString)
@@ -15,6 +14,7 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import Network.QPACK
 import System.Environment
+import System.Exit
 import System.IO
 
 data Block = Block Int ByteString deriving Show
@@ -23,48 +23,64 @@ data Block = Block Int ByteString deriving Show
 
 main :: IO ()
 main = do
-    [efile,qfile] <- getArgs
-    test efile qfile
+    args <- getArgs
+    case args of
+      [efile]       -> dump efile
+      [efile,qfile] -> test efile qfile
+      _ -> putStrLn "qif <encode-file> [<qif-file>]"
+
+----------------------------------------------------------------
+
+dump :: FilePath -> IO ()
+dump efile = do
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig True
+    runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . dumpSwitch dec insthdr))
+    cleanup
+
+dumpSwitch :: (ByteString -> IO HeaderList)
+       -> InstructionHandlerS
+       -> (a, Block)
+       -> IO ()
+dumpSwitch dec insthdr (_, Block n bs)
+  | n == 0    = do
+        putStrLn "---- Stream 0:"
+        insthdr bs
+  | otherwise = do
+        putStrLn $ "---- Stream " ++ show n ++ ":"
+        _ <- dec bs
+        return ()
+
+----------------------------------------------------------------
 
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
-    q <- newTQueueIO
-    let recv   = atomically $ readTQueue  q
-        send x = atomically $ writeTQueue q x
-    mvar <- newEmptyMVar
-    withFile qfile ReadMode $ \h -> do
-        tid <- forkIO $ decode dec h recv mvar
-        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
-        takeMVar mvar
-        killThread tid
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig False
+    withFile qfile ReadMode $ \h ->
+        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . testSwitch (decode dec h) insthdr))
     cleanup
 
-switch :: (ByteString -> IO ())
+testSwitch :: (ByteString -> IO ())
        -> InstructionHandlerS
        -> (a, Block) -> IO ()
-switch send insthdr (_, Block n bs)
+testSwitch send insthdr (_, Block n bs)
   | n == 0    = insthdr bs
   | otherwise = send bs
 
 decode :: (ByteString -> IO HeaderList)
        -> Handle
-       -> IO ByteString
-       -> MVar ()
+       -> ByteString
        -> IO ()
-decode dec h recv mvar = loop
-  where
-    loop = do
-        hdr' <- fromCaseSensitive <$> headerlist h
-        if hdr' == [] then
-            putMVar mvar ()
-          else do
-            hdr <- recv >>= dec
-            putStrLn $ if hdr == hdr' then "OK" else "NG"
-            loop
+decode dec h bs = do
+    hdr <- dec bs
+    hdr' <- fromCaseSensitive <$> headerlist h
+    when (hdr /= hdr') $ do
+        print hdr
+        exitFailure
 
 fromCaseSensitive :: HeaderList -> HeaderList
 fromCaseSensitive = map (\(k,v) -> (foldedCase $ mk k,v))
+
+----------------------------------------------------------------
 
 block :: Parser Block
 block = do

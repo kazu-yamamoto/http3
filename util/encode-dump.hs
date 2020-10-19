@@ -24,7 +24,7 @@ main = do
 
 test :: FilePath -> IO ()
 test efile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig True
     runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch dec insthdr))
     cleanup
 

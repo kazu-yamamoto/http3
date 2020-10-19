@@ -142,10 +142,10 @@ newQDecoder QDecoderConfig{..} = do
         clean = clearDynamicTable dyntbl
     return (dec, handler, clean)
 
-newQDecoderS :: QDecoderConfig -> IO (QDecoderS, InstructionHandlerS, IO ())
-newQDecoderS QDecoderConfig{..} = do
+newQDecoderS :: QDecoderConfig -> Bool -> IO (QDecoderS, InstructionHandlerS, IO ())
+newQDecoderS QDecoderConfig{..} debug = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
-    setDebugQPACK dyntbl
+    when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dyntbl
         clean = clearDynamicTable dyntbl
