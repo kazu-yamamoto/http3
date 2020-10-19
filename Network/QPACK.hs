@@ -2,17 +2,17 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.QPACK (
-  -- Encoder
+  -- * Encoder
     QEncoderConfig(..)
   , defaultQEncoderConfig
   , QEncoder
   , newQEncoder
-  -- Decoder
+  -- * Decoder
   , QDecoderConfig(..)
   , defaultQDecoderConfig
   , QDecoder
   , newQDecoder
-  -- Decoder for debugging
+  -- ** Decoder for debugging
   , QDecoderS
   , newQDecoderS
   -- * Types
