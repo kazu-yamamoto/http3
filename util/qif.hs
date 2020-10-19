@@ -3,7 +3,7 @@
 
 module Main where
 
-import Conduit
+import Conduit hiding (yield)
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
@@ -72,23 +72,30 @@ testSwitch :: (ByteString -> IO ())
            -> (a, Block)
            -> IO ()
 testSwitch send insthdr (_, Block n bs)
-  | n == 0    = insthdr bs
+  | n == 0    = do
+        insthdr bs
+        yield
   | otherwise = send bs
 
 decode :: QDecoderS -> Handle -> IO ByteString -> MVar () -> IO ()
-decode dec h recv mvar = loop
+decode dec h recv mvar = loop (0 :: Int)
   where
-    loop = do
+    loop n = do
         hdr' <- fromCaseSensitive <$> headerlist h
         if hdr' == [] then
             putMVar mvar ()
           else do
             hdr <- recv >>= dec
             if hdr == hdr' then
-                loop
+                loop (n + 1)
               else do
-                print hdr
-                print hdr'
+                putStrLn "----"
+                print n
+                putStrLn "----"
+                mapM_ print hdr
+                putStrLn "----"
+                mapM_ print hdr'
+                putStrLn "----"
                 putMVar mvar ()
 
 fromCaseSensitive :: HeaderList -> HeaderList
