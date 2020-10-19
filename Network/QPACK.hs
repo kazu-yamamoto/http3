@@ -115,10 +115,10 @@ decoderInstructionHandler dyntbl recv = loop
         _ <- getInsertionPoint dyntbl -- fixme
         bs <- recv 1024
         when (bs /= "") $ do
-            (_ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
+            (ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
             when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
             -- fixme: handle _ins
-            mapM_ print _ins
+            qpackDebug dyntbl $ mapM_ print ins
             loop
 
 ----------------------------------------------------------------
@@ -145,6 +145,7 @@ newQDecoder QDecoderConfig{..} = do
 newQDecoderS :: QDecoderConfig -> IO (QDecoderS, InstructionHandlerS, IO ())
 newQDecoderS QDecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
+    setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dyntbl
         clean = clearDynamicTable dyntbl
@@ -170,7 +171,7 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
-    mapM_ print ins
+    qpackDebug dyntbl $ mapM_ print ins
     mapM_ handle ins
   where
     hufdec = getHuffmanDecoder dyntbl

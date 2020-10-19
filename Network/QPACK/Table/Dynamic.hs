@@ -29,6 +29,7 @@ data DynamicTable = DynamicTable {
   , basePoint         :: IORef BasePoint
   , maxNumOfEntries   :: IORef Int
   , circularTable     :: IORef Table
+  , debugQPACK        :: IORef Bool
   }
 
 type Table = IOArray Index Entry
@@ -83,6 +84,7 @@ newDynamicTable maxsiz info = do
                       <*> newIORef 0       -- basePoint
                       <*> newIORef maxN    -- maxNumOfEntries
                       <*> newIORef tbl     -- maxDynamicTableSize
+                      <*> newIORef False   -- debugQPACK
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -93,6 +95,16 @@ clearDynamicTable :: DynamicTable -> IO ()
 clearDynamicTable DynamicTable{..} = case codeInfo of
     EncodeInfo{}       -> return ()
     DecodeInfo _ clear -> clear
+
+----------------------------------------------------------------
+
+setDebugQPACK :: DynamicTable -> IO ()
+setDebugQPACK DynamicTable{..} = writeIORef debugQPACK True
+
+qpackDebug :: DynamicTable -> IO () -> IO ()
+qpackDebug DynamicTable{..} action = do
+    debug <- readIORef debugQPACK
+    when debug action
 
 ----------------------------------------------------------------
 

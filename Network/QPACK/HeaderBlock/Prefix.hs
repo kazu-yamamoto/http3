@@ -102,5 +102,5 @@ decodePrefix rbuf dyntbl = do
         w8'' = w8' .&. 0b01111111
     delta <- decodeI 7 w8'' rbuf
     let baseIndex = decodeBase reqInsCnt s delta
-    putStrLn $ "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
+    qpackDebug dyntbl $ putStrLn $ "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
     return (reqInsCnt,baseIndex)

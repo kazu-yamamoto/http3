@@ -23,6 +23,8 @@ module Network.QPACK.Table (
   , lookupRevIndex
   -- * Misc
   , getHuffmanDecoder
+  , setDebugQPACK
+  , qpackDebug
   ) where
 
 import Network.HPACK.Internal (Entry)

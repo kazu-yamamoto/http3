@@ -46,7 +46,7 @@ decodeIndexedHeaderField rbuf dyntbl bp w8 = do
         hidx | static    = SIndex $ AbsoluteIndex i
              | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
     ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
-    putStrLn $ "IndexedHeaderField (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderField (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
 -- 4.5.4.  Literal Header Field With Name Reference
@@ -60,7 +60,7 @@ decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8 = do
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    putStrLn $ "LiteralHeaderFieldWithNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
 -- 4.5.6.  Literal Header Field Without Name Reference
@@ -71,7 +71,7 @@ decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl _bp _w8 = do
     key <- toToken <$> decodeS (.&. 0b00000111) (`testBit` 3) 3 hufdec rbuf
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    putStrLn $ "LiteralHeaderFieldWithoutNameReference " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithoutNameReference " ++ showTokenHeader ret
     return ret
 
 -- 4.5.3.  Indexed Header Field With Post-Base Index
@@ -80,7 +80,7 @@ decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
     ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
-    putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
 -- 4.5.5.  Literal Header Field With Post-Base Name Reference
@@ -92,7 +92,7 @@ decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8 = do
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    putStrLn $ "LiteralHeaderFieldWithPostBaseNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithPostBaseNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
 showTokenHeader :: TokenHeader -> String
