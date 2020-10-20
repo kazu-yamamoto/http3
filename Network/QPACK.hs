@@ -35,6 +35,7 @@ module Network.QPACK (
   , mk
   ) where
 
+import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Foreign.Marshal.Alloc (mallocBytes, free)
@@ -176,20 +177,20 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
   where
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
-    handle (InsertWithNameReference ii val) = do
+    handle (InsertWithNameReference ii val) = atomically $ do
         idx <- case ii of
                  Left  ai -> return $ SIndex ai
                  Right ri -> do
-                     ip <- getInsertionPoint dyntbl
+                     ip <- getInsertionPointSTM dyntbl
                      return $ DIndex $ fromInsRelativeIndex ri ip
         ent0 <- toIndexedEntry dyntbl idx
         let ent = toEntryToken (entryToken ent0) val
         insertEntryToDecoder ent dyntbl
-    handle (InsertWithoutNameReference t val) = do
+    handle (InsertWithoutNameReference t val) = atomically $ do
         let ent = toEntryToken t val
         insertEntryToDecoder ent dyntbl
-    handle (Duplicate ri) = do
-        ip <- getInsertionPoint dyntbl
+    handle (Duplicate ri) = atomically $ do
+        ip <- getInsertionPointSTM dyntbl
         let idx = DIndex $ fromInsRelativeIndex ri ip
         ent <- toIndexedEntry dyntbl idx
         insertEntryToDecoder ent dyntbl

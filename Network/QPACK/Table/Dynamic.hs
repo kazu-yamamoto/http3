@@ -27,8 +27,8 @@ data DynamicTable = DynamicTable {
   , drainingPoint     :: IORef AbsoluteIndex
   , insertionPoint    :: TVar InsertionPoint
   , basePoint         :: IORef BasePoint
-  , maxNumOfEntries   :: IORef Int
-  , circularTable     :: IORef Table
+  , maxNumOfEntries   :: TVar Int
+  , circularTable     :: TVar Table
   , debugQPACK        :: IORef Bool
   }
 
@@ -46,6 +46,9 @@ setBasePointToInsersionPoint DynamicTable{..} = do
 
 getInsertionPoint :: DynamicTable -> IO InsertionPoint
 getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint
+
+getInsertionPointSTM :: DynamicTable -> STM InsertionPoint
+getInsertionPointSTM DynamicTable{..} = readTVar insertionPoint
 
 checkInsertionPoint :: DynamicTable -> InsertionPoint -> IO ()
 checkInsertionPoint DynamicTable{..} reqip = atomically $ do
@@ -70,10 +73,24 @@ newDynamicTableForDecoding :: Size -- ^ The dynamic table size
 newDynamicTableForDecoding maxsiz huftmpsiz = do
     buf <- mallocBytes huftmpsiz
     wbuf <- newWriteBuffer buf huftmpsiz
-    let decoder = decodeH wbuf
+    tvar <- newTVarIO (Just wbuf)
+    let decoder = decodeHLock tvar
         clear = free buf
         info = DecodeInfo decoder clear
     newDynamicTable maxsiz info
+  where
+    decodeHLock tvar rbuf len = do
+        wbuf <- atomically $ do
+            mx <- readTVar tvar
+            case mx of
+              Nothing -> retry
+              Just x   -> do
+                  writeTVar tvar Nothing
+                  return x
+        decH wbuf rbuf len
+        hstr <- toByteString wbuf
+        atomically $ writeTVar tvar $ Just wbuf
+        return hstr
 
 newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
 newDynamicTable maxsiz info = do
@@ -82,8 +99,8 @@ newDynamicTable maxsiz info = do
                       <*> newIORef 0       -- drainingPoint
                       <*> newTVarIO 0      -- insertionPoint
                       <*> newIORef 0       -- basePoint
-                      <*> newIORef maxN    -- maxNumOfEntries
-                      <*> newIORef tbl     -- maxDynamicTableSize
+                      <*> newTVarIO maxN   -- maxNumOfEntries
+                      <*> newTVarIO tbl    -- maxDynamicTableSize
                       <*> newIORef False   -- debugQPACK
   where
     maxN = maxNumbers maxsiz
@@ -112,7 +129,7 @@ qpackDebug DynamicTable{..} action = do
 ----------------------------------------------------------------
 
 getMaxNumOfEntries :: DynamicTable -> IO Int
-getMaxNumOfEntries DynamicTable{..} = readIORef maxNumOfEntries
+getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 
 ----------------------------------------------------------------
 
@@ -155,29 +172,27 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
         x <- readTVar insertionPoint
         writeTVar insertionPoint (x + 1)
         return x
-    maxN <- readIORef maxNumOfEntries
+    maxN <- atomically $ readTVar maxNumOfEntries
     let i = insp `mod` maxN
-    table <- readIORef circularTable
+    table <- atomically $ readTVar circularTable
     atomically $ unsafeWrite table i ent
     let revtbl = getRevIndex dyntbl
     let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
     return ai
 
-insertEntryToDecoder :: Entry -> DynamicTable -> IO ()
+insertEntryToDecoder :: Entry -> DynamicTable -> STM ()
 insertEntryToDecoder ent DynamicTable{..} = do
-    InsertionPoint insp <- atomically $ do
-        x <- readTVar insertionPoint
-        writeTVar insertionPoint (x + 1)
-        return x
-    maxN <- readIORef maxNumOfEntries
+    x@(InsertionPoint insp) <- readTVar insertionPoint
+    writeTVar insertionPoint (x + 1)
+    maxN <- readTVar maxNumOfEntries
     let i = insp `mod` maxN
-    table <- readIORef circularTable
-    atomically $ unsafeWrite table i ent
+    table <- readTVar circularTable
+    unsafeWrite table i ent
 
-toDynamicEntry :: DynamicTable -> AbsoluteIndex -> IO Entry
+toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
-    maxN <- readIORef maxNumOfEntries
+    maxN <- readTVar maxNumOfEntries
     let i = idx `mod` maxN
-    table <- readIORef circularTable
-    atomically $ unsafeRead table i
+    table <- readTVar circularTable
+    unsafeRead table i

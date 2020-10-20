@@ -2,6 +2,7 @@
 
 module Network.QPACK.HeaderBlock.Decode where
 
+import Control.Concurrent.STM
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
@@ -46,7 +47,7 @@ decodeIndexedHeaderField rbuf dyntbl bp w8 = do
     let static = w8 `testBit` 6
         hidx | static    = SIndex $ AbsoluteIndex i
              | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
-    ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
     qpackDebug dyntbl $ putStrLn $ "IndexedHeaderField (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
@@ -57,7 +58,7 @@ decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8 = do
     let static = w8 `testBit` 4
         hidx | static    = SIndex $ AbsoluteIndex i
              | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
-    key <- entryToken <$> toIndexedEntry dyntbl hidx
+    key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
@@ -80,7 +81,7 @@ decodeIndexedHeaderFieldWithPostBaseIndex :: ReadBuffer -> DynamicTable -> BaseP
 decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    ret <- entryTokenHeader <$> toIndexedEntry dyntbl hidx
+    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
     qpackDebug dyntbl $ putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
@@ -89,7 +90,7 @@ decodeLiteralHeaderFieldWithPostBaseNameReference :: ReadBuffer -> DynamicTable 
 decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8 = do
     i <- decodeI 3 (w8 .&. 0b00000111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    key <- entryToken <$> toIndexedEntry dyntbl hidx
+    key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)

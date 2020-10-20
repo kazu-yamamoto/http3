@@ -9,6 +9,7 @@ module Network.QPACK.Table (
   , setBasePointToInsersionPoint
   , getBasePoint
   , getInsertionPoint
+  , getInsertionPointSTM
   , checkInsertionPoint
   , getLargestReference
   , updateLargestReference
@@ -28,6 +29,7 @@ module Network.QPACK.Table (
   , qpackDebug
   ) where
 
+import Control.Concurrent.STM
 import Network.HPACK.Internal (Entry)
 
 import Network.QPACK.Table.Dynamic
@@ -35,6 +37,6 @@ import Network.QPACK.Table.RevIndex
 import Network.QPACK.Table.Static
 import Network.QPACK.Types
 
-toIndexedEntry :: DynamicTable -> HIndex -> IO Entry
+toIndexedEntry :: DynamicTable -> HIndex -> STM Entry
 toIndexedEntry _      (SIndex ai) = return $ toStaticEntry ai
 toIndexedEntry dyntbl (DIndex ai) = toDynamicEntry dyntbl ai
