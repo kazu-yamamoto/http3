@@ -4,7 +4,7 @@ module Network.QPACK.Table.Dynamic where
 
 import Control.Concurrent.STM
 import Data.Array.Base (unsafeWrite, unsafeRead)
-import Data.Array.IO (IOArray, newArray)
+import Data.Array.MArray (newArray)
 import Data.IORef
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
@@ -32,7 +32,7 @@ data DynamicTable = DynamicTable {
   , debugQPACK        :: IORef Bool
   }
 
-type Table = IOArray Index Entry
+type Table = TArray Index Entry
 
 ----------------------------------------------------------------
 
@@ -77,7 +77,7 @@ newDynamicTableForDecoding maxsiz huftmpsiz = do
 
 newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
 newDynamicTable maxsiz info = do
-    tbl <- newArray (0,end) dummyEntry
+    tbl <- atomically $ newArray (0,end) dummyEntry
     DynamicTable info <$> newIORef 0       -- droppingPoint
                       <*> newIORef 0       -- drainingPoint
                       <*> newTVarIO 0      -- insertionPoint
@@ -158,7 +158,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     maxN <- readIORef maxNumOfEntries
     let i = insp `mod` maxN
     table <- readIORef circularTable
-    unsafeWrite table i ent
+    atomically $ unsafeWrite table i ent
     let revtbl = getRevIndex dyntbl
     let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
@@ -173,11 +173,11 @@ insertEntryToDecoder ent DynamicTable{..} = do
     maxN <- readIORef maxNumOfEntries
     let i = insp `mod` maxN
     table <- readIORef circularTable
-    unsafeWrite table i ent
+    atomically $ unsafeWrite table i ent
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> IO Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readIORef maxNumOfEntries
     let i = idx `mod` maxN
     table <- readIORef circularTable
-    unsafeRead table i
+    atomically $ unsafeRead table i
