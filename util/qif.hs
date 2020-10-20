@@ -67,27 +67,28 @@ test efile qfile = do
         killThread tid
     cleanup
 
-testSwitch :: (ByteString -> IO ())
+testSwitch :: (Block -> IO ())
            -> InstructionHandlerS
            -> (a, Block)
            -> IO ()
-testSwitch send insthdr (_, Block n bs)
+testSwitch send insthdr (_, blk@(Block n bs))
   | n == 0    = do
         insthdr bs
         yield
-  | otherwise = send bs
+  | otherwise = send blk
 
-decode :: QDecoderS -> Handle -> IO ByteString -> MVar () -> IO ()
-decode dec h recv mvar = loop (0 :: Int)
+decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
+decode dec h recv mvar = loop
   where
-    loop n = do
+    loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
         if hdr' == [] then
             putMVar mvar ()
           else do
-            hdr <- recv >>= dec
+            Block n bs <- recv
+            hdr <- dec bs
             if hdr == hdr' then
-                loop (n + 1)
+                loop
               else do
                 putStrLn "----"
                 print n
