@@ -3,7 +3,7 @@
 
 module QPACK.QIFSpec where
 
-import Conduit
+import Conduit hiding (yield)
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
@@ -15,7 +15,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import System.IO
-import System.Timeout
 import Test.Hspec
 
 import Network.QPACK
@@ -37,44 +36,42 @@ data Block = Block Int ByteString deriving Show
 
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig
-    q1 <- newTQueueIO
-    q2 <- newTQueueIO
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig False
+    q <- newTQueueIO
+    let recv   = atomically $ readTQueue  q
+        send x = atomically $ writeTQueue q x
     mvar <- newEmptyMVar
-    let recv1 _ = atomically $ readTQueue  q1
-        send1 x = atomically $ writeTQueue q1 x
-        recv2   = atomically $ readTQueue  q2
-        send2 x = atomically $ writeTQueue q2 x
     withFile qfile ReadMode $ \h -> do
-        tid0 <- forkIO $ insthdr recv1
-        tid1 <- forkIO $ decode dec h recv2 mvar
-        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send1 send2))
-        _ <- timeout 100000 $ takeMVar mvar
-        killThread tid0
-        killThread tid1
+        tid <- forkIO $ decode dec h recv mvar
+        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
+        takeMVar mvar
+        killThread tid
     cleanup
 
-switch :: (ByteString -> IO ())
-       -> (ByteString -> IO ())
+switch :: (Block -> IO ())
+       -> InstructionHandlerS
        -> (PositionRange, Block)
        -> IO ()
-switch send1 send2 (_, Block n bs)
-  | n == 0    = send1 bs
-  | otherwise = send2 bs
+switch send insthdr (_, blk@(Block n bs))
+  | n == 0    = do
+        insthdr bs
+        yield
+  | otherwise = send blk
 
 decode :: (ByteString -> IO HeaderList)
        -> Handle
-       -> IO ByteString
+       -> IO Block
        -> MVar ()
        -> IO ()
-decode dec h recv2 mvar = loop
+decode dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
         if hdr' == [] then
             putMVar mvar ()
           else do
-            hdr <- recv2 >>= dec
+            Block _ bs <- recv
+            hdr <- dec bs
             hdr `shouldBe` hdr'
             loop
 
