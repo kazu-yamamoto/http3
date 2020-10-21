@@ -3,6 +3,7 @@
 module Network.QPACK.Table.Dynamic where
 
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Data.Array.Base (unsafeWrite, unsafeRead)
 import Data.Array.MArray (newArray)
 import Data.IORef
@@ -78,19 +79,20 @@ newDynamicTableForDecoding maxsiz huftmpsiz = do
         clear = free buf
         info = DecodeInfo decoder clear
     newDynamicTable maxsiz info
+
+decodeHLock :: TVar (Maybe WriteBuffer) -> ReadBuffer -> Int -> IO ByteString
+decodeHLock tvar rbuf len = E.bracket lock unlock $ \wbuf -> do
+    decH wbuf rbuf len
+    toByteString wbuf
   where
-    decodeHLock tvar rbuf len = do
-        wbuf <- atomically $ do
-            mx <- readTVar tvar
-            case mx of
-              Nothing -> retry
-              Just x   -> do
-                  writeTVar tvar Nothing
-                  return x
-        decH wbuf rbuf len
-        hstr <- toByteString wbuf
-        atomically $ writeTVar tvar $ Just wbuf
-        return hstr
+    lock = atomically $ do
+        mx <- readTVar tvar
+        case mx of
+          Nothing -> retry
+          Just x   -> do
+              writeTVar tvar Nothing
+              return x
+    unlock wbuf = atomically $ writeTVar tvar $ Just wbuf
 
 newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
 newDynamicTable maxsiz info = do
