@@ -74,7 +74,7 @@ newByteStringAndSend strm th tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     (len, signal) <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0 then
-        return (B.Done, tlrmkr0) -- fixme: Done
+        return (signal, tlrmkr0)
       else do
         let bs = PS fp 0 len
         NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
