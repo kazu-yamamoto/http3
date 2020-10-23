@@ -82,7 +82,7 @@ decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ " " ++ show i ++ "/" ++ show bp ++ ") " ++ showTokenHeader ret
     return ret
 
 -- 4.5.5.  Literal Header Field With Post-Base Name Reference

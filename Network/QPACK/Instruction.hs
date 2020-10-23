@@ -41,10 +41,10 @@ data EncoderInstruction = SetDynamicTableCapacity Int
 
 instance Show EncoderInstruction where
     show (SetDynamicTableCapacity n) = "SetDynamicTableCapacity " ++ show n
-    show (InsertWithNameReference (Left idx) v) = "InsertWithNameReference (" ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
-    show (InsertWithNameReference (Right idx) v) = "InsertWithNameReference (" ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+    show (InsertWithNameReference (Left (AbsoluteIndex idx)) v) = "InsertWithNameReference (Static " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+    show (InsertWithNameReference (Right (InsRelativeIndex idx)) v) = "InsertWithNameReference (DynRel " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
     show (InsertWithoutNameReference t v) = "InsertWithoutNameReference \"" ++ BS8.unpack (foldedCase (tokenKey t)) ++ "\" \"" ++ BS8.unpack v ++ "\""
-    show (Duplicate idx) = "Duplicate " ++ show idx
+    show (Duplicate (InsRelativeIndex idx)) = "Duplicate (DynRel " ++ show idx ++ ")"
 
 ----------------------------------------------------------------
 
