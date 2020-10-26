@@ -176,7 +176,7 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     mapM_ handle ins
   where
     hufdec = getHuffmanDecoder dyntbl
-    handle (SetDynamicTableCapacity n) = stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
+    handle (SetDynamicTableCapacity _n) = return () -- stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
     handle (InsertWithNameReference ii val) = atomically $ do
         idx <- case ii of
                  Left  ai -> return $ SIndex ai
