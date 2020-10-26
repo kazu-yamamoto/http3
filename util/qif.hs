@@ -7,6 +7,7 @@ import Conduit hiding (yield)
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString, ByteString)
@@ -55,10 +56,15 @@ dumpSwitch dec insthdr (_, Block n bs)
 
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
+    (dec, insthdr', cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
     q <- newTQueueIO
-    let recv   = atomically $ readTQueue  q
+    let recv   = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x
+        insthdr bs = do
+            emp <- atomically $ isEmptyTQueue q
+            unless emp yield
+            insthdr' bs
+            yield
     mvar <- newEmptyMVar
     withFile qfile ReadMode $ \h -> do
         tid <- forkIO $ decode dec h recv mvar
@@ -72,9 +78,7 @@ testSwitch :: (Block -> IO ())
            -> (a, Block)
            -> IO ()
 testSwitch send insthdr (_, blk@(Block n bs))
-  | n == 0    = do
-        insthdr bs
-        yield
+  | n == 0    = insthdr bs
   | otherwise = send blk
 
 decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
