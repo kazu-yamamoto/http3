@@ -26,15 +26,15 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-      [efile]       -> dump efile
-      [efile,qfile] -> test efile qfile
-      _ -> putStrLn "qif <encode-file> [<qif-file>]"
+      [size,efile]       -> dump (read size) efile
+      [size,efile,qfile] -> test (read size) efile qfile
+      _ -> putStrLn "qif size <encode-file> [<qif-file>]"
 
 ----------------------------------------------------------------
 
-dump :: FilePath -> IO ()
-dump efile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig True
+dump :: Int -> FilePath -> IO ()
+dump size efile = do
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } True
     runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . dumpSwitch dec insthdr))
     cleanup
 
@@ -44,18 +44,18 @@ dumpSwitch :: (ByteString -> IO HeaderList)
        -> IO ()
 dumpSwitch dec insthdr (_, Block n bs)
   | n == 0    = do
-        putStrLn "---- Stream 0:"
+        putStrLn "---- Stream 0"
         insthdr bs
   | otherwise = do
-        putStrLn $ "---- Stream " ++ show n ++ ":"
+        putStrLn $ "---- Stream " ++ show n
         _ <- dec bs
         return ()
 
 ----------------------------------------------------------------
 
-test :: FilePath -> FilePath -> IO ()
-test efile qfile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig False
+test :: Int -> FilePath -> FilePath -> IO ()
+test size efile qfile = do
+    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
     q <- newTQueueIO
     let recv   = atomically $ readTQueue  q
         send x = atomically $ writeTQueue q x
@@ -90,9 +90,7 @@ decode dec h recv mvar = loop
             if hdr == hdr' then
                 loop
               else do
-                putStrLn "----"
-                print n
-                putStrLn "----"
+                putStrLn $ "---- Stream " ++ show n
                 mapM_ print hdr
                 putStrLn "----"
                 mapM_ print hdr'
