@@ -28,6 +28,7 @@ import Network.HPACK.Token
 
 import Imports
 import Network.QPACK.Types
+import Network.QPACK.Table.Static
 
 ----------------------------------------------------------------
 
@@ -41,7 +42,7 @@ data EncoderInstruction = SetDynamicTableCapacity Int
 
 instance Show EncoderInstruction where
     show (SetDynamicTableCapacity n) = "SetDynamicTableCapacity " ++ show n
-    show (InsertWithNameReference (Left (AbsoluteIndex idx)) v) = "InsertWithNameReference (Static " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+    show (InsertWithNameReference (Left aidx) v) = "InsertWithNameReference \"" ++ BS8.unpack (entryHeaderName (toStaticEntry aidx)) ++ "\" \"" ++ BS8.unpack v ++ "\""
     show (InsertWithNameReference (Right (InsRelativeIndex idx)) v) = "InsertWithNameReference (DynRel " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
     show (InsertWithoutNameReference t v) = "InsertWithoutNameReference \"" ++ BS8.unpack (foldedCase (tokenKey t)) ++ "\" \"" ++ BS8.unpack v ++ "\""
     show (Duplicate (InsRelativeIndex idx)) = "Duplicate (DynRel " ++ show idx ++ ")"
