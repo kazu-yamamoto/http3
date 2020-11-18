@@ -42,7 +42,7 @@ import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
 import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..), HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
-import Network.QUIC.Internal (stdoutLogger, bhow)
+import Network.QUIC.Internal (stdoutLogger)
 
 import Imports
 import Network.QPACK.HeaderBlock
