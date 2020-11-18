@@ -14,7 +14,7 @@ module Network.HTTP3.Context (
   , registerThread
   , timeoutClose
   , newStream
-  , destroyStream
+  , QUIC.closeStream
   , pReadMaker
   , addThreadId
   ) where
@@ -97,9 +97,6 @@ timeoutClose Context{..} closer = do
 
 newStream :: Context -> IO Stream
 newStream Context{..} = QUIC.stream ctxConnection
-
-destroyStream :: Context -> Stream -> IO ()
-destroyStream Context{..} = QUIC.closeStream ctxConnection
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker

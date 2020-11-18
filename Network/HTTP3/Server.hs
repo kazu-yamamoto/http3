@@ -98,7 +98,7 @@ readerServer ctx server = loop
       | QUIC.isClientInitiatedUnidirectional sid = do
             tid <- unidirectional ctx strm
             addThreadId ctx tid
-      | QUIC.isClientInitiatedBidirectional  sid = void $ forkFinally (processRequest ctx server strm) (\_ -> destroyStream ctx strm)
+      | QUIC.isClientInitiatedBidirectional  sid = void $ forkFinally (processRequest ctx server strm) (\_ -> closeStream strm)
       | QUIC.isServerInitiatedUnidirectional sid = return () -- error
       | otherwise                                = return ()
       where

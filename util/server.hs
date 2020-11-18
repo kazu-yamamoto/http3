@@ -141,7 +141,7 @@ serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` do
     let sid = QUIC.streamId s
     when (QUIC.isClientInitiatedBidirectional sid) $ do
         QUIC.sendStream s html
-        QUIC.closeStream conn s
+        QUIC.closeStream s
 
 consume :: QUIC.Connection -> QUIC.Stream -> IO ()
 consume conn s = loop

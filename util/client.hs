@@ -323,7 +323,7 @@ clientHQ Aux{..} conn = do
         bs <- QUIC.recvStream s 1024
         if bs == "" then do
             auxDebug "Connection finished"
-            QUIC.closeStream conn s
+            QUIC.closeStream s
             QUIC.getConnectionStats conn
           else do
             auxShow bs
