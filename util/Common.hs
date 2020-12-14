@@ -44,6 +44,7 @@ getLogger Nothing     = \_ -> return ()
 getLogger (Just file) = \msg -> appendFile file (msg ++ "\n")
 
 makeProtos :: Version -> (ByteString, ByteString)
+makeProtos Version1 = ("h3","hq")
 makeProtos ver = (h3X,hqX)
   where
     verbs = C8.pack $ show $ fromVersion ver
