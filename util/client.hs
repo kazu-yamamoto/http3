@@ -112,7 +112,7 @@ options = [
     (NoArg (\o -> o { optMigration = Just QUIC.ChangeClientCID }))
     "use a new client CID"
   , Option ['B'] ["nat-rebinding"]
-    (NoArg (\o -> o { optMigration = Just QUIC.NATRebiding }))
+    (NoArg (\o -> o { optMigration = Just QUIC.NATRebinding }))
     "use a new local port"
   , Option ['A'] ["address-mobility"]
     (NoArg (\o -> o { optMigration = Just QUIC.MigrateTo }))
@@ -274,7 +274,7 @@ runClient conf opts@Options{..} aux@Aux{..} = do
                    else do
                      putStrLn $ "Result: (N) change client CID ... NG " ++ show (mig,changed)
                      exitFailure
-             Just QUIC.NATRebiding -> do
+             Just QUIC.NATRebinding -> do
                  putStrLn "Result: (B) NAT rebinding ... OK"
                  exitSuccess
              Just QUIC.MigrateTo -> do
