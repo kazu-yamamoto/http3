@@ -80,7 +80,7 @@ import Network.HTTP3.Send
 
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
-    setupUnidirectional conn
+    void $ forkIO $ setupUnidirectional conn
     readerServer ctx server
   where
     open = do
