@@ -14,7 +14,8 @@ import Data.IORef
 import Data.UnixTime
 import Foreign.C.Types
 import Network.HTTP.Types
-import Network.HTTP3.Client
+import qualified Network.HQ.Client as HQ
+import qualified Network.HTTP3.Client as H3
 import qualified Network.QUIC as QUIC
 import Network.TLS.QUIC
 import System.Console.GetOpt
@@ -312,39 +313,27 @@ runClient2 conf Options{..} aux@Aux{..} res client = do
       }
 
 clientHQ :: Cli
-clientHQ Aux{..} conn = do
-    let cmd = C8.pack ("GET " ++ auxPath ++ "\r\n")
-    s <- QUIC.stream conn
-    QUIC.sendStream s cmd
-    QUIC.shutdownStream s
-    loop s
-  where
-    loop s = do
-        bs <- QUIC.recvStream s 1024
-        if bs == "" then do
-            auxDebug "Connection finished"
-            QUIC.closeStream s
-            QUIC.getConnectionStats conn
-          else do
-            auxShow bs
-            loop s
+clientHQ = clientX HQ.run
 
 clientH3 :: Cli
-clientH3 Aux{..} conn = run conn cliconf defaultConfig client
+clientH3 = clientX H3.run
+
+clientX ::  (QUIC.Connection -> H3.ClientConfig -> H3.Config -> H3.Client QUIC.ConnectionStats -> IO QUIC.ConnectionStats) -> Cli
+clientX run Aux{..} conn = run conn cliconf H3.defaultConfig client
   where
-    cliconf = ClientConfig {
+    cliconf = H3.ClientConfig {
         scheme = "https"
       , authority = C8.pack auxAuthority
       }
     client sendRequest = do
-        let req = requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
+        let req = H3.requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
         sendRequest req $ \rsp -> do
             auxShow "------------------------"
             loop rsp
             auxShow "------------------------"
             QUIC.getConnectionStats conn
     loop rsp = do
-        x <- getResponseBodyChunk rsp
+        x <- H3.getResponseBodyChunk rsp
         auxShow x
         when (x /= "") $ loop rsp
 

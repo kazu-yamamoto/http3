@@ -4,6 +4,7 @@
 module Network.HTTP3.Recv (
     Source
   , newSource
+  , readSource
   , recvHeader
   , recvBody
   ) where

@@ -6,6 +6,7 @@
 
 module Main where
 
+import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -142,6 +143,7 @@ serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` do
     when (QUIC.isClientInitiatedBidirectional sid) $ do
         QUIC.sendStream s html
         QUIC.closeStream s
+        threadDelay 100000
 
 consume :: QUIC.Connection -> QUIC.Stream -> IO ()
 consume conn s = loop

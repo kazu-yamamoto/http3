@@ -27,7 +27,8 @@ Flag devel
 library
   default-language:    Haskell2010
   ghc-options:         -Wall
-  exposed-modules:     Network.HTTP3.Client
+  exposed-modules:     Network.HQ.Client
+                       Network.HTTP3.Client
                        Network.HTTP3.Server
                        Network.QPACK
                        Network.QPACK.Internal
