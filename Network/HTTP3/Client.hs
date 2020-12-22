@@ -72,10 +72,11 @@ data ClientConfig = ClientConfig {
 
 run :: Connection -> ClientConfig -> Config -> H2.Client a -> IO a
 run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
-    setupUnidirectional conn
-    tid <- forkIO $ readerClient ctx
-    client (sendRequest ctx scheme authority) `E.finally` do
-        killThread tid
+    tid0 <- forkIO $ setupUnidirectional conn
+    addThreadId ctx tid0
+    tid1 <- forkIO $ readerClient ctx
+    addThreadId ctx tid1
+    client (sendRequest ctx scheme authority)
   where
     open = do
         ref <- newIORef IInit
