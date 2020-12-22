@@ -76,7 +76,7 @@ run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
     addThreadId ctx tid0
     tid1 <- forkIO $ readerClient ctx
     addThreadId ctx tid1
-    client (sendRequest ctx scheme authority)
+    client $ sendRequest ctx scheme authority
   where
     open = do
         ref <- newIORef IInit
