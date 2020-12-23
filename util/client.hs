@@ -335,8 +335,9 @@ clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ 
             QUIC.getConnectionStats conn
     loop rsp = do
         x <- H3.getResponseBodyChunk rsp
-        auxShow x
-        when (x /= "") $ loop rsp
+        when (x /= "") $ do
+            auxShow x
+            loop rsp
 
 printThroughput :: UnixTime -> UnixTime -> QUIC.ConnectionStats -> IO ()
 printThroughput t1 t2 QUIC.ConnectionStats{..} =
