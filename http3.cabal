@@ -61,8 +61,10 @@ library
                      , containers
                      , http2                     >= 3.0      && < 3.1
                      , http-types
+                     , network
                      , network-byte-order
                      , quic
+                     , sockaddr
                      , stm
                      , time-manager
   if impl(ghc >= 8)

@@ -10,10 +10,11 @@ module Network.HQ.Server (
   ) where
 
 import Control.Concurrent
-import qualified Data.ByteString.Builder.Extra as B
 import qualified Control.Exception as E
 import Data.ByteString.Builder (Builder)
+import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
+import qualified Data.ByteString as BS
 import Data.IORef
 import Foreign.ForeignPtr
 import Network.HPACK (HeaderTable, toHeaderTable)
@@ -23,6 +24,8 @@ import Network.HTTP2.Server (Server, PushPromise)
 import Network.HTTP2.Server.Internal (Request(..), Response(..), Aux(..))
 import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
+import Network.SockAddr (showSockAddrBS)
+import Network.Socket (SockAddr)
 import qualified System.TimeManager as T
 
 import Imports
@@ -31,16 +34,17 @@ import Network.HTTP3.Recv (newSource, readSource)
 
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = do
-    E.bracket open close $ processRequest conf server
+    myaddr <- QUIC.localSockAddr <$> QUIC.getConnectionInfo conn
+    E.bracket open close $ processRequest conf myaddr server
     threadDelay 100000
   where
     open = QUIC.acceptStream conn
     close = QUIC.closeStream
 
-processRequest :: Config -> Server -> Stream -> IO ()
-processRequest conf server strm = do
+processRequest :: Config -> SockAddr -> Server -> Stream -> IO ()
+processRequest conf myaddr server strm = do
     th <- T.register (confTimeoutManager conf) (return ())
-    vt <- recvHeader strm
+    vt <- recvHeader strm myaddr
     src <- newSource strm
     refH <- newIORef Nothing
     let readB = readSource src
@@ -48,18 +52,28 @@ processRequest conf server strm = do
         aux = Aux th
     server req aux $ sendResponse conf strm
 
-recvHeader :: Stream -> IO HeaderTable
-recvHeader strm = do
-    bs <- QUIC.recvStream strm 1024
-    let (method,path) = parseRequestLine bs
+recvHeader :: Stream -> SockAddr -> IO HeaderTable
+recvHeader strm myaddr = do
+    (method,path) <- recvRequestLine id
+    let auth = showSockAddrBS myaddr
         vt = (":path",path)
            : (":method", method)
            : (":scheme", "https")
---           : (":authority", undefined)
+           : (":authority", auth)
            : []
     toHeaderTable vt
   where
-    parseRequestLine _bs = ("GET","/") -- undefined
+    recvRequestLine builder = do
+        bs <- QUIC.recvStream strm 1024
+        if bs == "" then do
+            return $ parseRequestLine $ BS.concat $ builder []
+          else
+            recvRequestLine (builder . (bs :))
+    parseRequestLine bs = (method,path)
+      where
+        method = "GET"
+        path0 = BS.drop 4 bs
+        path = BS.take (BS.length path0 - 2) path0
 
 sendResponse :: Config -> Stream -> Response -> [PushPromise] -> IO ()
 sendResponse conf strm (Response outobj) _ = case H2.outObjBody outobj of
