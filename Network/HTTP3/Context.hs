@@ -51,13 +51,13 @@ newContext conn conf ctl = do
     let sw = switch ctl handleEI handleDI
         clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
-    Context conn enc dec sw clean preadM <$> T.initialize 30000000 <*> newIORef []
+        timmgr = confTimeoutManager conf
+    Context conn enc dec sw clean preadM timmgr <$> newIORef []
 
 clearContext :: Context -> IO ()
 clearContext ctx@Context{..} = do
     clearThreads ctx
     ctxCleanup
-    T.stopManager ctxManager
 
 switch :: InstructionHandler -> InstructionHandler -> InstructionHandler -> H3StreamType -> InstructionHandler
 switch ctl handleEI handleDI styp

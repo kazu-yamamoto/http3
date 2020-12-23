@@ -5,7 +5,8 @@ module Network.HTTP3.Server (
     run
   -- * Runner arguments
   , Config(..)
-  , defaultConfig
+  , allocSimpleConfig
+  , freeSimpleConfig
   -- * HTTP\/3 server
   , Server
   -- * Request

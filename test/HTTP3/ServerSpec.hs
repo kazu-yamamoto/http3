@@ -41,7 +41,7 @@ runServer :: IO ()
 runServer = do
     Right cred <- credentialLoadX509 "test/servercert.pem" "test/serverkey.pem"
     let creds = Credentials [cred]
-    QUIC.runQUICServer (quicServerConf creds) (\conn -> run conn defaultConfig server)
+    QUIC.runQUICServer (quicServerConf creds) (\conn -> E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> run conn conf server)
 
 server :: Server
 server req _aux sendResponse = case requestMethod req of
@@ -93,7 +93,8 @@ trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
 
 runClient :: IO ()
 runClient = QUIC.runQUICClient quicClientConf $ \conn ->
-    C.run conn cliconf defaultConfig client
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+      C.run conn cliconf conf client
   where
     cliconf = C.ClientConfig "https" (C8.pack host)
     client sendRequest = mapConcurrently_ ($ sendRequest) clients

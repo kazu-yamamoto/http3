@@ -7,7 +7,8 @@ module Network.HTTP3.Client (
   -- * Runner arguments
   , ClientConfig(..)
   , Config(..)
-  , defaultConfig
+  , allocSimpleConfig
+  , freeSimpleConfig
   , Scheme
   , Authority
   -- * HTTP\/3 client

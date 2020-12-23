@@ -58,7 +58,7 @@ library
                      , bytestring
                      , case-insensitive
                      , containers
-                     , http2
+                     , http2                     >= 3.0      && < 3.1
                      , http-types
                      , network-byte-order
                      , quic
