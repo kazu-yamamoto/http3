@@ -6,16 +6,14 @@
 
 module Main where
 
-import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.ByteString.Builder
 import qualified Data.List as L
+import qualified Network.HQ.Server as HQ
 import qualified Network.HTTP.Types as H
-import Network.HTTP2.Server hiding (run)
-import Network.HTTP3.Server
+import qualified Network.HTTP3.Server as H3
 import qualified Network.QUIC as QUIC
 import Network.TLS (credentialLoadX509, Credentials(..))
 import qualified Network.TLS.SessionManager as SM
@@ -136,33 +134,16 @@ onE :: IO b -> IO a -> IO a
 h `onE` b = b `E.onException` h
 
 serverHQ :: QUIC.Connection -> IO ()
-serverHQ conn = QUIC.connDebugLog conn "Connection terminated" `onE` do
-    s <- QUIC.acceptStream conn
-    consume conn s
-    let sid = QUIC.streamId s
-    when (QUIC.isClientInitiatedBidirectional sid) $ do
-        QUIC.sendStream s html
-        QUIC.closeStream s
-        threadDelay 100000
-
-consume :: QUIC.Connection -> QUIC.Stream -> IO ()
-consume conn s = loop
-  where
-    loop = do
-        bs <- QUIC.recvStream s 1024
-        if bs == "" then
-            QUIC.connDebugLog conn "FIN received"
-          else do
-            QUIC.connDebugLog conn $ byteString bs
-            loop
-
-html :: ByteString
-html = "<html><head><title>Welcome to QUIC in Haskell</title></head><body><p>Welcome to QUIC in Haskell.</p></body></html>"
+serverHQ = serverX HQ.run
 
 serverH3 :: QUIC.Connection -> IO ()
-serverH3 conn = run conn defaultConfig $ \_req _aux sendResponse -> do
+serverH3 = serverX H3.run
+
+serverX :: (QUIC.Connection -> H3.Config -> H3.Server -> IO ()) -> QUIC.Connection -> IO ()
+serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+  run conn conf $ \_req _aux sendResponse -> do
     let hdr = [ ("Content-Type", "text/html; charset=utf-8")
               , ("Server", "HaskellQuic/0.0.0")
               ]
-        rsp = responseBuilder H.ok200 hdr "Hello, world!"
+        rsp = H3.responseBuilder H.ok200 hdr "Hello, world!"
     sendResponse rsp []

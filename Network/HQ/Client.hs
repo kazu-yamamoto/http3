@@ -5,6 +5,8 @@ module Network.HQ.Client (
     run
   , H3.ClientConfig(..)
   , H3.Config(..)
+  , H3.allocSimpleConfig
+  , H3.freeSimpleConfig
   , H2.Client
   ) where
 

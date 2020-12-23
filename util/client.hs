@@ -6,6 +6,7 @@
 module Main where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -319,7 +320,7 @@ clientH3 :: Cli
 clientH3 = clientX H3.run
 
 clientX ::  (QUIC.Connection -> H3.ClientConfig -> H3.Config -> H3.Client QUIC.ConnectionStats -> IO QUIC.ConnectionStats) -> Cli
-clientX run Aux{..} conn = run conn cliconf H3.defaultConfig client
+clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf client
   where
     cliconf = H3.ClientConfig {
         scheme = "https"

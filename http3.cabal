@@ -28,6 +28,7 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
   exposed-modules:     Network.HQ.Client
+                       Network.HQ.Server
                        Network.HTTP3.Client
                        Network.HTTP3.Server
                        Network.QPACK
