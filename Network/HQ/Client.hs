@@ -2,12 +2,25 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.HQ.Client (
+  -- * Runner
     run
+  -- * Runner arguments
   , H3.ClientConfig(..)
   , H3.Config(..)
   , H3.allocSimpleConfig
   , H3.freeSimpleConfig
+  , H3.Scheme
+  , H3.Authority
+  -- * HQ client
   , H2.Client
+  -- * Request
+  , Request
+  -- * Creating request
+  , H2.requestNoBody
+  -- * Response
+  , Response
+  -- ** Accessing response
+  , H2.getResponseBodyChunk
   ) where
 
 import qualified Control.Exception as E
@@ -24,6 +37,7 @@ import qualified Network.QUIC as QUIC
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Recv (newSource, readSource)
 
+-- | Running an HQ client.
 run :: Connection -> H3.ClientConfig -> H3.Config -> H2.Client a -> IO a
 run conn _ _ client = E.bracket open close $ \strm -> do
     client $ sendRequest strm

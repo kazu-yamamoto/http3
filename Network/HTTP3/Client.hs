@@ -66,11 +66,14 @@ import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 
+-- | Configuration for HTTP\/3 or HQ client. For HQ, 'authority' is
+--   not used and an server's IP address is used in 'Request'.
 data ClientConfig = ClientConfig {
     scheme :: Scheme
   , authority :: Authority
   }
 
+-- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> H2.Client a -> IO a
 run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
     tid0 <- forkIO $ setupUnidirectional conn

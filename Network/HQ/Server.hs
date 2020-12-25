@@ -2,11 +2,25 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.HQ.Server (
+  -- * Runner
     run
-  , Server
+  -- * Runner arguments
   , Config(..)
   , allocSimpleConfig
   , freeSimpleConfig
+  -- * HQ server
+  , Server
+  -- * Request
+  , Request
+  -- ** Accessing request
+  , H2.requestPath
+  -- * Response
+  , Response
+  -- ** Creating response
+  , H2.responseNoBody
+  , H2.responseFile
+  , H2.responseStreaming
+  , H2.responseBuilder
   ) where
 
 import Control.Concurrent
@@ -20,6 +34,7 @@ import Foreign.ForeignPtr
 import Network.HPACK (HeaderTable, toHeaderTable)
 import Network.HTTP2.Internal (InpObj(..))
 import qualified Network.HTTP2.Internal as H2
+import qualified Network.HTTP2.Server as H2
 import Network.HTTP2.Server (Server, PushPromise)
 import Network.HTTP2.Server.Internal (Request(..), Response(..), Aux(..))
 import Network.QUIC (Connection, Stream)
@@ -32,6 +47,7 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Recv (newSource, readSource)
 
+-- | Running an HQ server.
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = do
     myaddr <- QUIC.localSockAddr <$> QUIC.getConnectionInfo conn
