@@ -54,7 +54,7 @@ library
                        Network.QPACK.Table.Static
                        Network.QPACK.Token
                        Network.QPACK.Types
-  build-depends:       base >= 4.13 && < 5
+  build-depends:       base >= 4.9 && < 5
                      , array
                      , bytestring
                      , case-insensitive
@@ -80,7 +80,7 @@ Test-suite spec
                        QPACK.InstructionSpec
                        QPACK.QIFSpec
                        QPACK.TableSpec
-  Build-Depends:       base >= 4 && < 5
+  Build-Depends:       base >= 4.9 && < 5
                      , QuickCheck
                      , async
                      , attoparsec
@@ -107,7 +107,7 @@ Test-Suite doctest
   HS-Source-Dirs:       test
   Ghc-Options:          -Wall -threaded
   Main-Is:              doctests.hs
-  Build-Depends:        base >= 4 && < 5
+  Build-Depends:        base >= 4.9 && < 5
                       , doctest >= 0.9.3
   if impl(ghc >= 8)
       Default-Extensions:  Strict StrictData
@@ -122,7 +122,7 @@ executable server
   main-is:              server.hs
   other-modules:        Common
   ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.0 && < 5
+  build-depends:        base >= 4.9 && < 5
                       , base16-bytestring
                       , bytestring
                       , filepath
@@ -145,7 +145,7 @@ executable client
   main-is:              client.hs
   other-modules:        Common
   ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.0 && < 5
+  build-depends:        base >= 4.9 && < 5
                       , base16-bytestring
                       , bytestring
                       , filepath
@@ -166,7 +166,7 @@ executable qif
   hs-source-dirs:       util
   main-is:              qif.hs
   ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.0 && < 5
+  build-depends:        base >= 4.9 && < 5
                       , attoparsec
                       , bytestring
                       , conduit
