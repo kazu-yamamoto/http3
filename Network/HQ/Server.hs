@@ -51,11 +51,9 @@ import Network.HTTP3.Recv (newSource, readSource)
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = do
     myaddr <- QUIC.localSockAddr <$> QUIC.getConnectionInfo conn
-    E.bracket open close $ processRequest conf myaddr server
-    threadDelay 100000
-  where
-    open = QUIC.acceptStream conn
-    close = QUIC.closeStream
+    forever $ do
+        strm <- QUIC.acceptStream conn
+        forkFinally (processRequest conf myaddr server strm) (\_ -> QUIC.closeStream strm)
 
 processRequest :: Config -> SockAddr -> Server -> Stream -> IO ()
 processRequest conf myaddr server strm
