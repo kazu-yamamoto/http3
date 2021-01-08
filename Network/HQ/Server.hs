@@ -58,15 +58,19 @@ run conn conf server = do
     close = QUIC.closeStream
 
 processRequest :: Config -> SockAddr -> Server -> Stream -> IO ()
-processRequest conf myaddr server strm = do
-    th <- T.register (confTimeoutManager conf) (return ())
-    vt <- recvHeader strm myaddr
-    src <- newSource strm
-    refH <- newIORef Nothing
-    let readB = readSource src
-        req = Request $ InpObj vt Nothing readB refH
-        aux = Aux th
-    server req aux $ sendResponse conf strm
+processRequest conf myaddr server strm
+  | QUIC.isClientInitiatedBidirectional sid = do
+        th <- T.register (confTimeoutManager conf) (return ())
+        vt <- recvHeader strm myaddr
+        src <- newSource strm
+        refH <- newIORef Nothing
+        let readB = readSource src
+            req = Request $ InpObj vt Nothing readB refH
+            aux = Aux th
+        server req aux $ sendResponse conf strm
+  | otherwise = return () -- fixme: should consume the data?
+  where
+    sid = QUIC.streamId strm
 
 recvHeader :: Stream -> SockAddr -> IO HeaderTable
 recvHeader strm myaddr = do
