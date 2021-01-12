@@ -24,7 +24,6 @@ module Network.HQ.Server (
   ) where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
