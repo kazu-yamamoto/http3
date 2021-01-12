@@ -23,16 +23,16 @@ setupUnidirectional :: Connection -> IO ()
 setupUnidirectional conn = do
     let st0 = mkType H3ControlStreams
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    bs0 <- (st0 `BS.append`) <$> encodeH3Frame (H3Frame H3FrameSettings settings)
-    let bs1 = mkType QPACKEncoderStream
-    let bs2 = mkType QPACKDecoderStream
+    bs0 <- encodeH3Frame (H3Frame H3FrameSettings settings)
+    let st1 = mkType QPACKEncoderStream
+    let st2 = mkType QPACKDecoderStream
     s0 <- unidirectionalStream conn
     s1 <- unidirectionalStream conn
     s2 <- unidirectionalStream conn
     -- fixme
-    sendStream s0 bs0
-    sendStream s1 bs1
-    sendStream s2 bs2
+    sendStreamMany s0 [st0, bs0]
+    sendStream s1 st1
+    sendStream s2 st2
 
 controlStream :: IORef IFrame -> InstructionHandler
 controlStream ref recv = loop
