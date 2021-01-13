@@ -1,18 +1,29 @@
 module Network.HTTP3.Config where
 
 import Network.HTTP2.Internal
+import Network.HTTP3.Frame
 import qualified System.TimeManager as T
+
+data Hooks = Hooks {
+    onControlFrameCreated :: [H3Frame] -> [H3Frame]
+  }
+
+defaultHooks :: Hooks
+defaultHooks = Hooks {
+    onControlFrameCreated = id
+  }
 
 -- | Configuration for HTTP\/3 or HQ.
 data Config = Config {
-    confPositionReadMaker :: PositionReadMaker
+    confHooks :: Hooks
+  , confPositionReadMaker :: PositionReadMaker
   , confTimeoutManager :: T.Manager
   }
 
 -- | Allocating a simple configuration with a handle-based position
 --   reader and a locally allocated timeout manager.
 allocSimpleConfig :: IO Config
-allocSimpleConfig = Config defaultPositionReadMaker <$> T.initialize (30 * 1000000)
+allocSimpleConfig = Config defaultHooks defaultPositionReadMaker <$> T.initialize (30 * 1000000)
 
 -- | Freeing a simple configration.
 freeSimpleConfig :: Config -> IO ()

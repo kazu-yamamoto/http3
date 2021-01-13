@@ -76,7 +76,7 @@ data ClientConfig = ClientConfig {
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> H2.Client a -> IO a
 run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
-    tid0 <- forkIO $ setupUnidirectional conn
+    tid0 <- forkIO $ setupUnidirectional conn conf
     addThreadId ctx tid0
     tid1 <- forkIO $ readerClient ctx
     addThreadId ctx tid1

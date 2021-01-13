@@ -82,7 +82,7 @@ import Network.HTTP3.Send
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
-    tid <- forkIO $ setupUnidirectional conn
+    tid <- forkIO $ setupUnidirectional conn conf
     addThreadId ctx tid
     readerServer ctx server
   where

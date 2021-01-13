@@ -10,6 +10,7 @@ import Data.IORef
 import Network.QUIC
 
 import Imports
+import qualified Network.HTTP3.Config as H3
 import Network.HTTP3.Frame
 import Network.HTTP3.Settings
 import Network.HTTP3.Stream
@@ -19,13 +20,15 @@ import Network.QPACK
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
 
-setupUnidirectional :: Connection -> IO ()
-setupUnidirectional conn = do
+setupUnidirectional :: Connection -> H3.Config -> IO ()
+setupUnidirectional conn conf = do
     let st0 = mkType H3ControlStreams
         st1 = mkType QPACKEncoderStream
         st2 = mkType QPACKDecoderStream
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    let bss0 = encodeH3Frames [H3Frame H3FrameSettings settings]
+    let frames = [H3Frame H3FrameSettings settings]
+        frames' = H3.onControlFrameCreated (H3.confHooks conf) frames
+    let bss0 = encodeH3Frames frames'
     s0 <- unidirectionalStream conn
     s1 <- unidirectionalStream conn
     s2 <- unidirectionalStream conn
