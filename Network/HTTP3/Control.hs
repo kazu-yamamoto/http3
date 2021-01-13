@@ -22,15 +22,15 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 setupUnidirectional :: Connection -> IO ()
 setupUnidirectional conn = do
     let st0 = mkType H3ControlStreams
+        st1 = mkType QPACKEncoderStream
+        st2 = mkType QPACKDecoderStream
     settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    bs0 <- encodeH3Frame (H3Frame H3FrameSettings settings)
-    let st1 = mkType QPACKEncoderStream
-    let st2 = mkType QPACKDecoderStream
+    let bss0 = encodeH3Frames [H3Frame H3FrameSettings settings]
     s0 <- unidirectionalStream conn
     s1 <- unidirectionalStream conn
     s2 <- unidirectionalStream conn
     -- fixme
-    sendStreamMany s0 [st0, bs0]
+    sendStreamMany s0 (st0 : bss0)
     sendStream s1 st1
     sendStream s2 st2
 

@@ -7,6 +7,7 @@ module Network.HTTP3.Frame (
   , fromH3FrameType
   , toH3FrameType
   , encodeH3Frame
+  , encodeH3Frames
   , decodeH3Frame
   , IFrame(..)
   , parseH3Frame
@@ -58,6 +59,15 @@ encodeH3Frame (H3Frame typ bs) = do
         encodeInt' wbuf $ fromIntegral $ fromH3FrameType typ
         encodeInt' wbuf $ fromIntegral $ BS.length bs
     return $ tl `BS.append` bs
+
+encodeH3Frames :: [H3Frame] -> [ByteString]
+encodeH3Frames fs0 = loop fs0 id
+  where
+    loop []                  build = build []
+    loop (H3Frame ty val:fs) build = loop fs (build . (typ :) . (len :) . (val :))
+      where
+        typ = encodeInt $ fromIntegral $ fromH3FrameType ty
+        len = encodeInt $ fromIntegral $ BS.length val
 
 decodeH3Frame :: ByteString -> IO H3Frame
 decodeH3Frame hf = withReadBuffer hf $ \rbuf -> do
