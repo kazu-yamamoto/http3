@@ -5,8 +5,6 @@ module HTTP3.ServerSpec where
 import Control.Concurrent.Async
 import qualified Control.Exception as E
 import Control.Monad
-import Crypto.Hash (Context, SHA1) -- cryptonite
-import qualified Crypto.Hash as CH
 import qualified Data.ByteString as B
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
@@ -63,4 +61,4 @@ client3 sendRequest = do
         mt <- C.getResponseTrailers rsp
         firstTrailerValue <$> mt `shouldBe` Just "b0870457df2b8cae06a88657a198d9b52f8e2b0a"
   where
-    maker = trailersMaker (CH.hashInit :: Context SHA1)
+    maker = trailersMaker hashInit

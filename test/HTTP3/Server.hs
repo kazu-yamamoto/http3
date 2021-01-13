@@ -5,6 +5,7 @@ module HTTP3.Server (
   , teardown
   , trailersMaker
   , firstTrailerValue
+  , CH.hashInit
   ) where
 
 import Control.Concurrent
@@ -75,7 +76,7 @@ responseEcho req = setResponseTrailersMaker h2rsp maker
             unless (B.null bs) $ do
                 void $ write $ byteString bs
                 loop
-    maker = trailersMaker (CH.hashInit :: Context SHA1)
+    maker = trailersMaker CH.hashInit
 
 -- Strictness is important for Context.
 trailersMaker :: Context SHA1 -> Maybe ByteString -> IO NextTrailersMaker
