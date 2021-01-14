@@ -30,6 +30,7 @@ library
   exposed-modules:     Network.HQ.Client
                        Network.HQ.Server
                        Network.HTTP3.Client
+                       Network.HTTP3.Internal
                        Network.HTTP3.Server
                        Network.QPACK
                        Network.QPACK.Internal
@@ -37,11 +38,13 @@ library
                        Network.HTTP3.Config
                        Network.HTTP3.Context
                        Network.HTTP3.Control
+                       Network.HTTP3.Error
                        Network.HTTP3.Frame
                        Network.HTTP3.Recv
                        Network.HTTP3.Send
                        Network.HTTP3.Settings
                        Network.HTTP3.Stream
+                       Network.QPACK.Error
                        Network.QPACK.HeaderBlock
                        Network.QPACK.HeaderBlock.Decode
                        Network.QPACK.HeaderBlock.Encode
