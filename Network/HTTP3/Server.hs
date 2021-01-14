@@ -7,6 +7,8 @@ module Network.HTTP3.Server (
   , Config(..)
   , allocSimpleConfig
   , freeSimpleConfig
+  , Hooks(..)
+  , defaultHooks
   -- * HTTP\/3 server
   , Server
   -- * Request
@@ -88,7 +90,7 @@ run conn conf server = E.bracket open close $ \ctx -> do
   where
     open = do
         ref <- newIORef IInit
-        newContext conn conf (controlStream ref)
+        newContext conn conf (controlStream conn ref)
     close = clearContext
 
 readerServer :: Context -> Server -> IO ()

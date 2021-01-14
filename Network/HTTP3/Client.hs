@@ -9,6 +9,8 @@ module Network.HTTP3.Client (
   , Config(..)
   , allocSimpleConfig
   , freeSimpleConfig
+  , Hooks(..)
+  , defaultHooks
   , Scheme
   , Authority
   -- * HTTP\/3 client
@@ -84,7 +86,7 @@ run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
   where
     open = do
         ref <- newIORef IInit
-        newContext conn conf (controlStream ref)
+        newContext conn conf (controlStream conn ref)
     close = clearContext
 
 readerClient :: Context -> IO ()

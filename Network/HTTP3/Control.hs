@@ -14,8 +14,8 @@ import qualified Network.HTTP3.Config as H3
 import Network.HTTP3.Frame
 import Network.HTTP3.Settings
 import Network.HTTP3.Stream
+import Network.HTTP3.Error
 import Network.QPACK
--- import Network.QUIC.Types.Integer
 
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
@@ -37,14 +37,28 @@ setupUnidirectional conn conf = do
     sendStream s1 st1
     sendStream s2 st2
 
-controlStream :: IORef IFrame -> InstructionHandler
-controlStream ref recv = loop
+controlStream :: Connection -> IORef IFrame -> InstructionHandler
+controlStream conn ref recv = loop0
   where
+    loop0 = do
+        bs <- recv 1024
+        when (bs /= "") $ do
+            readIORef ref >>= parse0 bs >>= writeIORef ref
+            loop
     loop = do
         bs <- recv 1024
         when (bs /= "") $ do
             readIORef ref >>= parse bs >>= writeIORef ref
             loop
+    parse0 bs st0 = do
+        case parseH3Frame st0 bs of
+          IDone typ _payload leftover -> do
+              case typ of
+                H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
+                _                 -> abortConnection conn H3MissingSettings
+              parse leftover IInit
+          st1 -> return st1
+
     parse bs st0 = do
         case parseH3Frame st0 bs of
           IDone typ _payload leftover -> do

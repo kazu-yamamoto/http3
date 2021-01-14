@@ -3,14 +3,12 @@
 module HTTP3.Config (
     makeTestServerConfig
   , testClientConfig
-  , testH3ClientConfig
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.List as L
-import qualified Network.HTTP3.Client as C
 import Network.TLS (Credentials(..), credentialLoadX509)
 
 import Network.QUIC
@@ -35,9 +33,6 @@ testClientConfig :: ClientConfig
 testClientConfig = defaultClientConfig {
     ccPortName = "8003"
   }
-
-testH3ClientConfig :: C.ClientConfig
-testH3ClientConfig = C.ClientConfig "https" (C8.pack "127.0.0.1")
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
 chooseALPN ver protos = return $ case mh3idx of

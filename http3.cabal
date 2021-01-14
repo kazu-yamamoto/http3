@@ -78,9 +78,11 @@ Test-suite spec
   hs-source-dirs:      test
   ghc-options:         -Wall -threaded
   main-is:             Spec.hs
-  other-modules:       HTTP3.ServerSpec
-                       HTTP3.Config
+  other-modules:       HTTP3.Config
+                       HTTP3.Error
+                       HTTP3.ErrorSpec
                        HTTP3.Server
+                       HTTP3.ServerSpec
                        QPACK.InstructionSpec
                        QPACK.QIFSpec
                        QPACK.TableSpec
