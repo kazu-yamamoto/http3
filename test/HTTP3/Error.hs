@@ -15,12 +15,9 @@ import Test.Hspec
 
 ----------------------------------------------------------------
 
-testH3ClientConfig :: H3.ClientConfig
-testH3ClientConfig = H3.ClientConfig "https" "127.0.0.1" -- fixme
-
-runC :: QUIC.ClientConfig -> H3.Config -> IO (Maybe ())
-runC qcc conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn ->
-    H3.run conn testH3ClientConfig conf client
+runC :: QUIC.ClientConfig -> H3.ClientConfig -> H3.Config -> IO (Maybe ())
+runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn ->
+    H3.run conn cconf conf client
   where
     client sendRequest = do
         let req = H3.requestNoBody methodGet "/" []
@@ -28,8 +25,8 @@ runC qcc conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn ->
         threadDelay 100000
         return ret
 
-h3ErrorSpec :: QUIC.ClientConfig -> SpecWith a
-h3ErrorSpec qcc = do
+h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> SpecWith a
+h3ErrorSpec qcc cconf = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "H3 servers" $ do
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not H3_MISSING_SETTINGS [HTTP/3 6.2.1]" $ \_ -> do

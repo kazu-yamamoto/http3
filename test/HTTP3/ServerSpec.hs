@@ -15,9 +15,6 @@ import Test.Hspec
 import HTTP3.Config
 import HTTP3.Server
 
-testH3ClientConfig :: C.ClientConfig
-testH3ClientConfig = C.ClientConfig "https" "127.0.0.1" -- fixme
-
 spec :: Spec
 spec = beforeAll setup $ afterAll teardown h3spec
 

@@ -3,12 +3,14 @@
 module HTTP3.Config (
     makeTestServerConfig
   , testClientConfig
+  , testH3ClientConfig
   ) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.List as L
+import qualified Network.HTTP3.Client as H3
 import Network.TLS (Credentials(..), credentialLoadX509)
 
 import Network.QUIC
@@ -53,3 +55,6 @@ makeProtos ver = (h3X,hqX)
     verbs = C8.pack $ show $ fromVersion ver
     h3X = "h3-" `BS.append` verbs
     hqX = "hq-" `BS.append` verbs
+
+testH3ClientConfig :: H3.ClientConfig
+testH3ClientConfig = H3.ClientConfig "https" "127.0.0.1"
