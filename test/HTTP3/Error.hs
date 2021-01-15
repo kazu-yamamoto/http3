@@ -35,7 +35,21 @@ h3ErrorSpec qcc cconf = do
                           H3.onControlFrameCreated = \fs -> H3Frame H3FrameData "" : fs
                         }
                     }
-            runC qcc conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
+        it "MUST send H3_FRAME_UNEXPECTED if a DATA frame is received on a control stream [HTTP/3 7.2.1]" $ \_ -> do
+            let conf = conf0 {
+                    H3.confHooks = (H3.confHooks conf0) {
+                          H3.onControlFrameCreated = \fs -> fs ++ [H3Frame H3FrameData ""]
+                        }
+                    }
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_FRAME_UNEXPECTED if a HEADERS frame is received on a control stream [HTTP/3 7.2.2]" $ \_ -> do
+            let conf = conf0 {
+                    H3.confHooks = (H3.confHooks conf0) {
+                          H3.onControlFrameCreated = \fs -> fs ++ [H3Frame H3FrameHeaders ""]
+                        }
+                    }
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
 
 
 applicationProtocolError :: QUIC.QUICException -> Bool

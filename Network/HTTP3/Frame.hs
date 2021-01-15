@@ -144,7 +144,10 @@ parseH3Frame (IType ist) bs = case parseQInt ist bs of
     ist'        -> IType ist'
 parseH3Frame (ILen typ ist) bs = case parseQInt ist bs of
     QDone i bs' -> let reqLen = fromIntegral i
-                   in parseH3Frame (IPay typ reqLen 0 []) bs'
+                   in if reqLen == 0 then
+                        IDone typ "" bs'
+                      else
+                        parseH3Frame (IPay typ reqLen 0 []) bs'
     ist'        -> ILen typ ist'
 parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
     LT -> IPay typ reqLen len1 (bs0:bss0)

@@ -42,32 +42,39 @@ controlStream conn ref recv = loop0
   where
     loop0 = do
         bs <- recv 1024
-        when (bs /= "") $ do
-            readIORef ref >>= parse0 bs >>= writeIORef ref
-            loop
+        if bs == "" then
+            abortConnection conn H3ClosedCriticalStream
+          else do
+            (done, st1) <- readIORef ref >>= parse0 bs
+            writeIORef ref st1
+            if done then loop0 else loop
     loop = do
         bs <- recv 1024
-        when (bs /= "") $ do
+        if bs == "" then
+            abortConnection conn H3ClosedCriticalStream
+          else do
             readIORef ref >>= parse bs >>= writeIORef ref
             loop
     parse0 bs st0 = do
         case parseH3Frame st0 bs of
           IDone typ _payload leftover -> do
               case typ of
-                H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
+                H3FrameSettings   -> return ()
                 _                 -> abortConnection conn H3MissingSettings
-              parse leftover IInit
-          st1 -> return st1
+              st1 <- parse leftover IInit
+              return (True, st1)
+          st1 -> return (False, st1)
 
     parse bs st0 = do
         case parseH3Frame st0 bs of
           IDone typ _payload leftover -> do
-              -- putStrLn $ "control: " ++ show typ
               case typ of
-                H3FrameCancelPush -> return () -- print $ decodeInt payload
-                H3FrameSettings   -> return () -- decodeH3Settings payload >>= print
-                H3FrameGoaway     -> return () -- print $ decodeInt payload
-                H3FrameMaxPushId  -> return () -- print $ decodeInt payload
-                _                 -> return () -- greasing
+                H3FrameCancelPush -> return ()
+                H3FrameSettings   -> return ()
+                H3FrameGoaway     -> return ()
+                H3FrameMaxPushId  -> return ()
+                H3FrameData       -> abortConnection conn H3FrameUnexpected
+                H3FrameHeaders    -> abortConnection conn H3FrameUnexpected
+                _                 -> return ()
               parse leftover IInit
           st1 -> return st1
