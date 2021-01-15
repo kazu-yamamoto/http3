@@ -29,6 +29,9 @@ h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> SpecWith a
 h3ErrorSpec qcc cconf = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "H3 servers" $ do
+        it "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
@@ -40,6 +43,9 @@ h3ErrorSpec qcc cconf = do
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_FRAME_UNEXPECTED if a second SETTINGS frame is received [HTTP/3 7.2.4]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated doubleSettings
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
 
 ----------------------------------------------------------------
@@ -54,6 +60,9 @@ addHook conf modify = conf'
 setOnControlFrameCreated :: ([H3Frame] -> [H3Frame]) -> H3.Hooks -> H3.Hooks
 setOnControlFrameCreated f hooks = hooks { H3.onControlFrameCreated = f }
 
+setOnHeadersFrameCreated :: ([H3Frame] -> [H3Frame]) -> H3.Hooks -> H3.Hooks
+setOnHeadersFrameCreated f hooks = hooks { H3.onHeadersFrameCreated = f }
+
 ----------------------------------------------------------------
 
 startWithNonSettings :: [H3Frame] -> [H3Frame]
@@ -67,6 +76,12 @@ controlData fs = fs ++ [H3Frame H3FrameData ""]
 
 controlHeaders :: [H3Frame] -> [H3Frame]
 controlHeaders fs = fs ++ [H3Frame H3FrameHeaders ""]
+
+requestCancelPush :: [H3Frame] -> [H3Frame]
+requestCancelPush fs = H3Frame H3FrameCancelPush "" : fs
+
+requestIllegalData :: [H3Frame] -> [H3Frame]
+requestIllegalData fs = H3Frame H3FrameData "" : fs
 
 ----------------------------------------------------------------
 

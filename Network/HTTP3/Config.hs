@@ -6,11 +6,13 @@ import qualified System.TimeManager as T
 
 data Hooks = Hooks {
     onControlFrameCreated :: [H3Frame] -> [H3Frame]
+  , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
   }
 
 defaultHooks :: Hooks
 defaultHooks = Hooks {
     onControlFrameCreated = id
+  , onHeadersFrameCreated = id
   }
 
 -- | Configuration for HTTP\/3 or HQ.

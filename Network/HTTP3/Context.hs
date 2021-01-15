@@ -18,6 +18,8 @@ module Network.HTTP3.Context (
   , pReadMaker
   , addThreadId
   , abort
+  , getHooks
+  , Hooks(..) -- re-export
   ) where
 
 import Control.Concurrent
@@ -42,6 +44,7 @@ data Context = Context {
   , ctxCleanup    :: Cleanup
   , ctxPReadMaker :: PositionReadMaker
   , ctxManager    :: T.Manager
+  , ctxHooks      :: Hooks
   , ctxThreads    :: IORef [Weak ThreadId]
   }
 
@@ -53,7 +56,8 @@ newContext conn conf ctl = do
         clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
-    Context conn enc dec sw clean preadM timmgr <$> newIORef []
+        hooks  = confHooks conf
+    Context conn enc dec sw clean preadM timmgr hooks <$> newIORef []
 
 clearContext :: Context -> IO ()
 clearContext ctx@Context{..} = do
@@ -121,3 +125,6 @@ clearThreads Context{..} = do
 
 abort :: Context -> QUIC.ApplicationProtocolError -> IO ()
 abort ctx = QUIC.abortConnection $ ctxConnection ctx
+
+getHooks :: Context -> Hooks
+getHooks = ctxHooks

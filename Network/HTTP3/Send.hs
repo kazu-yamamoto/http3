@@ -25,8 +25,10 @@ sendHeader ctx strm th hdrs = do
     -- fixme: fixHeaders
     (ths, _) <- toHeaderTable hdrs
     (hdr, "") <- qpackEncode ctx ths
-    hdrblock <- encodeH3Frame $ H3Frame H3FrameHeaders hdr
-    sendStream strm hdrblock
+    let frames = [H3Frame H3FrameHeaders hdr]
+        frames' = onHeadersFrameCreated (getHooks ctx) frames
+        bss = encodeH3Frames frames'
+    sendStreamMany strm bss
     T.tickle th
 
 sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO ()
