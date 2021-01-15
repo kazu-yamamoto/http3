@@ -16,6 +16,7 @@ import Network.QUIC
 
 import Imports
 import Network.HTTP3.Context
+import Network.HTTP3.Error
 import Network.HTTP3.Frame
 
 data Source = Source {
@@ -46,14 +47,22 @@ recvHeader ctx src = loop IInit
         bs <- readSource src
         if bs == "" then
             return Nothing
-          else case parseH3Frame st bs of
-                 IDone H3FrameHeaders payload leftover -> do
-                     pushbackSource src leftover
-                     Just <$> qpackDecode ctx payload
-                 IDone _ _ leftover -> do -- greasing
-                     pushbackSource src leftover
-                     loop IInit
-                 st' -> loop st'
+          else
+            case parseH3Frame st bs of
+              IDone typ payload leftover
+                  | typ == H3FrameHeaders -> do
+                        pushbackSource src leftover
+                        Just <$> qpackDecode ctx payload
+                  | typ == H3FrameData -> do
+                        abort ctx H3FrameUnexpected
+                        loop IInit -- dummy
+                  | permittedInRequestStream typ -> do
+                        pushbackSource src leftover
+                        loop IInit
+                  | otherwise -> do
+                        abort ctx H3FrameUnexpected
+                        loop IInit -- dummy
+              st' -> loop st'
 
 recvBody :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
 recvBody ctx src refI refH = do
@@ -64,22 +73,30 @@ recvBody ctx src refI refH = do
         bs <- readSource src
         if bs == "" then
             return ""
-          else case parseH3Frame st bs of
-                 IDone H3FrameHeaders payload _leftover -> do
-                     writeIORef refI IInit
-                     -- pushbackSource src leftover -- fixme
-                     hdr <- qpackDecode ctx payload
-                     writeIORef refH $ Just hdr
-                     return ""
-                 IPay H3FrameData siz received bss -> do
-                     let st' = IPay H3FrameData siz received []
-                     if null bss then
-                         loop st'
-                       else do
-                         writeIORef refI st'
-                         return $ BS.concat $ reverse bss
-                 IDone H3FrameData payload leftover -> do
-                     writeIORef refI IInit
-                     pushbackSource src leftover
-                     return payload
-                 st' -> loop st'
+          else
+            case parseH3Frame st bs of
+              IPay H3FrameData siz received bss -> do
+                  let st' = IPay H3FrameData siz received []
+                  if null bss then
+                      loop st'
+                    else do
+                      writeIORef refI st'
+                      return $ BS.concat $ reverse bss
+              IDone typ payload leftover
+                | typ == H3FrameHeaders -> do
+                      writeIORef refI IInit
+                      -- pushbackSource src leftover -- fixme
+                      hdr <- qpackDecode ctx payload
+                      writeIORef refH $ Just hdr
+                      return ""
+                | typ == H3FrameData -> do
+                      writeIORef refI IInit
+                      pushbackSource src leftover
+                      return payload
+                | permittedInRequestStream typ -> do
+                      pushbackSource src leftover
+                      loop IInit
+                | otherwise -> do
+                      abort ctx H3FrameUnexpected
+                      return payload -- dummy
+              st' -> loop st'

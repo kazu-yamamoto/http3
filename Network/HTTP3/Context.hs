@@ -17,6 +17,7 @@ module Network.HTTP3.Context (
   , QUIC.closeStream
   , pReadMaker
   , addThreadId
+  , abort
   ) where
 
 import Control.Concurrent
@@ -117,3 +118,6 @@ clearThreads Context{..} = do
         case mtid of
           Nothing  -> return ()
           Just tid -> killThread tid
+
+abort :: Context -> QUIC.ApplicationProtocolError -> IO ()
+abort ctx = QUIC.abortConnection $ ctxConnection ctx
