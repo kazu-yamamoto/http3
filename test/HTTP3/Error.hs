@@ -29,7 +29,7 @@ h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> SpecWith a
 h3ErrorSpec qcc cconf = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "H3 servers" $ do
-        it "MUST send H3_MISSING_SETTINGS if the first control frame is not H3_MISSING_SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
+        it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
         it "MUST send H3_FRAME_UNEXPECTED if a DATA frame is received on a control stream [HTTP/3 7.2.1]" $ \_ -> do
