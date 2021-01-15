@@ -13,6 +13,9 @@ module Network.HTTP3.Frame (
   , parseH3Frame
   , QInt(..)
   , parseQInt
+  , permittedInControlStream
+  , permittedInRequestStream
+  , permittedInPushStream
   ) where
 
 import qualified Data.ByteString as BS
@@ -52,6 +55,42 @@ toH3FrameType 0x5 = H3FramePushPromise
 toH3FrameType 0x7 = H3FrameGoaway
 toH3FrameType 0xD = H3FrameMaxPushId
 toH3FrameType   i = H3FrameUnknown i
+
+permittedInControlStream :: H3FrameType -> Bool
+permittedInControlStream H3FrameData        = False
+permittedInControlStream H3FrameHeaders     = False
+permittedInControlStream H3FrameCancelPush  = True
+permittedInControlStream H3FrameSettings    = True
+permittedInControlStream H3FramePushPromise = False
+permittedInControlStream H3FrameGoaway      = True
+permittedInControlStream H3FrameMaxPushId   = False
+permittedInControlStream (H3FrameUnknown i)
+  | i <= 0x9                                = False
+  | otherwise                               = True
+
+permittedInRequestStream :: H3FrameType -> Bool
+permittedInRequestStream H3FrameData        = True
+permittedInRequestStream H3FrameHeaders     = True
+permittedInRequestStream H3FrameCancelPush  = False
+permittedInRequestStream H3FrameSettings    = False
+permittedInRequestStream H3FramePushPromise = True
+permittedInRequestStream H3FrameGoaway      = False
+permittedInRequestStream H3FrameMaxPushId   = False
+permittedInRequestStream (H3FrameUnknown i)
+  | i <= 0x9                                = False
+  | otherwise                               = True
+
+permittedInPushStream :: H3FrameType -> Bool
+permittedInPushStream H3FrameData        = True
+permittedInPushStream H3FrameHeaders     = True
+permittedInPushStream H3FrameCancelPush  = False
+permittedInPushStream H3FrameSettings    = False
+permittedInPushStream H3FramePushPromise = False
+permittedInPushStream H3FrameGoaway      = False
+permittedInPushStream H3FrameMaxPushId   = False
+permittedInPushStream (H3FrameUnknown i)
+  | i <= 0x9                                = False
+  | otherwise                               = True
 
 encodeH3Frame :: H3Frame -> IO ByteString
 encodeH3Frame (H3Frame typ bs) = do

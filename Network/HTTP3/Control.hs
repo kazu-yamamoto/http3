@@ -73,8 +73,7 @@ controlStream conn ref recv = loop0
                 H3FrameSettings   -> abortConnection conn H3FrameUnexpected
                 H3FrameGoaway     -> return ()
                 H3FrameMaxPushId  -> return ()
-                H3FrameData       -> abortConnection conn H3FrameUnexpected
-                H3FrameHeaders    -> abortConnection conn H3FrameUnexpected
-                _                 -> return ()
+                _ | permittedInControlStream typ -> return ()
+                  | otherwise                    -> abortConnection conn H3FrameUnexpected
               parse leftover IInit
           st1 -> return st1
