@@ -70,7 +70,7 @@ controlStream conn ref recv = loop0
           IDone typ _payload leftover -> do
               case typ of
                 H3FrameCancelPush -> return ()
-                H3FrameSettings   -> return ()
+                H3FrameSettings   -> abortConnection conn H3FrameUnexpected
                 H3FrameGoaway     -> return ()
                 H3FrameMaxPushId  -> return ()
                 H3FrameData       -> abortConnection conn H3FrameUnexpected

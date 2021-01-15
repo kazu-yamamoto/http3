@@ -38,6 +38,9 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_FRAME_UNEXPECTED if a HEADERS frame is received on a control stream [HTTP/3 7.2.2]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated controlHeaders
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_FRAME_UNEXPECTED if a second SETTINGS frame is received [HTTP/3 7.2.4]" $ \_ -> do
+            let conf = addHook conf0 $ setOnControlFrameCreated doubleSettings
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
 
 ----------------------------------------------------------------
 
@@ -55,6 +58,9 @@ setOnControlFrameCreated f hooks = hooks { H3.onControlFrameCreated = f }
 
 startWithNonSettings :: [H3Frame] -> [H3Frame]
 startWithNonSettings fs = H3Frame H3FrameData "" : fs
+
+doubleSettings :: [H3Frame] -> [H3Frame]
+doubleSettings fs = fs ++ [H3Frame H3FrameSettings ""]
 
 controlData :: [H3Frame] -> [H3Frame]
 controlData fs = fs ++ [H3Frame H3FrameData ""]
