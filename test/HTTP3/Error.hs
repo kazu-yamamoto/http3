@@ -5,7 +5,10 @@ module HTTP3.Error (
   ) where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import Data.ByteString ()
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
@@ -16,8 +19,14 @@ import Test.Hspec
 ----------------------------------------------------------------
 
 runC :: QUIC.ClientConfig -> H3.ClientConfig -> H3.Config -> IO (Maybe ())
-runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn ->
-    H3.run conn cconf conf client
+runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn -> do
+    info <- QUIC.getConnectionInfo conn
+    case QUIC.alpn info of
+      Just proto | "hq" `BS.isPrefixOf` proto -> do
+                       QUIC.waitEstablished conn
+                       putStrLn $ "Warning: " ++ C8.unpack proto ++ " is negotiated. Skipping this test. Use \"h3spec -s HTTP/3\" next time."
+                       E.throwIO $ QUIC.ApplicationProtocolErrorIsReceived H3InternalError ""
+      _                                       -> H3.run conn cconf conf client
   where
     client sendRequest = do
         let req = H3.requestNoBody methodGet "/" []
