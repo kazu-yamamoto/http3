@@ -6,6 +6,8 @@ module Network.QPACK.HeaderBlock.Encode (
   , encodeTokenHeader
   , EncodedFieldSection
   , EncodedEncoderInstruction
+  , EncodeStrategy(..)
+  , CompressionAlgo(..)
   ) where
 
 import qualified Control.Exception as E

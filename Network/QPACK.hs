@@ -46,7 +46,7 @@ import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
-import Network.HPACK (HeaderTable, TokenHeaderList, EncodeStrategy(..), CompressionAlgo(..), HeaderList, ValueTable, getHeaderValue, toHeaderTable)
+import Network.HPACK (HeaderTable, TokenHeaderList, HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
 import Network.QUIC.Internal (stdoutLogger)
 

@@ -4,6 +4,8 @@ module Network.QPACK.HeaderBlock (
   , encodeTokenHeader
   , EncodedFieldSection
   , EncodedEncoderInstruction
+  , EncodeStrategy(..)
+  , CompressionAlgo(..)
   , encodePrefix
   -- * Decoder
   , decodeTokenHeader
