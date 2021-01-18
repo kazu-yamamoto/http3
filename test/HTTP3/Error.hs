@@ -41,8 +41,20 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.1.1]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        it "MUST send H3_MESSAGE_ERROR if uppercase field names are included [HTTP/3 4.1.3]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        it "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.1.3]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
@@ -96,8 +108,38 @@ requestCancelPush fs = H3Frame H3FrameCancelPush "" : fs
 requestIllegalData :: [H3Frame] -> [H3Frame]
 requestIllegalData fs = H3Frame H3FrameData "" : fs
 
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":path","/")
+-- ] -- the absence of mandatory pseudo-header fields
 illegalHeader0 :: [H3Frame] -> [H3Frame]
-illegalHeader0 _ = [H3Frame H3FrameHeaders ""]
+illegalHeader0 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\xc1"]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":autority","127.0.0.1")
+-- ,(":path","/")
+-- ,(":foo","bar") -- the presence of prohibited fields or pseudo-header fields,
+-- ]
+illegalHeader1 :: [H3Frame] -> [H3Frame]
+illegalHeader1 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x27\x02\x3a\x61\x75\x74\x6f\x72\x69\x74\x79\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x24\x3a\x66\x6f\x6f\x03\x62\x61\x72"]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":autority","127.0.0.1")
+-- ,("foo","bar")
+-- ,(":path","/") -- pseudo-header fields after fields
+-- ]
+illegalHeader2 :: [H3Frame] -> [H3Frame]
+illegalHeader2 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x27\x02\x3a\x61\x75\x74\x6f\x72\x69\x74\x79\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\x23\x66\x6f\x6f\x03\x62\x61\x72\xc1"]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":authority","127.0.0.1")
+-- ,(":path","/")
+-- ,(":method","GET")]
+illegalHeader3 :: [H3Frame] -> [H3Frame]
+illegalHeader3 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xd1"]
 
 ----------------------------------------------------------------
 

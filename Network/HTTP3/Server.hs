@@ -64,6 +64,7 @@ module Network.HTTP3.Server (
 import Control.Concurrent
 import qualified Control.Exception as E
 import Data.IORef
+import Network.HPACK.Token
 import Network.HTTP2.Internal (InpObj(..))
 import qualified Network.HTTP2.Internal as H2
 import Network.HTTP2.Server (Server, PushPromise)
@@ -81,6 +82,7 @@ import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
+import Network.QPACK
 
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
@@ -117,12 +119,20 @@ processRequest ctx server strm = E.handle reset $ do
     mvt <- recvHeader ctx src
     case mvt of
       Nothing -> return ()
-      Just vt -> do
+      Just ht@(_,vt) -> do
+          when (isNothing $ getHeaderValue tokenMethod vt) $ do
+              QUIC.resetStream strm H3MessageError
+          when (isNothing $ getHeaderValue tokenScheme vt) $ do
+              QUIC.resetStream strm H3MessageError
+          when (isNothing $ getHeaderValue tokenAuthority vt) $ do
+              QUIC.resetStream strm H3MessageError
+          when (isNothing $ getHeaderValue tokenPath vt) $ do
+              QUIC.resetStream strm H3MessageError
           -- fixme: Content-Length
           refI <- newIORef IInit
           refH <- newIORef Nothing
           let readB = recvBody ctx src refI refH
-              req = Request $ InpObj vt Nothing readB refH
+              req = Request $ InpObj ht Nothing readB refH
           let aux = Aux th
           server req aux $ sendResponse ctx strm th
   where
