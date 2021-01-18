@@ -49,7 +49,7 @@ test efile qfile = do
     cleanup
 
 switch :: (Block -> IO ())
-       -> InstructionHandlerS
+       -> EncoderInstructionHandlerS
        -> (PositionRange, Block)
        -> IO ()
 switch send insthdr (_, blk@(Block n bs))
