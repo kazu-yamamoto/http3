@@ -30,7 +30,7 @@ runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn -> do
   where
     client sendRequest = do
         let req = H3.requestNoBody methodGet "/" []
-        ret <- sendRequest req $ \rsp -> print $ H3.responseStatus rsp
+        ret <- sendRequest req $ \_rsp -> return ()
         threadDelay 100000
         return ret
 
