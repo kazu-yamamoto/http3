@@ -1,9 +1,11 @@
 module Network.QPACK.HeaderBlock (
+  -- * Encoder
     encodeHeader
   , encodeTokenHeader
   , EncodedFieldSection
   , EncodedEncoderInstruction
   , encodePrefix
+  -- * Decoder
   , decodeTokenHeader
   , decodeTokenHeaderS
   ) where

@@ -4,6 +4,7 @@ module Network.QPACK.Internal (
   , module Network.QPACK.Instruction
   , module Network.QPACK.HeaderBlock
   , module Network.QPACK.HeaderBlock.Prefix
+  -- * Types
   , module Network.QPACK.Types
   ) where
 

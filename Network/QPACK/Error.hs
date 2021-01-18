@@ -1,6 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Network.QPACK.Error (
+  -- * Errors
     ApplicationProtocolError(QpackDecompressionFailed
                             ,QpackEncoderStreamError
                             ,QpackDecoderStreamError

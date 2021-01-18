@@ -1,6 +1,7 @@
 {-# LANGUAGE BinaryLiterals #-}
 
 module Network.QPACK.HeaderBlock.Prefix (
+  -- * Prefix
     encodePrefix
   , decodePrefix
   , encodeRequiredInsertCount
