@@ -77,6 +77,7 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
+import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
@@ -110,7 +111,7 @@ readerServer ctx server = loop
         sid = QUIC.streamId strm
 
 processRequest :: Context -> Server -> Stream -> IO ()
-processRequest ctx server strm = do
+processRequest ctx server strm = E.handle reset $ do
     th <- registerThread ctx
     src <- newSource strm
     mvt <- recvHeader ctx src
@@ -124,6 +125,8 @@ processRequest ctx server strm = do
               req = Request $ InpObj vt Nothing readB refH
           let aux = Aux th
           server req aux $ sendResponse ctx strm th
+  where
+    reset (E.SomeException _e) = QUIC.resetStream strm H3MessageError
 
 sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
 sendResponse ctx strm th (Response outobj) _pp = do

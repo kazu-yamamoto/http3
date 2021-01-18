@@ -41,6 +41,10 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
@@ -91,6 +95,23 @@ requestCancelPush fs = H3Frame H3FrameCancelPush "" : fs
 
 requestIllegalData :: [H3Frame] -> [H3Frame]
 requestIllegalData fs = H3Frame H3FrameData "" : fs
+
+illegalHeader0 :: [H3Frame] -> [H3Frame]
+illegalHeader0 _ = [H3Frame H3FrameHeaders ""]
+
+----------------------------------------------------------------
+
+addQUICHook :: QUIC.ClientConfig -> (QUIC.Hooks -> QUIC.Hooks) -> QUIC.ClientConfig
+addQUICHook cc modify = cc'
+  where
+    conf = QUIC.ccConfig cc
+    hooks = QUIC.confHooks conf
+    hooks' = modify hooks
+    conf' = conf { QUIC.confHooks = hooks' }
+    cc' = cc { QUIC.ccConfig = conf' }
+
+setOnResetStreamReceived :: (QUIC.Stream -> ApplicationProtocolError -> IO ()) -> QUIC.Hooks -> QUIC.Hooks
+setOnResetStreamReceived f hooks = hooks { QUIC.onResetStreamReceived = f }
 
 ----------------------------------------------------------------
 
