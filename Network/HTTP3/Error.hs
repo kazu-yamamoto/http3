@@ -15,6 +15,7 @@ module Network.HTTP3.Error (
                             ,H3RequestRejected
                             ,H3RequestCancelled
                             ,H3RequestIncomplete
+                            ,H3MessageError
                             ,H3ConnectError
                             ,H3VersionFallback
                             )
@@ -63,6 +64,9 @@ pattern H3RequestCancelled        = ApplicationProtocolError 0x10C
 
 pattern H3RequestIncomplete      :: ApplicationProtocolError
 pattern H3RequestIncomplete       = ApplicationProtocolError 0x10D
+
+pattern H3MessageError           :: ApplicationProtocolError
+pattern H3MessageError            = ApplicationProtocolError 0x10E
 
 pattern H3ConnectError           :: ApplicationProtocolError
 pattern H3ConnectError            = ApplicationProtocolError 0x10F
