@@ -25,6 +25,7 @@ module Network.QPACK (
   , InstructionHandler
   , Cleanup
   , Size
+  -- * Strategy
   , EncodeStrategy(..)
   , CompressionAlgo(..)
   -- * Re-exports
