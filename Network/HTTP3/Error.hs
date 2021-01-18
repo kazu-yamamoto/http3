@@ -54,22 +54,22 @@ pattern H3SettingsError          :: ApplicationProtocolError
 pattern H3SettingsError           = ApplicationProtocolError 0x109
 
 pattern H3MissingSettings        :: ApplicationProtocolError
-pattern H3MissingSettings         = ApplicationProtocolError 0x10A
+pattern H3MissingSettings         = ApplicationProtocolError 0x10a
 
 pattern H3RequestRejected        :: ApplicationProtocolError
-pattern H3RequestRejected         = ApplicationProtocolError 0x10B
+pattern H3RequestRejected         = ApplicationProtocolError 0x10b
 
 pattern H3RequestCancelled       :: ApplicationProtocolError
-pattern H3RequestCancelled        = ApplicationProtocolError 0x10C
+pattern H3RequestCancelled        = ApplicationProtocolError 0x10c
 
 pattern H3RequestIncomplete      :: ApplicationProtocolError
-pattern H3RequestIncomplete       = ApplicationProtocolError 0x10D
+pattern H3RequestIncomplete       = ApplicationProtocolError 0x10d
 
 pattern H3MessageError           :: ApplicationProtocolError
-pattern H3MessageError            = ApplicationProtocolError 0x10E
+pattern H3MessageError            = ApplicationProtocolError 0x10e
 
 pattern H3ConnectError           :: ApplicationProtocolError
-pattern H3ConnectError            = ApplicationProtocolError 0x10F
+pattern H3ConnectError            = ApplicationProtocolError 0x10f
 
 pattern H3VersionFallback        :: ApplicationProtocolError
 pattern H3VersionFallback         = ApplicationProtocolError 0x110
