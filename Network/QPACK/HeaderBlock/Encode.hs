@@ -4,6 +4,8 @@
 module Network.QPACK.HeaderBlock.Encode (
     encodeHeader
   , encodeTokenHeader
+  , EncodedFieldSection
+  , EncodedEncoderInstruction
   ) where
 
 import qualified Control.Exception as E
@@ -20,11 +22,16 @@ import Network.QPACK.Instruction
 import Network.QPACK.Table
 import Network.QPACK.Types
 
+-- | Encoded field section including prefix.
+type EncodedFieldSection = B.ByteString
+-- | Encoded encoder instruction.
+type EncodedEncoderInstruction = B.ByteString
+
 -- | Encoding headers with QPACK.
 --   Header block with prefix and instructions are returned.
 --   2048, 32, and 2048 bytes-buffers are
 --   temporally allocated for header block, prefix and encoder instructions.
-encodeHeader :: EncodeStrategy -> DynamicTable -> HeaderList -> IO (ByteString,ByteString)
+encodeHeader :: EncodeStrategy -> DynamicTable -> HeaderList -> IO (EncodedFieldSection,EncodedEncoderInstruction)
 encodeHeader stgy dyntbl hs = do
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
                        withWriteBuffer 2048 $ \wbuf2 -> do
