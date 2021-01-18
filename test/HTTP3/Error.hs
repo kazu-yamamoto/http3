@@ -37,7 +37,7 @@ runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn -> do
 h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> SpecWith a
 h3ErrorSpec qcc cconf = do
     conf0 <- runIO H3.allocSimpleConfig
-    describe "H3 servers" $ do
+    describe "HTTP/3 servers" $ do
         it "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
