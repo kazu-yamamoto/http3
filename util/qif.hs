@@ -40,7 +40,7 @@ dump size efile = do
     cleanup
 
 dumpSwitch :: (ByteString -> IO HeaderList)
-       -> InstructionHandlerS
+       -> EncoderInstructionHandlerS
        -> (a, Block)
        -> IO ()
 dumpSwitch dec insthdr (_, Block n bs)
@@ -74,7 +74,7 @@ test size efile qfile = do
     cleanup
 
 testSwitch :: (Block -> IO ())
-           -> InstructionHandlerS
+           -> EncoderInstructionHandlerS
            -> (a, Block)
            -> IO ()
 testSwitch send insthdr (_, blk@(Block n bs))
