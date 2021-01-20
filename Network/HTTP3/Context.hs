@@ -22,6 +22,7 @@ module Network.HTTP3.Context (
   , Hooks(..) -- re-export
   ) where
 
+import qualified Control.Exception as E
 import Control.Concurrent
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -35,6 +36,7 @@ import qualified System.TimeManager as T
 import Network.HTTP3.Config
 import Network.HTTP3.Stream
 import Network.QPACK
+import Network.QPACK.Internal
 
 data Context = Context {
     ctxConnection :: Connection
@@ -52,12 +54,18 @@ newContext :: Connection -> Config -> InstructionHandler -> IO Context
 newContext conn conf ctl = do
     (enc, handleDI, cleanE) <- newQEncoder defaultQEncoderConfig
     (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
-    let sw = switch ctl handleEI handleDI
+    let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
+        handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
+        sw = switch ctl handleEI' handleDI'
         clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
         hooks  = confHooks conf
     Context conn enc dec sw clean preadM timmgr hooks <$> newIORef []
+  where
+    abortWith aerr se
+      | Just E.ThreadKilled <- E.fromException se = return ()
+      | otherwise = QUIC.abortConnection conn aerr
 
 clearContext :: Context -> IO ()
 clearContext ctx@Context{..} = do

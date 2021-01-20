@@ -9,9 +9,9 @@ module Network.QPACK.Table.Static (
 import qualified Control.Exception as E
 import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
-import Network.HPACK (DecodeError(..))
 import Network.HPACK.Internal
 
+import Network.QPACK.Error
 import Network.QPACK.Types
 
 ----------------------------------------------------------------

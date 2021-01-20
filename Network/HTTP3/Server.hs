@@ -83,6 +83,7 @@ import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 import Network.QPACK
+import Network.QPACK.Internal
 
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
@@ -136,7 +137,10 @@ processRequest ctx server strm = E.handle reset $ do
           let aux = Aux th
           server req aux $ sendResponse ctx strm th
   where
-    reset (E.SomeException _e) = QUIC.resetStream strm H3MessageError
+    reset se
+      | Just E.ThreadKilled <- E.fromException se = return ()
+      | Just IllegalStaticIndex <- E.fromException se = abort ctx QpackDecompressionFailed
+      | otherwise = QUIC.resetStream strm H3MessageError
 
 sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
 sendResponse ctx strm th (Response outobj) _pp = do
