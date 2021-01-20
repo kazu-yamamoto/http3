@@ -49,7 +49,7 @@ h3ErrorSpec qcc cconf = do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it "MUST send H3_MESSAGE_ERROR if uppercase field names are included [HTTP/3 4.1.3]" $ \_ -> do
+        it "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
