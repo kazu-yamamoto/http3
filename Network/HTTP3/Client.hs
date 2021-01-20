@@ -64,6 +64,7 @@ import qualified Network.QUIC as QUIC
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
+import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
@@ -119,7 +120,11 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         src <- newSource strm
         mvt <- recvHeader ctx src
         case mvt of
-          Nothing -> error ""
+          Nothing -> do
+              QUIC.resetStream strm H3MessageError
+              threadDelay 100000
+              -- just for type inference
+              E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
           Just vt -> do
               refI <- newIORef IInit
               refH <- newIORef Nothing

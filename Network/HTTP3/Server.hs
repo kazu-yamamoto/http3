@@ -120,7 +120,7 @@ processRequest ctx server strm = E.handle reset $ do
     src <- newSource strm
     mvt <- recvHeader ctx src
     case mvt of
-      Nothing -> return ()
+      Nothing -> QUIC.resetStream strm H3MessageError
       Just ht@(_,vt) -> do
           when (isNothing $ getHeaderValue tokenMethod vt) $ do
               QUIC.resetStream strm H3MessageError
