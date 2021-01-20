@@ -6,8 +6,10 @@ module Network.QPACK.Table.Static (
   , staticTableList
   ) where
 
+import qualified Control.Exception as E
 import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
+import Network.HPACK (DecodeError(..))
 import Network.HPACK.Internal
 
 import Network.QPACK.Types
@@ -28,7 +30,9 @@ staticTableSize = length staticTableList
 -- >>> toStaticEntry 50
 -- Entry 53 (Token {tokenIx = 21, shouldBeIndexed = True, isPseudo = False, tokenKey = "Content-Type"}) "image/png"
 toStaticEntry :: AbsoluteIndex -> Entry
-toStaticEntry (AbsoluteIndex sidx) = staticTable `unsafeAt` sidx
+toStaticEntry (AbsoluteIndex sidx)
+  | sidx < staticTableSize = staticTable `unsafeAt` sidx
+  | otherwise              = E.throw IllegalStaticIndex
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry
