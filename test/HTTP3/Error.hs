@@ -12,6 +12,7 @@ import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
+import Network.QPACK.Internal
 import qualified Network.QUIC as QUIC
 import System.Timeout
 import Test.Hspec
@@ -72,6 +73,10 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]" $ \_ -> do
+            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
 
 ----------------------------------------------------------------
 
@@ -140,6 +145,13 @@ illegalHeader2 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x27\x02\x3a\x61\x75
 -- ,(":method","GET")]
 illegalHeader3 :: [H3Frame] -> [H3Frame]
 illegalHeader3 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xd1"]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":authority","127.0.0.1")
+-- ,(":path","/")] ++ static index 99
+illegalHeader4 :: [H3Frame] -> [H3Frame]
+illegalHeader4 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xff\x24"]
 
 ----------------------------------------------------------------
 
