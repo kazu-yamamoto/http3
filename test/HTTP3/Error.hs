@@ -75,8 +75,7 @@ h3ErrorSpec qcc cconf = do
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
-            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
 
 ----------------------------------------------------------------
 
