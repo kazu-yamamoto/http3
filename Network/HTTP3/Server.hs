@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Network.HTTP3.Server (
   -- * Runner
@@ -139,7 +140,7 @@ processRequest ctx server strm = E.handle reset $ do
   where
     reset se
       | Just E.ThreadKilled <- E.fromException se = return ()
-      | Just IllegalStaticIndex <- E.fromException se = abort ctx QpackDecompressionFailed
+      | Just (_ :: DecodeError) <- E.fromException se = abort ctx QpackDecompressionFailed
       | otherwise = QUIC.resetStream strm H3MessageError
 
 sendResponse :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()

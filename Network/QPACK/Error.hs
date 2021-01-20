@@ -24,6 +24,7 @@ pattern QpackDecoderStreamError  :: ApplicationProtocolError
 pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 
 data DecodeError = IllegalStaticIndex
+                 | IllegalInsertCount
                  deriving (Eq,Show,Typeable)
 
 instance Exception DecodeError

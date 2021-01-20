@@ -10,10 +10,12 @@ module Network.QPACK.HeaderBlock.Prefix (
   , decodeBase
   ) where
 
+import qualified Control.Exception as E
 import Network.ByteOrder
 import Network.HPACK.Internal
 
 import Imports
+import Network.QPACK.Error
 import Network.QPACK.Table
 import Network.QPACK.Types
 
@@ -38,8 +40,8 @@ encodeRequiredInsertCount maxEntries (InsertionPoint reqInsertCount) =
 decodeRequiredInsertCount :: Int -> InsertionPoint -> Int -> InsertionPoint
 decodeRequiredInsertCount _ _ 0 = 0
 decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encodedInsertCount
-  | encodedInsertCount > fullRange = error "decodeRequiredInsertCount"
-  | reqInsertCount > maxValue && reqInsertCount <= fullRange = error "decodeRequiredInsertCount"
+  | encodedInsertCount > fullRange = E.throw IllegalInsertCount
+  | reqInsertCount > maxValue && reqInsertCount <= fullRange = E.throw IllegalInsertCount
   | reqInsertCount > maxValue = InsertionPoint (reqInsertCount - fullRange)
   | otherwise                 = InsertionPoint reqInsertCount
   where
