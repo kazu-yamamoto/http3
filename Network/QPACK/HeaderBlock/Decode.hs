@@ -1,4 +1,4 @@
- {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE BinaryLiterals #-}
 
 module Network.QPACK.HeaderBlock.Decode where
 
