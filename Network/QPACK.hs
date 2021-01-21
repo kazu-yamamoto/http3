@@ -150,9 +150,14 @@ decoderInstructionHandler dyntbl recv = loop
         when (bs /= "") $ do
             (ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
             when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
-            -- fixme: handle _ins
             qpackDebug dyntbl $ mapM_ print ins
+            mapM_ handle ins
             loop
+    handle (SectionAcknowledgement _n) = return ()
+    handle (StreamCancellation _n) = return ()
+    handle (InsertCountIncrement n)
+      | n == 0    = E.throwIO DecoderInstructionError
+      | otherwise = return ()
 
 ----------------------------------------------------------------
 
@@ -216,7 +221,7 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
   where
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n)
-      | n > 4096  = E.throwIO IllegalDynamicTableCapacity
+      | n > 4096  = E.throwIO EncoderInstructionError
       | otherwise = return ()
     handle (InsertWithNameReference ii val) = atomically $ do
         idx <- case ii of

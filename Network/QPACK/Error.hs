@@ -7,6 +7,8 @@ module Network.QPACK.Error (
                             ,QpackDecoderStreamError
                             )
   , DecodeError(..)
+  , EncoderInstructionError(..)
+  , DecoderInstructionError(..)
   ) where
 
 import Control.Exception
@@ -25,7 +27,11 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 
 data DecodeError = IllegalStaticIndex
                  | IllegalInsertCount
-                 | IllegalDynamicTableCapacity
                  deriving (Eq,Show,Typeable)
 
+data EncoderInstructionError = EncoderInstructionError deriving (Eq,Show,Typeable)
+data DecoderInstructionError = DecoderInstructionError deriving (Eq,Show,Typeable)
+
 instance Exception DecodeError
+instance Exception EncoderInstructionError
+instance Exception DecoderInstructionError

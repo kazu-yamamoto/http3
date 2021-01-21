@@ -76,12 +76,15 @@ h3ErrorSpec qcc cconf = do
         it "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
-        it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
-            let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
+        it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
+            let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+        it "MUST send QPACK_DECODER_STREAM_ERROR if Insert Count Increment is 0 [QPACK 4.4.3]" $ \_ -> do
+            let conf = addHook conf0 $ setOnDecoderStreamCreated zeroInsertCountIncrement
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecoderStreamError]
 
 ----------------------------------------------------------------
 
@@ -172,6 +175,10 @@ illegalHeader4 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37
 -- SetDynamicTableCapacity 10000000000
 largeTableCapacity :: QUIC.Stream -> IO ()
 largeTableCapacity strm = QUIC.sendStream strm "\x3f\xe1\xc7\xaf\xa0\x25"
+
+-- InsertCountIncrement 0
+zeroInsertCountIncrement :: QUIC.Stream -> IO ()
+zeroInsertCountIncrement strm = QUIC.sendStream strm "\x00"
 
 ----------------------------------------------------------------
 
