@@ -36,6 +36,7 @@ setupUnidirectional conn conf = do
     sendStreamMany s0 (st0 : bss0)
     sendStream s1 st1
     sendStream s2 st2
+    H3.onControlStreamCreated (H3.confHooks conf) s0
 
 controlStream :: Connection -> IORef IFrame -> InstructionHandler
 controlStream conn ref recv = loop0

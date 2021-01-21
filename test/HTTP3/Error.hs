@@ -76,6 +76,9 @@ h3ErrorSpec qcc cconf = do
         it "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+        it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
+            let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
 
 ----------------------------------------------------------------
 
@@ -91,6 +94,9 @@ setOnControlFrameCreated f hooks = hooks { H3.onControlFrameCreated = f }
 
 setOnHeadersFrameCreated :: ([H3Frame] -> [H3Frame]) -> H3.Hooks -> H3.Hooks
 setOnHeadersFrameCreated f hooks = hooks { H3.onHeadersFrameCreated = f }
+
+setOnControlStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnControlStreamCreated f hooks = hooks { H3.onControlStreamCreated = f }
 
 ----------------------------------------------------------------
 

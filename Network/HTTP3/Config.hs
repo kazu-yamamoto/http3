@@ -2,17 +2,20 @@ module Network.HTTP3.Config where
 
 import Network.HTTP2.Internal
 import Network.HTTP3.Frame
+import Network.QUIC (Stream)
 import qualified System.TimeManager as T
 
 data Hooks = Hooks {
     onControlFrameCreated :: [H3Frame] -> [H3Frame]
   , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
+  , onControlStreamCreated :: Stream -> IO ()
   }
 
 defaultHooks :: Hooks
 defaultHooks = Hooks {
     onControlFrameCreated = id
   , onHeadersFrameCreated = id
+  , onControlStreamCreated = \_ -> return ()
   }
 
 -- | Configuration for HTTP\/3 or HQ.
