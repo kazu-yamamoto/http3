@@ -56,7 +56,7 @@ newContext conn conf ctl = do
     (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
-        sw = switch ctl handleEI' handleDI'
+        sw = switch conn ctl handleEI' handleDI'
         clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
@@ -72,12 +72,12 @@ clearContext ctx@Context{..} = do
     clearThreads ctx
     ctxCleanup
 
-switch :: InstructionHandler -> InstructionHandler -> InstructionHandler -> H3StreamType -> InstructionHandler
-switch ctl handleEI handleDI styp
+switch :: Connection -> InstructionHandler -> InstructionHandler -> InstructionHandler -> H3StreamType -> InstructionHandler
+switch conn ctl handleEI handleDI styp
   | styp == H3ControlStreams   = ctl
   | styp == QPACKEncoderStream = handleEI
   | styp == QPACKDecoderStream = handleDI
-  | otherwise                  = \_ -> putStrLn "switch unknown stream type"
+  | otherwise                  = \_ -> QUIC.connDebugLog conn "switch unknown stream type"
 
 isH3Server :: Context -> Bool
 isH3Server Context{..} = isServer ctxConnection
