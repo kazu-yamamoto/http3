@@ -42,6 +42,7 @@ module Network.QPACK (
   ) where
 
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Foreign.Marshal.Alloc (mallocBytes, free)
@@ -51,6 +52,7 @@ import Network.HPACK.Internal
 import Network.QUIC.Internal (stdoutLogger)
 
 import Imports
+import Network.QPACK.Error
 import Network.QPACK.HeaderBlock
 import Network.QPACK.Instruction
 import Network.QPACK.Table
@@ -213,7 +215,9 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     mapM_ handle ins
   where
     hufdec = getHuffmanDecoder dyntbl
-    handle (SetDynamicTableCapacity _n) = return () -- stdoutLogger ("SetDynamicTableCapacity " <> bhow n) -- fimxe
+    handle (SetDynamicTableCapacity n)
+      | n > 4096  = E.throwIO IllegalDynamicTableCapacity
+      | otherwise = return ()
     handle (InsertWithNameReference ii val) = atomically $ do
         idx <- case ii of
                  Left  ai -> return $ SIndex ai

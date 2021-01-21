@@ -25,6 +25,7 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 
 data DecodeError = IllegalStaticIndex
                  | IllegalInsertCount
+                 | IllegalDynamicTableCapacity
                  deriving (Eq,Show,Typeable)
 
 instance Exception DecodeError

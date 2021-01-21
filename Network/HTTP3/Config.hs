@@ -9,6 +9,8 @@ data Hooks = Hooks {
     onControlFrameCreated :: [H3Frame] -> [H3Frame]
   , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
   , onControlStreamCreated :: Stream -> IO ()
+  , onEncoderStreamCreated :: Stream -> IO ()
+  , onDecoderStreamCreated :: Stream -> IO ()
   }
 
 defaultHooks :: Hooks
@@ -16,6 +18,8 @@ defaultHooks = Hooks {
     onControlFrameCreated = id
   , onHeadersFrameCreated = id
   , onControlStreamCreated = \_ -> return ()
+  , onEncoderStreamCreated = \_ -> return ()
+  , onDecoderStreamCreated = \_ -> return ()
   }
 
 -- | Configuration for HTTP\/3 or HQ.

@@ -79,6 +79,9 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+        it "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]" $ \_ -> do
+            let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
 
 ----------------------------------------------------------------
 
@@ -97,6 +100,12 @@ setOnHeadersFrameCreated f hooks = hooks { H3.onHeadersFrameCreated = f }
 
 setOnControlStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
 setOnControlStreamCreated f hooks = hooks { H3.onControlStreamCreated = f }
+
+setOnEncoderStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnEncoderStreamCreated f hooks = hooks { H3.onEncoderStreamCreated = f }
+
+setOnDecoderStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnDecoderStreamCreated f hooks = hooks { H3.onDecoderStreamCreated = f }
 
 ----------------------------------------------------------------
 
@@ -157,6 +166,12 @@ illegalHeader3 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37
 -- ,(":path","/")] ++ static index 99
 illegalHeader4 :: [H3Frame] -> [H3Frame]
 illegalHeader4 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xff\x24"]
+
+----------------------------------------------------------------
+
+-- SetDynamicTableCapacity 10000000000
+largeTableCapacity :: QUIC.Stream -> IO ()
+largeTableCapacity strm = QUIC.sendStream strm "\x3f\xe1\xc7\xaf\xa0\x25"
 
 ----------------------------------------------------------------
 

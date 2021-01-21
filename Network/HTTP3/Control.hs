@@ -22,21 +22,24 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 
 setupUnidirectional :: Connection -> H3.Config -> IO ()
 setupUnidirectional conn conf = do
-    let st0 = mkType H3ControlStreams
-        st1 = mkType QPACKEncoderStream
-        st2 = mkType QPACKDecoderStream
-    settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)]
-    let frames = [H3Frame H3FrameSettings settings]
-        frames' = H3.onControlFrameCreated (H3.confHooks conf) frames
-    let bss0 = encodeH3Frames frames'
-    s0 <- unidirectionalStream conn
-    s1 <- unidirectionalStream conn
-    s2 <- unidirectionalStream conn
+    settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)] -- fixme
+    let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
+    let bssC = encodeH3Frames framesC
+    sC <- unidirectionalStream conn
+    sE <- unidirectionalStream conn
+    sD <- unidirectionalStream conn
     -- fixme
-    sendStreamMany s0 (st0 : bss0)
-    sendStream s1 st1
-    sendStream s2 st2
-    H3.onControlStreamCreated (H3.confHooks conf) s0
+    sendStreamMany sC (stC : bssC)
+    sendStream sE stE
+    sendStream sD stD
+    H3.onControlStreamCreated hooks sC
+    H3.onEncoderStreamCreated hooks sE
+    H3.onDecoderStreamCreated hooks sD
+  where
+    stC = mkType H3ControlStreams
+    stE = mkType QPACKEncoderStream
+    stD = mkType QPACKDecoderStream
+    hooks = H3.confHooks conf
 
 controlStream :: Connection -> IORef IFrame -> InstructionHandler
 controlStream conn ref recv = loop0
