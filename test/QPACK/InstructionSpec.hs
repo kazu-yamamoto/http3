@@ -24,7 +24,7 @@ spec = do
             eis2 `shouldBe` eis0
     describe "encodeDecoderInstructions and decodeDecoderInstructions" $ do
         it "encode/decodes decode instructions properly" $ do
-            let eis0 = [HeaderAcknowledgement 10
+            let eis0 = [SectionAcknowledgement 10
                        ,StreamCancellation 100
                        ,InsertCountIncrement 200
                        ]

@@ -129,7 +129,7 @@ decodeDuplicate rbuf w8 =
 
 ----------------------------------------------------------------
 
-data DecoderInstruction = HeaderAcknowledgement Int
+data DecoderInstruction = SectionAcknowledgement Int
                         | StreamCancellation Int
                         | InsertCountIncrement Int
                         deriving (Eq, Show)
@@ -141,7 +141,7 @@ encodeDecoderInstructions dis = withWriteBuffer 4096 $ \wbuf ->
     mapM_ (encodeDI wbuf) dis
 
 encodeDI :: WriteBuffer -> DecoderInstruction -> IO ()
-encodeDI wbuf (HeaderAcknowledgement n) = encodeI wbuf set1  7 n
+encodeDI wbuf (SectionAcknowledgement n) = encodeI wbuf set1  7 n
 encodeDI wbuf (StreamCancellation n)    = encodeI wbuf set01 6 n
 encodeDI wbuf (InsertCountIncrement n)  = encodeI wbuf id    6 n
 
@@ -171,7 +171,7 @@ decodeDI :: ReadBuffer -> IO DecoderInstruction
 decodeDI rbuf = do
     w8 <- read8 rbuf
     if w8 `testBit` 7 then
-        HeaderAcknowledgement <$> decodeI 7 (w8 .&. 0b01111111) rbuf
+        SectionAcknowledgement <$> decodeI 7 (w8 .&. 0b01111111) rbuf
       else do
         i <- decodeI 6 (w8 .&. 0b00111111) rbuf
         return $ if w8 `testBit` 6 then StreamCancellation i else InsertCountIncrement i

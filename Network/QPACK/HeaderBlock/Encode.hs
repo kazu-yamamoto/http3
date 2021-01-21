@@ -78,14 +78,14 @@ encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
         rr <- lookupRevIndex t val revidx
         case rr of
           KV hi -> do
-              -- 4.5.2.  Indexed Header Field
-              encodeIndexedHeaderField wbuf1 dyntbl hi
+              -- 4.5.2.  Indexed Field Line
+              encodeIndexedFieldLine wbuf1 dyntbl hi
           K  hi -> do
-              -- 4.5.4.  Literal Header Field With Name Reference
-              encodeLiteralHeaderFieldWithNameReference wbuf1 dyntbl hi val huff
+              -- 4.5.4.  Literal Field Line With Name Reference
+              encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
           N     -> do
-              -- 4.5.6.  Literal Header Field Without Name Reference
-              encodeLiteralHeaderFieldWithoutNameReference wbuf1 t val huff
+              -- 4.5.6.  Literal Field Line Without Name Reference
+              encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
         save wbuf1
         writeIORef ref ts
         loop ts
@@ -101,8 +101,8 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
         rr <- lookupRevIndex t val revidx
         case rr of
           KV hi -> do
-              -- 4.5.2.  Indexed Header Field
-              encodeIndexedHeaderField wbuf1 dyntbl hi
+              -- 4.5.2.  Indexed Field Line
+              encodeIndexedFieldLine wbuf1 dyntbl hi
           K  hi
             | shouldBeIndexed t -> do
                   insidx <- case hi of
@@ -113,28 +113,28 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                   let ins = InsertWithNameReference insidx val
                   encodeEI wbuf2 True ins
                   dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
-                  -- 4.5.3.  Indexed Header Field With Post-Base Index
-                  encodeIndexedHeaderFieldWithPostBaseIndex wbuf1 dyntbl dai
+                  -- 4.5.3.  Indexed Field Line With Post-Base Index
+                  encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
             | otherwise         -> do
-                  -- 4.5.4.  Literal Header Field With Name Reference
-                  encodeLiteralHeaderFieldWithNameReference wbuf1 dyntbl hi val huff
+                  -- 4.5.4.  Literal Field Line With Name Reference
+                  encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
           N
             | shouldBeIndexed t -> do
                   let ins = InsertWithoutNameReference t val
                   encodeEI wbuf2 True ins
                   dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
-                  encodeIndexedHeaderFieldWithPostBaseIndex wbuf1 dyntbl dai
+                  encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
             | otherwise         -> do
-                  -- 4.5.6.  Literal Header Field Without Name Reference
-                  encodeLiteralHeaderFieldWithoutNameReference wbuf1 t val huff
+                  -- 4.5.6.  Literal Field Line Without Name Reference
+                  encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
         save wbuf1
         save wbuf2
         writeIORef ref ts
         loop ts
 
--- 4.5.2.  Indexed Header Field
-encodeIndexedHeaderField :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
-encodeIndexedHeaderField wbuf dyntbl hi = do
+-- 4.5.2.  Indexed Field Line
+encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
+encodeIndexedFieldLine wbuf dyntbl hi = do
     (idx, set) <- case hi of
       SIndex (AbsoluteIndex i) -> return (i, set11)
       DIndex ai-> do
@@ -144,19 +144,19 @@ encodeIndexedHeaderField wbuf dyntbl hi = do
           return (i, set10)
     encodeI wbuf set 6 idx
 
--- 4.5.3.  Indexed Header Field With Post-Base Index
-encodeIndexedHeaderFieldWithPostBaseIndex :: WriteBuffer
+-- 4.5.3.  Indexed Field Line With Post-Base Index
+encodeIndexedFieldLineWithPostBaseIndex :: WriteBuffer
                                           -> DynamicTable
                                           -> AbsoluteIndex -- in Dynamic table
                                           -> IO ()
-encodeIndexedHeaderFieldWithPostBaseIndex wbuf dyntbl ai = do
+encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
     bp <- getBasePoint dyntbl
     let HBRelativeIndex idx = toHBRelativeIndex ai bp
     encodeI wbuf set0001 4 idx
 
--- 4.5.4.  Literal Header Field With Name Reference
-encodeLiteralHeaderFieldWithNameReference :: WriteBuffer -> DynamicTable -> HIndex -> ByteString -> Bool -> IO ()
-encodeLiteralHeaderFieldWithNameReference wbuf dyntbl hi val huff = do
+-- 4.5.4.  Literal Field Line With Name Reference
+encodeLiteralFieldLineWithNameReference :: WriteBuffer -> DynamicTable -> HIndex -> ByteString -> Bool -> IO ()
+encodeLiteralFieldLineWithNameReference wbuf dyntbl hi val huff = do
     (idx, set) <- case hi of
       SIndex (AbsoluteIndex i) -> return (i, set0101)
       DIndex ai-> do
@@ -167,12 +167,12 @@ encodeLiteralHeaderFieldWithNameReference wbuf dyntbl hi val huff = do
     encodeI wbuf set 4 idx
     encodeS wbuf huff id set1 7 val
 
--- 4.5.5.  Literal Header Field With Post-Base Name Reference
+-- 4.5.5.  Literal Field Line With Post-Base Name Reference
 -- not implemented
 
--- 4.5.6.  Literal Header Field Without Name Reference
-encodeLiteralHeaderFieldWithoutNameReference :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
-encodeLiteralHeaderFieldWithoutNameReference wbuf token val huff = do
+-- 4.5.6.  Literal Field Line Without Name Reference
+encodeLiteralFieldLineWithoutNameReference :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
+encodeLiteralFieldLineWithoutNameReference wbuf token val huff = do
     let key = tokenFoldedKey token
     encodeS wbuf huff set0010 set00001 3 key
     encodeS wbuf huff id set1 7 val

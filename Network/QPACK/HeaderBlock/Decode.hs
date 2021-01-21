@@ -34,26 +34,26 @@ decodeTokenHeaderS dyntbl rbuf = do
 
 toTokenHeader :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader
 toTokenHeader dyntbl bp w8 rbuf
-  | w8 `testBit` 7 = decodeIndexedHeaderField rbuf dyntbl bp w8
-  | w8 `testBit` 6 = decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8
-  | w8 `testBit` 5 = decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl bp w8
-  | w8 `testBit` 4 = decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8
-  | otherwise      = decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8
+  | w8 `testBit` 7 = decodeIndexedFieldLine rbuf dyntbl bp w8
+  | w8 `testBit` 6 = decodeLiteralFieldLineWithNameReference rbuf dyntbl bp w8
+  | w8 `testBit` 5 = decodeLiteralFieldLineWithoutNameReference rbuf dyntbl bp w8
+  | w8 `testBit` 4 = decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8
+  | otherwise      = decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl bp w8
 
--- 4.5.2.  Indexed Header Field
-decodeIndexedHeaderField :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeIndexedHeaderField rbuf dyntbl bp w8 = do
+-- 4.5.2.  Indexed Field Line
+decodeIndexedFieldLine :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeIndexedFieldLine rbuf dyntbl bp w8 = do
     i <- decodeI 6 (w8 .&. 0b00111111) rbuf
     let static = w8 `testBit` 6
         hidx | static    = SIndex $ AbsoluteIndex i
              | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderField (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "IndexedFieldLine (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
--- 4.5.4.  Literal Header Field With Name Reference
-decodeLiteralHeaderFieldWithNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8 = do
+-- 4.5.4.  Literal Field Line With Name Reference
+decodeLiteralFieldLineWithNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeLiteralFieldLineWithNameReference rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let static = w8 `testBit` 4
         hidx | static    = SIndex $ AbsoluteIndex i
@@ -62,39 +62,39 @@ decodeLiteralHeaderFieldWithNameReference rbuf dyntbl bp w8 = do
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralFieldLineWithNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
--- 4.5.6.  Literal Header Field Without Name Reference
-decodeLiteralHeaderFieldWithoutNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeLiteralHeaderFieldWithoutNameReference rbuf dyntbl _bp _w8 = do
+-- 4.5.6.  Literal Field Line Without Name Reference
+decodeLiteralFieldLineWithoutNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeLiteralFieldLineWithoutNameReference rbuf dyntbl _bp _w8 = do
     ff rbuf (-1)
     let hufdec = getHuffmanDecoder dyntbl
     key <- toToken <$> decodeS (.&. 0b00000111) (`testBit` 3) 3 hufdec rbuf
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithoutNameReference " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralFieldLineWithoutNameReference " ++ showTokenHeader ret
     return ret
 
--- 4.5.3.  Indexed Header Field With Post-Base Index
-decodeIndexedHeaderFieldWithPostBaseIndex :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeIndexedHeaderFieldWithPostBaseIndex rbuf dyntbl bp w8 = do
+-- 4.5.3.  Indexed Field Line With Post-Base Index
+decodeIndexedFieldLineWithPostBaseIndex :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $ putStrLn $ "IndexedHeaderFieldWithPostBaseIndex (" ++ show hidx ++ " " ++ show i ++ "/" ++ show bp ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "IndexedFieldLineWithPostBaseIndex (" ++ show hidx ++ " " ++ show i ++ "/" ++ show bp ++ ") " ++ showTokenHeader ret
     return ret
 
--- 4.5.5.  Literal Header Field With Post-Base Name Reference
-decodeLiteralHeaderFieldWithPostBaseNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeLiteralHeaderFieldWithPostBaseNameReference rbuf dyntbl bp w8 = do
+-- 4.5.5.  Literal Field Line With Post-Base Name Reference
+decodeLiteralFieldLineWithPostBaseNameReference :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl bp w8 = do
     i <- decodeI 3 (w8 .&. 0b00000111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
     key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     let hufdec = getHuffmanDecoder dyntbl
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key,val)
-    qpackDebug dyntbl $ putStrLn $ "LiteralHeaderFieldWithPostBaseNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
+    qpackDebug dyntbl $ putStrLn $ "LiteralFieldLineWithPostBaseNameReference (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
 showTokenHeader :: TokenHeader -> String
