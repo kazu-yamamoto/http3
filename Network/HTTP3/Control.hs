@@ -22,7 +22,10 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 
 setupUnidirectional :: Connection -> H3.Config -> IO ()
 setupUnidirectional conn conf = do
-    settings <- encodeH3Settings [(QpackBlockedStreams,100),(QpackMaxTableCapacity,4096),(SettingsMaxHeaderListSize,32768)] -- fixme
+    settings <- encodeH3Settings [(SettingsQpackBlockedStreams,100)
+                                 ,(SettingsQpackMaxTableCapacity,4096)
+                                 ,(SettingsMaxFieldSectionSize,32768)
+                                 ] -- fixme
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC
     sC <- unidirectionalStream conn
