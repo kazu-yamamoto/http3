@@ -91,11 +91,9 @@ checkSettings conn payload = do
     loop (0 :: Int) h3settings
   where
     loop _ [] = return ()
-    loop flags ((k,_v):ss) = do
-        let i = fromH3SettingsKey k
-        if flags `testBit` i then
-            abortConnection conn H3SettingsError
-          else do
+    loop flags ((k@(H3SettingsKey i),_v):ss)
+      | flags `testBit` i = abortConnection conn H3SettingsError
+      | otherwise = do
             let flags' = flags `setBit` i
             case k of
               SettingsQpackMaxTableCapacity -> loop flags' ss
