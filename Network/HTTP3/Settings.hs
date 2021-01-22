@@ -7,7 +7,8 @@ import Network.QUIC.Internal
 
 type H3Settings = [(H3SettingsKey,Int)]
 
-newtype H3SettingsKey = H3SettingsKey Int deriving (Eq, Show)
+newtype H3SettingsKey = H3SettingsKey { fromH3SettingsKey :: Int }
+                      deriving (Eq, Show)
 
 pattern SettingsQpackMaxTableCapacity :: H3SettingsKey
 pattern SettingsQpackMaxTableCapacity  = H3SettingsKey 0x1

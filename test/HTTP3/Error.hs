@@ -70,6 +70,12 @@ h3ErrorSpec qcc cconf = do
         it "MUST send H3_FRAME_UNEXPECTED if a second SETTINGS frame is received [HTTP/3 7.2.4]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated doubleSettings
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        it "MUST send H3_SETTINGS_ERROR if duplicate setting identifiers exist [HTTP/3 7.2.4]" $ \_ -> do
+            let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings0
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
+        it "MUST send H3_SETTINGS_ERROR if HTTP/2 settings are included [HTTP/3 7.2.4.1]" $ \_ -> do
+            let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings1
+            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
         it "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
@@ -169,6 +175,20 @@ illegalHeader3 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37
 -- ,(":path","/")] ++ static index 99
 illegalHeader4 :: [H3Frame] -> [H3Frame]
 illegalHeader4 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xff\x24"]
+
+-- [(SettingsQpackBlockedStreams,100)
+-- ,(SettingsQpackMaxTableCapacity,4096)
+-- ,(SettingsMaxFieldSectionSize,32768)
+-- ,(SettingsQpackBlockedStreams,100)] -- duplicated
+illegalSettings0 :: [H3Frame]-> [H3Frame]
+illegalSettings0 _ = [H3Frame H3FrameSettings "\x07\x40\x64\x01\x50\x00\x06\x80\x00\x80\x00\x07\x40\x64"]
+
+-- [(SettingsQpackBlockedStreams,100)
+-- ,(H3SettingsKey 0x2,200) -- HTTP/2 Settings
+-- ,(SettingsQpackMaxTableCapacity,4096)
+-- ,(SettingsMaxFieldSectionSize,32768)]
+illegalSettings1 :: [H3Frame]-> [H3Frame]
+illegalSettings1 _ = [H3Frame H3FrameSettings "\x07\x40\x64\x02\x40\xc8\x01\x50\x00\x06\x80\x00\x80\x00"]
 
 ----------------------------------------------------------------
 

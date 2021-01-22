@@ -64,9 +64,9 @@ controlStream conn ref recv = loop0
             loop
     parse0 bs st0 = do
         case parseH3Frame st0 bs of
-          IDone typ _payload leftover -> do
+          IDone typ payload leftover -> do
               case typ of
-                H3FrameSettings   -> return ()
+                H3FrameSettings   -> checkSettings conn payload
                 _                 -> abortConnection conn H3MissingSettings
               st1 <- parse leftover IInit
               return (True, st1)
@@ -84,3 +84,21 @@ controlStream conn ref recv = loop0
                   | otherwise                    -> abortConnection conn H3FrameUnexpected
               parse leftover IInit
           st1 -> return st1
+
+checkSettings :: Connection -> ByteString -> IO ()
+checkSettings conn payload = do
+    h3settings <- decodeH3Settings payload
+    loop (0 :: Int) h3settings
+  where
+    loop _ [] = return ()
+    loop flags ((k,_v):ss) = do
+        let i = fromH3SettingsKey k
+        if flags `testBit` i then
+            abortConnection conn H3SettingsError
+          else do
+            let flags' = flags `setBit` i
+            case k of
+              SettingsQpackMaxTableCapacity -> loop flags' ss
+              SettingsMaxFieldSectionSize   -> loop flags' ss
+              SettingsQpackBlockedStreams   -> loop flags' ss
+              _ -> abortConnection conn H3SettingsError
