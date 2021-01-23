@@ -99,4 +99,7 @@ checkSettings conn payload = do
               SettingsQpackMaxTableCapacity -> loop flags' ss
               SettingsMaxFieldSectionSize   -> loop flags' ss
               SettingsQpackBlockedStreams   -> loop flags' ss
-              _ -> abortConnection conn H3SettingsError
+              _
+                -- HTTP/2 settings
+                | i <= 0x6  -> abortConnection conn H3SettingsError
+                | otherwise -> return ()
