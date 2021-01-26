@@ -43,7 +43,6 @@ data Context = Context {
   , ctxQEncoder   :: QEncoder
   , ctxQDecoder   :: QDecoder
   , ctxUniSwitch  :: H3StreamType -> InstructionHandler
-  , ctxCleanup    :: Cleanup
   , ctxPReadMaker :: PositionReadMaker
   , ctxManager    :: T.Manager
   , ctxHooks      :: Hooks
@@ -52,25 +51,22 @@ data Context = Context {
 
 newContext :: Connection -> Config -> InstructionHandler -> IO Context
 newContext conn conf ctl = do
-    (enc, handleDI, cleanE) <- newQEncoder defaultQEncoderConfig
-    (dec, handleEI, cleanD) <- newQDecoder defaultQDecoderConfig
+    (enc, handleDI) <- newQEncoder defaultQEncoderConfig
+    (dec, handleEI) <- newQDecoder defaultQDecoderConfig
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
         sw = switch conn ctl handleEI' handleDI'
-        clean = cleanE >> cleanD
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
         hooks  = confHooks conf
-    Context conn enc dec sw clean preadM timmgr hooks <$> newIORef []
+    Context conn enc dec sw preadM timmgr hooks <$> newIORef []
   where
     abortWith aerr se
       | Just E.ThreadKilled <- E.fromException se = return ()
       | otherwise = QUIC.abortConnection conn aerr
 
 clearContext :: Context -> IO ()
-clearContext ctx@Context{..} = do
-    clearThreads ctx
-    ctxCleanup
+clearContext ctx = clearThreads ctx
 
 switch :: Connection -> InstructionHandler -> InstructionHandler -> InstructionHandler -> H3StreamType -> InstructionHandler
 switch conn ctl handleEI handleDI styp

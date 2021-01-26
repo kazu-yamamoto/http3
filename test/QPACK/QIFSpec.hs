@@ -36,7 +36,7 @@ data Block = Block Int ByteString deriving Show
 
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig False
+    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig False
     q <- newTQueueIO
     let recv   = atomically $ readTQueue  q
         send x = atomically $ writeTQueue q x
@@ -46,7 +46,6 @@ test efile qfile = do
         runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
         takeMVar mvar
         killThread tid
-    cleanup
 
 switch :: (Block -> IO ())
        -> EncoderInstructionHandlerS

@@ -35,9 +35,8 @@ main = do
 
 dump :: Int -> FilePath -> IO ()
 dump size efile = do
-    (dec, insthdr, cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } True
+    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } True
     runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . dumpSwitch dec insthdr))
-    cleanup
 
 dumpSwitch :: (ByteString -> IO HeaderList)
        -> EncoderInstructionHandlerS
@@ -56,7 +55,7 @@ dumpSwitch dec insthdr (_, Block n bs)
 
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
-    (dec, insthdr', cleanup) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
+    (dec, insthdr') <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
     q <- newTQueueIO
     let recv   = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x
@@ -71,7 +70,6 @@ test size efile qfile = do
         runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . testSwitch send insthdr))
         takeMVar mvar
         killThread tid
-    cleanup
 
 testSwitch :: (Block -> IO ())
            -> EncoderInstructionHandlerS

@@ -69,8 +69,10 @@ encodeEI wbuf _    (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 id
 ----------------------------------------------------------------
 
 decodeEncoderInstructions' :: ByteString -> IO ([EncoderInstruction], ByteString)
-decodeEncoderInstructions' bs = fmap snd . withWriteBuffer' 4096 $ \wbuf->
-  decodeEncoderInstructions (decodeH wbuf) bs
+decodeEncoderInstructions' bs = do
+    let bufsiz = 4096
+    gcbuf <- mallocPlainForeignPtrBytes 4096
+    decodeEncoderInstructions (decodeH gcbuf bufsiz) bs
 
 decodeEncoderInstructions :: HuffmanDecoder -> ByteString -> IO ([EncoderInstruction],ByteString)
 decodeEncoderInstructions hufdec bs = withReadBuffer bs $ loop id

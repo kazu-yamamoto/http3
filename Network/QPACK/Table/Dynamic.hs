@@ -7,7 +7,6 @@ import qualified Control.Exception as E
 import Data.Array.Base (unsafeWrite, unsafeRead)
 import Data.Array.MArray (newArray)
 import Data.IORef
-import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
 import Network.HPACK.Internal
 
@@ -19,7 +18,6 @@ data CodeInfo =
     EncodeInfo RevIndex -- Reverse index
                (IORef InsertionPoint)
   | DecodeInfo HuffmanDecoder
-               (IO ()) -- free buffer
 
 -- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable {
@@ -72,16 +70,16 @@ newDynamicTableForDecoding :: Size -- ^ The dynamic table size
                            -> Size -- ^ The size of temporary buffer for Huffman decoding
                            -> IO DynamicTable
 newDynamicTableForDecoding maxsiz huftmpsiz = do
-    buf <- mallocBytes huftmpsiz
-    wbuf <- newWriteBuffer buf huftmpsiz
-    tvar <- newTVarIO (Just wbuf)
+    gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
+    tvar <- newTVarIO $ Just (gcbuf,huftmpsiz)
     let decoder = decodeHLock tvar
-        clear = free buf
-        info = DecodeInfo decoder clear
+        info = DecodeInfo decoder
     newDynamicTable maxsiz info
 
-decodeHLock :: TVar (Maybe WriteBuffer) -> ReadBuffer -> Int -> IO ByteString
-decodeHLock tvar rbuf len = E.bracket lock unlock $ \wbuf -> do
+decodeHLock :: TVar (Maybe (GCBuffer,Int)) -> ReadBuffer -> Int -> IO ByteString
+decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf,bufsiz) ->
+  withForeignPtr gcbuf $ \buf -> do
+    wbuf <- newWriteBuffer buf bufsiz
     decH wbuf rbuf len
     toByteString wbuf
   where
@@ -92,7 +90,7 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \wbuf -> do
           Just x   -> do
               writeTVar tvar Nothing
               return x
-    unlock wbuf = atomically $ writeTVar tvar $ Just wbuf
+    unlock x = atomically $ writeTVar tvar $ Just x
 
 newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
 newDynamicTable maxsiz info = do
@@ -107,13 +105,6 @@ newDynamicTable maxsiz info = do
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
-
--- | Clearing 'DynamicTable'.
---   Currently, this frees the temporary buffer for Huffman decoding.
-clearDynamicTable :: DynamicTable -> IO ()
-clearDynamicTable DynamicTable{..} = case codeInfo of
-    EncodeInfo{}       -> return ()
-    DecodeInfo _ clear -> clear
 
 ----------------------------------------------------------------
 
@@ -144,7 +135,7 @@ getRevIndex DynamicTable{..} = rev
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
-    DecodeInfo huf _ = codeInfo
+    DecodeInfo huf = codeInfo
 
 ----------------------------------------------------------------
 

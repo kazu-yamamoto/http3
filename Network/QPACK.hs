@@ -23,7 +23,6 @@ module Network.QPACK (
   , EncodedDecoderInstruction
   , DecoderInstructionHandler
   , InstructionHandler
-  , Cleanup
   , Size
   -- * Strategy
   , EncodeStrategy(..)
@@ -45,7 +44,6 @@ import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
-import Foreign.Marshal.Alloc (mallocBytes, free)
 import Network.ByteOrder
 import Network.HPACK (HeaderTable, TokenHeaderList, HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
@@ -84,9 +82,6 @@ type DecoderInstructionHandler = (Int -> IO EncodedDecoderInstruction) -> IO ()
 -- | A type to integrating handlers.
 type InstructionHandler = (Int -> IO ByteString) -> IO ()
 
--- | Cleaning up action.
-type Cleanup = IO ()
-
 ----------------------------------------------------------------
 
 -- | Configuration for QPACK encoder.
@@ -112,34 +107,41 @@ defaultQEncoderConfig = QEncoderConfig {
   }
 
 -- | Creating a new QPACK encoder.
-newQEncoder :: QEncoderConfig -> IO (QEncoder, DecoderInstructionHandler, Cleanup)
+newQEncoder :: QEncoderConfig -> IO (QEncoder, DecoderInstructionHandler)
 newQEncoder QEncoderConfig{..} = do
-    buf1  <- mallocBytes ecHeaderBlockBufferSize
-    wbuf1 <- newWriteBuffer buf1 ecHeaderBlockBufferSize
-    buf2  <- mallocBytes ecPrefixBufferSize
-    wbuf2 <- newWriteBuffer buf2 ecPrefixBufferSize
-    buf3  <- mallocBytes ecInstructionBufferSize
-    wbuf3 <- newWriteBuffer buf3 ecInstructionBufferSize
+    let bufsiz1 = ecHeaderBlockBufferSize
+        bufsiz2 = ecPrefixBufferSize
+        bufsiz3 = ecInstructionBufferSize
+    gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
+    gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
+    gcbuf3 <- mallocPlainForeignPtrBytes bufsiz3
     dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
-    let enc = qpackEncoder encStrategy wbuf1 wbuf2 wbuf3 dyntbl
+    let enc = qpackEncoder encStrategy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl
         handler = decoderInstructionHandler dyntbl
-        clean = do
-            free buf1
-            free buf2
-            free buf3
-            clearDynamicTable dyntbl
-    return (enc, handler, clean)
+    return (enc, handler)
 
-qpackEncoder :: EncodeStrategy -> WriteBuffer -> WriteBuffer -> WriteBuffer -> DynamicTable -> TokenHeaderList -> IO (EncodedFieldSection,EncodedEncoderInstruction)
-qpackEncoder stgy wbuf1 wbuf2 wbuf3 dyntbl ts = do
-    thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
-    when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
-    hb0 <- toByteString wbuf1
-    ins <- toByteString wbuf3
-    encodePrefix wbuf2 dyntbl
-    prefix <- toByteString wbuf2
-    let hb = prefix `B.append` hb0
-    return (hb, ins)
+qpackEncoder :: EncodeStrategy
+             -> GCBuffer -> Int
+             -> GCBuffer -> Int
+             -> GCBuffer -> Int
+             -> DynamicTable
+             -> TokenHeaderList
+             -> IO (EncodedFieldSection,EncodedEncoderInstruction)
+qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl ts =
+    withForeignPtr gcbuf1 $ \buf1 ->
+    withForeignPtr gcbuf2 $ \buf2 ->
+    withForeignPtr gcbuf3 $ \buf3 -> do
+      wbuf1 <- newWriteBuffer buf1 bufsiz1
+      wbuf2 <- newWriteBuffer buf2 bufsiz2
+      wbuf3 <- newWriteBuffer buf3 bufsiz3
+      thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+      when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
+      hb0 <- toByteString wbuf1
+      ins <- toByteString wbuf3
+      encodePrefix wbuf2 dyntbl
+      prefix <- toByteString wbuf2
+      let hb = prefix `B.append` hb0
+      return (hb, ins)
 
 decoderInstructionHandler :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
 decoderInstructionHandler dyntbl recv = loop
@@ -178,23 +180,21 @@ defaultQDecoderConfig = QDecoderConfig {
   }
 
 -- | Creating a new QPACK decoder.
-newQDecoder :: QDecoderConfig -> IO (QDecoder, EncoderInstructionHandler, Cleanup)
+newQDecoder :: QDecoderConfig -> IO (QDecoder, EncoderInstructionHandler)
 newQDecoder QDecoderConfig{..} = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dyntbl
-        clean = clearDynamicTable dyntbl
-    return (dec, handler, clean)
+    return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
-newQDecoderS :: QDecoderConfig -> Bool -> IO (QDecoderS, EncoderInstructionHandlerS, IO ())
+newQDecoderS :: QDecoderConfig -> Bool -> IO (QDecoderS, EncoderInstructionHandlerS)
 newQDecoderS QDecoderConfig{..} debug = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dyntbl
-        clean = clearDynamicTable dyntbl
-    return (dec, handler, clean)
+    return (dec, handler)
 
 qpackDecoder :: DynamicTable -> EncodedFieldSection -> IO HeaderTable
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
