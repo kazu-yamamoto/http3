@@ -14,7 +14,7 @@ import qualified Data.List as L
 import qualified Network.HQ.Server as HQ
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP3.Server as H3
-import qualified Network.QUIC as QUIC
+import Network.QUIC
 import Network.TLS (credentialLoadX509, Credentials(..))
 import qualified Network.TLS.SessionManager as SM
 import System.Console.GetOpt
@@ -85,7 +85,7 @@ serverOpts argv =
       (o,n,[]  ) -> return (foldl (flip id) defaultOptions o, n)
       (_,_,errs) -> showUsageAndExit $ concat errs
 
-chooseALPN :: QUIC.Version -> [ByteString] -> IO ByteString
+chooseALPN :: Version -> [ByteString] -> IO ByteString
 chooseALPN ver protos = return $ case mh3idx of
     Nothing    -> case mhqidx of
       Nothing    -> ""
@@ -109,23 +109,23 @@ main = do
         aps = (,port) <$> addrs
     smgr <- SM.newSessionManager SM.defaultConfig
     Right cred <- credentialLoadX509 optCertFile optKeyFile
-    let conf = QUIC.defaultServerConfig {
-            QUIC.scAddresses      = aps
-          , QUIC.scALPN           = Just chooseALPN
-          , QUIC.scRequireRetry   = optRetry
-          , QUIC.scSessionManager = smgr
-          , QUIC.scEarlyDataSize  = 1024
-          , QUIC.scDebugLog       = optDebugLogDir
-          , QUIC.scConfig         = QUIC.defaultConfig {
-                QUIC.confKeyLog      = getLogger optKeyLogFile
-              , QUIC.confGroups      = getGroups optGroups
-              , QUIC.confQLog        = optQLogDir
-              , QUIC.confCredentials = Credentials [cred]
+    let conf = defaultServerConfig {
+            scAddresses      = aps
+          , scALPN           = Just chooseALPN
+          , scRequireRetry   = optRetry
+          , scSessionManager = smgr
+          , scEarlyDataSize  = 1024
+          , scDebugLog       = optDebugLogDir
+          , scConfig         = defaultConfig {
+                confKeyLog      = getLogger optKeyLogFile
+              , confGroups      = getGroups optGroups
+              , confQLog        = optQLogDir
+              , confCredentials = Credentials [cred]
               }
           }
-    QUIC.runQUICServer conf $ \conn -> do
-        info <- QUIC.getConnectionInfo conn
-        let server = case QUIC.alpn info of
+    runQUICServer conf $ \conn -> do
+        info <- getConnectionInfo conn
+        let server = case alpn info of
               Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ
               _                                       -> serverH3
         server conn
@@ -133,13 +133,13 @@ main = do
 onE :: IO b -> IO a -> IO a
 h `onE` b = b `E.onException` h
 
-serverHQ :: QUIC.Connection -> IO ()
+serverHQ :: Connection -> IO ()
 serverHQ = serverX HQ.run
 
-serverH3 :: QUIC.Connection -> IO ()
+serverH3 :: Connection -> IO ()
 serverH3 = serverX H3.run
 
-serverX :: (QUIC.Connection -> H3.Config -> H3.Server -> IO ()) -> QUIC.Connection -> IO ()
+serverX :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()
 serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
   run conn conf $ \_req _aux sendResponse -> do
     let hdr = [ ("Content-Type", "text/html; charset=utf-8")
