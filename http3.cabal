@@ -69,8 +69,7 @@ library
                      , sockaddr
                      , stm
                      , time-manager
-  if impl(ghc >= 8)
-      default-extensions:  Strict StrictData
+  default-extensions:  Strict StrictData
 
 Test-suite spec
   type:                exitcode-stdio-1.0
@@ -104,8 +103,7 @@ Test-suite spec
                      , quic
                      , stm
                      , tls
-  if impl(ghc >= 8)
-      default-extensions:  Strict StrictData
+  default-extensions:  Strict StrictData
 
 Test-Suite doctest
   Type:                 exitcode-stdio-1.0
@@ -115,8 +113,7 @@ Test-Suite doctest
   Main-Is:              doctests.hs
   Build-Depends:        base >= 4.9 && < 5
                       , doctest >= 0.9.3
-  if impl(ghc >= 8)
-      Default-Extensions:  Strict StrictData
+  Default-Extensions:  Strict StrictData
 
 executable server
   if flag(devel)
@@ -138,8 +135,7 @@ executable server
                       , quic
                       , tls
                       , tls-session-manager
-  if impl(ghc >= 8)
-      Default-Extensions:  Strict StrictData
+  Default-Extensions:  Strict StrictData
 
 executable client
   if flag(devel)
@@ -160,8 +156,7 @@ executable client
                       , quic
                       , tls
                       , unix-time
-  if impl(ghc >= 8)
-      Default-Extensions:  Strict StrictData
+  Default-Extensions:  Strict StrictData
 
 executable qif
   if flag(devel)
@@ -180,5 +175,4 @@ executable qif
                       , http3
                       , quic
                       , stm
-  if impl(ghc >= 8)
-      Default-Extensions:  Strict StrictData
+  Default-Extensions:  Strict StrictData
