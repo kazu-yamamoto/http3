@@ -115,8 +115,9 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
              : hdr
     E.bracket (newStream ctx) closeStream $ \strm -> do
         sendHeader ctx strm th hdr'
-        sendBody ctx strm th outobj
-        QUIC.shutdownStream strm
+        _ <- forkIO $ do
+            sendBody ctx strm th outobj
+            QUIC.shutdownStream strm
         src <- newSource strm
         mvt <- recvHeader ctx src
         case mvt of
