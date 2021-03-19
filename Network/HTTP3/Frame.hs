@@ -63,7 +63,7 @@ permittedInControlStream H3FrameCancelPush  = True
 permittedInControlStream H3FrameSettings    = True
 permittedInControlStream H3FramePushPromise = False
 permittedInControlStream H3FrameGoaway      = True
-permittedInControlStream H3FrameMaxPushId   = False
+permittedInControlStream H3FrameMaxPushId   = True
 permittedInControlStream (H3FrameUnknown i)
   | i <= 0x9                                = False
   | otherwise                               = True
