@@ -121,7 +121,7 @@ setOnDecoderStreamCreated f hooks = hooks { H3.onDecoderStreamCreated = f }
 ----------------------------------------------------------------
 
 startWithNonSettings :: [H3Frame] -> [H3Frame]
-startWithNonSettings fs = H3Frame H3FrameData "" : fs
+startWithNonSettings fs = H3Frame H3FrameMaxPushId "\x01" : fs
 
 doubleSettings :: [H3Frame] -> [H3Frame]
 doubleSettings fs = fs ++ [H3Frame H3FrameSettings ""]
