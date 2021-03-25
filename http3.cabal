@@ -147,6 +147,7 @@ executable client
   hs-source-dirs:       util
   main-is:              client.hs
   other-modules:        Common
+                        ClientX
   ghc-options:          -Wall -threaded -rtsopts
   build-depends:        base >= 4.9 && < 5
                       , base16-bytestring

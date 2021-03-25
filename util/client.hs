@@ -6,62 +6,55 @@
 module Main where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Control.Monad
-import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
 import Data.UnixTime
 import Foreign.C.Types
-import Network.HTTP.Types
-import Network.QUIC
 import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import Text.Printf
 
+import ClientX
 import Common
-
-import qualified Network.HQ.Client as HQ
-import qualified Network.HTTP3.Client as H3
+import Network.QUIC
 
 data Options = Options {
-    optDebugLog   :: Bool
-  , optShow       :: Bool
-  , optQLogDir    :: Maybe FilePath
-  , optKeyLogFile :: Maybe FilePath
-  , optGroups     :: Maybe String
-  , optValidate   :: Bool
-  , optHQ         :: Bool
-  , optVerNego    :: Bool
-  , optResumption :: Bool
-  , opt0RTT       :: Bool
-  , optRetry      :: Bool
-  , optQuantum    :: Bool
-  , optThroughput :: Bool
-  , optMigration  :: Maybe Migration
-  , optPacketSize :: Maybe Int
+    optDebugLog    :: Bool
+  , optShow        :: Bool
+  , optQLogDir     :: Maybe FilePath
+  , optKeyLogFile  :: Maybe FilePath
+  , optGroups      :: Maybe String
+  , optValidate    :: Bool
+  , optHQ          :: Bool
+  , optVerNego     :: Bool
+  , optResumption  :: Bool
+  , opt0RTT        :: Bool
+  , optRetry       :: Bool
+  , optQuantum     :: Bool
+  , optMigration   :: Maybe Migration
+  , optPacketSize  :: Maybe Int
   } deriving Show
 
 defaultOptions :: Options
 defaultOptions = Options {
-    optDebugLog   = False
-  , optShow       = False
-  , optQLogDir    = Nothing
-  , optKeyLogFile = Nothing
-  , optGroups     = Nothing
-  , optHQ         = False
-  , optValidate   = False
-  , optVerNego    = False
-  , optResumption = False
-  , opt0RTT       = False
-  , optRetry      = False
-  , optQuantum    = False
-  , optThroughput = False
-  , optMigration  = Nothing
-  , optPacketSize = Nothing
+    optDebugLog    = False
+  , optShow        = False
+  , optQLogDir     = Nothing
+  , optKeyLogFile  = Nothing
+  , optGroups      = Nothing
+  , optHQ          = False
+  , optValidate    = False
+  , optVerNego     = False
+  , optResumption  = False
+  , opt0RTT        = False
+  , optRetry       = False
+  , optQuantum     = False
+  , optMigration   = Nothing
+  , optPacketSize  = Nothing
   }
 
 usage :: String
@@ -91,7 +84,7 @@ options = [
     (NoArg (\o -> o { optHQ = True }))
     "prefer hq (HTTP/0.9)"
   , Option ['s'] ["packet-size"]
-    (ReqArg (\n o -> o { optPacketSize = Just (read n) }) "<int>")
+    (ReqArg (\n o -> o { optPacketSize = Just (read n) }) "<size>")
     "specify QUIC packet size (UDP payload size)"
   , Option ['V'] ["vernego"]
     (NoArg (\o -> o { optVerNego = True }))
@@ -120,9 +113,6 @@ options = [
   , Option ['A'] ["address-mobility"]
     (NoArg (\o -> o { optMigration = Just MigrateTo }))
     "use a new address and a new server CID"
-  , Option ['T'] ["throughput"]
-    (NoArg (\o -> o { optThroughput = True }))
-    "try measuring throughput. path must be specified"
   ]
 
 showUsageAndExit :: String -> IO a
@@ -137,16 +127,6 @@ clientOpts argv =
       (o,n,[]  ) -> return (foldl (flip id) defaultOptions o, n)
       (_,_,errs) -> showUsageAndExit $ concat errs
 
-data Aux = Aux {
-    auxPath :: String
-  , auxAuthority :: String
-  , auxDebug :: String -> IO ()
-  , auxShow :: ByteString -> IO ()
-  , auxCheckClose :: IO Bool
-  }
-
-type Cli = Aux -> Connection -> IO ConnectionStats
-
 main :: IO ()
 main = do
     args <- getArgs
@@ -158,28 +138,28 @@ main = do
     let path | ipslen == 3 = ips !! 2
              | otherwise   = "/"
         addr:port:_ = ips
+        ccalpn ver
+          | otherwise = let (h3X, hqX) = makeProtos ver
+                            protos | optHQ     = [hqX,h3X]
+                                   | otherwise = [h3X,hqX]
+                        in return $ Just protos
+        confver vers
+          | optVerNego = GreasingVersion : vers
+          | otherwise  = vers
+        confparams params
+          | optQuantum = let bs = BS.replicate 1200 0
+                         in params { greaseParameter = Just bs }
+          | otherwise  = params
         conf = defaultClientConfig {
             ccServerName = addr
           , ccPortName   = port
-          , ccALPN       = \ver -> let (h3X, hqX) = makeProtos ver
-                                       protos
-                                         | optHQ     = [hqX,h3X]
-                                         | otherwise = [h3X,hqX]
-                                   in return $ Just protos
+          , ccALPN       = ccalpn
           , ccValidate   = optValidate
           , ccPacketSize = optPacketSize
           , ccDebugLog   = optDebugLog
           , ccConfig     = defaultConfig {
-                confVersions   = if optVerNego then
-                                   GreasingVersion : confVersions defaultConfig
-                                 else
-                                   confVersions defaultConfig
-              , confParameters = if optQuantum then
-                                   defaultParameters {
-                                       greaseParameter = Just (BS.pack (replicate 1200 0))
-                                     }
-                                 else
-                                   defaultParameters
+                confVersions   = confver $ confVersions defaultConfig
+              , confParameters = confparams $ confParameters defaultConfig
               , confKeyLog     = getLogger optKeyLogFile
               , confGroups     = getGroups optGroups
               , confQLog       = optQLogDir
@@ -313,32 +293,6 @@ runClient2 conf Options{..} aux@Aux{..} res client = do
         ccResumption = res
       , ccUse0RTT    = opt0RTT && is0RTTPossible res
       }
-
-clientHQ :: Cli
-clientHQ = clientX HQ.run
-
-clientH3 :: Cli
-clientH3 = clientX H3.run
-
-clientX ::  (Connection -> H3.ClientConfig -> H3.Config -> H3.Client ConnectionStats -> IO ConnectionStats) -> Cli
-clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf client
-  where
-    cliconf = H3.ClientConfig {
-        scheme = "https"
-      , authority = C8.pack auxAuthority
-      }
-    client sendRequest = do
-        let req = H3.requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
-        sendRequest req $ \rsp -> do
-            auxShow "------------------------"
-            loop rsp
-            auxShow "------------------------"
-            getConnectionStats conn
-    loop rsp = do
-        x <- H3.getResponseBodyChunk rsp
-        when (x /= "") $ do
-            auxShow x
-            loop rsp
 
 printThroughput :: UnixTime -> UnixTime -> ConnectionStats -> IO ()
 printThroughput t1 t2 ConnectionStats{..} =
