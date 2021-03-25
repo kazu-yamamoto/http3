@@ -124,6 +124,7 @@ executable server
   hs-source-dirs:       util
   main-is:              server.hs
   other-modules:        Common
+                        ServerX
   ghc-options:          -Wall -threaded -rtsopts
   build-depends:        base >= 4.9 && < 5
                       , base16-bytestring

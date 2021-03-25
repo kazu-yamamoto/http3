@@ -6,15 +6,10 @@
 
 module Main where
 
-import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.List as L
-import qualified Network.HQ.Server as HQ
-import qualified Network.HTTP.Types as H
-import qualified Network.HTTP3.Server as H3
-import Network.QUIC
 import Network.TLS (credentialLoadX509, Credentials(..))
 import qualified Network.TLS.SessionManager as SM
 import System.Console.GetOpt
@@ -23,6 +18,8 @@ import System.Exit
 import System.IO
 
 import Common
+import Network.QUIC
+import ServerX
 
 data Options = Options {
     optDebugLogDir :: Maybe FilePath
@@ -129,21 +126,3 @@ main = do
               Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ
               _                                       -> serverH3
         server conn
-
-onE :: IO b -> IO a -> IO a
-h `onE` b = b `E.onException` h
-
-serverHQ :: Connection -> IO ()
-serverHQ = serverX HQ.run
-
-serverH3 :: Connection -> IO ()
-serverH3 = serverX H3.run
-
-serverX :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()
-serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
-  run conn conf $ \_req _aux sendResponse -> do
-    let hdr = [ ("Content-Type", "text/html; charset=utf-8")
-              , ("Server", "HaskellQuic/0.0.0")
-              ]
-        rsp = H3.responseBuilder H.ok200 hdr "Hello, world!"
-    sendResponse rsp []
