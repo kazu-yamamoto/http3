@@ -90,11 +90,11 @@ qpackEncode Context{..} = ctxQEncoder
 qpackDecode :: Context -> QDecoder
 qpackDecode Context{..} = ctxQDecoder
 
-unidirectional :: Context -> Stream -> IO ThreadId
+unidirectional :: Context -> Stream -> IO ()
 unidirectional Context{..} strm = do
     w8:_ <- BS.unpack <$> QUIC.recvStream strm 1 -- fixme: variable length
     let typ = toH3StreamType $ fromIntegral w8
-    forkIO $ ctxUniSwitch typ (QUIC.recvStream strm)
+    ctxUniSwitch typ (QUIC.recvStream strm)
 
 registerThread :: Context -> IO T.Handle
 registerThread Context{..} = T.registerKillThread ctxManager (return ())

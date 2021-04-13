@@ -100,7 +100,7 @@ readerClient ctx = loop
       | QUIC.isClientInitiatedUnidirectional sid = return () -- error
       | QUIC.isClientInitiatedBidirectional  sid = return ()
       | QUIC.isServerInitiatedUnidirectional sid = do
-            tid <- unidirectional ctx strm
+            tid <- forkIO $ unidirectional ctx strm
             addThreadId ctx tid
       | otherwise                                = return () -- push?
       where
