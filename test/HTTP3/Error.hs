@@ -44,19 +44,19 @@ h3ErrorSpec qcc cconf = do
             runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.1.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \strm aerr -> QUIC.exitConnectionByStream strm (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
