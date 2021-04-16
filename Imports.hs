@@ -11,7 +11,6 @@ module Imports (
   , module Data.Word
   , module Data.Maybe
   , module Numeric
-  , GCBuffer
   , withForeignPtr
   , mallocPlainForeignPtrBytes
   ) where
@@ -30,5 +29,3 @@ import Data.Word
 import Foreign.ForeignPtr
 import Numeric
 import GHC.ForeignPtr (mallocPlainForeignPtrBytes)
-
-type GCBuffer = ForeignPtr Word8
