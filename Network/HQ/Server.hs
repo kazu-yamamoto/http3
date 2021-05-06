@@ -23,18 +23,18 @@ module Network.HQ.Server (
   , H2.responseBuilder
   ) where
 
-import Control.Concurrent
+import qualified Control.Exception as E
+import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
-import qualified Data.ByteString as BS
 import Data.IORef
 import Foreign.ForeignPtr
 import Network.HPACK (HeaderTable, toHeaderTable)
 import Network.HTTP2.Internal (InpObj(..))
 import qualified Network.HTTP2.Internal as H2
-import qualified Network.HTTP2.Server as H2
 import Network.HTTP2.Server (Server, PushPromise)
+import qualified Network.HTTP2.Server as H2
 import Network.HTTP2.Server.Internal (Request(..), Response(..), Aux(..))
 import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
@@ -50,9 +50,8 @@ import Network.HTTP3.Recv (newSource, readSource)
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = do
     myaddr <- QUIC.localSockAddr <$> QUIC.getConnectionInfo conn
-    forever $ do
-        strm <- QUIC.acceptStream conn
-        forkFinally (processRequest conf myaddr server strm) (\_ -> QUIC.closeStream strm)
+    strm <- QUIC.acceptStream conn
+    processRequest conf myaddr server strm `E.finally` QUIC.closeStream strm
 
 processRequest :: Config -> SockAddr -> Server -> Stream -> IO ()
 processRequest conf myaddr server strm
