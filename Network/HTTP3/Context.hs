@@ -63,7 +63,7 @@ newContext conn conf ctl = do
   where
     abortWith aerr se
       | Just E.ThreadKilled <- E.fromException se = return ()
-      | otherwise = QUIC.abortConnection conn aerr
+      | otherwise = QUIC.abortConnection conn aerr ""
 
 clearContext :: Context -> IO ()
 clearContext ctx = clearThreads ctx
@@ -128,7 +128,7 @@ clearThreads Context{..} = do
           Just tid -> killThread tid
 
 abort :: Context -> QUIC.ApplicationProtocolError -> IO ()
-abort ctx = QUIC.abortConnection $ ctxConnection ctx
+abort ctx aerr = QUIC.abortConnection (ctxConnection ctx) aerr ""
 
 getHooks :: Context -> Hooks
 getHooks = ctxHooks
