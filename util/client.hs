@@ -200,7 +200,8 @@ runClient conf opts@Options{..} aux@Aux{..} = do
               auxDebug $ "Migration by " ++ show mtyp
               return x
         t1 <- getUnixTime
-        stats <- client aux conn
+        client aux conn
+        stats <- getConnectionStats conn
         print stats
         t2 <- getUnixTime
         i2 <- getConnectionInfo conn

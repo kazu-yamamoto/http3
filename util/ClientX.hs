@@ -23,7 +23,7 @@ data Aux = Aux {
   , auxCheckClose :: IO Bool
   }
 
-type Cli = Aux -> Connection -> IO ConnectionStats
+type Cli = Aux -> Connection -> IO ()
 
 
 clientHQ :: Cli
@@ -32,7 +32,7 @@ clientHQ = clientX HQ.run
 clientH3 :: Cli
 clientH3 = clientX H3.run
 
-clientX ::  (Connection -> H3.ClientConfig -> H3.Config -> H3.Client ConnectionStats -> IO ConnectionStats) -> Cli
+clientX ::  (Connection -> H3.ClientConfig -> H3.Config -> H3.Client () -> IO ()) -> Cli
 clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf client
   where
     cliconf = H3.ClientConfig {
@@ -45,7 +45,6 @@ clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ 
             auxShow "------------------------"
             loop rsp
             auxShow "------------------------"
-            getConnectionStats conn
     loop rsp = do
         x <- H3.getResponseBodyChunk rsp
         when (x /= "") $ do
