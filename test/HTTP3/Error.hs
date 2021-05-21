@@ -19,8 +19,10 @@ import Test.Hspec
 
 ----------------------------------------------------------------
 
-runC :: QUIC.ClientConfig -> H3.ClientConfig -> H3.Config -> IO (Maybe ())
-runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn -> do
+type Millisecond = Int
+
+runC :: QUIC.ClientConfig -> H3.ClientConfig -> H3.Config -> Millisecond -> IO (Maybe ())
+runC qcc cconf conf ms = timeout us $ QUIC.runQUICClient qcc $ \conn -> do
     info <- QUIC.getConnectionInfo conn
     case QUIC.alpn info of
       Just proto | "hq" `BS.isPrefixOf` proto -> do
@@ -29,70 +31,71 @@ runC qcc cconf conf = timeout 2000000 $ QUIC.runQUICClient qcc $ \conn -> do
                        E.throwIO $ QUIC.ApplicationProtocolErrorIsReceived H3InternalError ""
       _                                       -> H3.run conn cconf conf client
   where
+    us = ms * 1000
     client sendRequest = do
         let req = H3.requestNoBody methodGet "/" []
         ret <- sendRequest req $ \_rsp -> return ()
         threadDelay 100000
         return ret
 
-h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> SpecWith a
-h3ErrorSpec qcc cconf = do
+h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> Millisecond -> SpecWith a
+h3ErrorSpec qcc cconf ms = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers" $ do
         it "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.1.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
-            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+            runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
-            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+            runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
-            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+            runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
                 qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
-            runC qcc' cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+            runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
         it "MUST send H3_FRAME_UNEXPECTED if a DATA frame is received on a control stream [HTTP/3 7.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated controlData
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_FRAME_UNEXPECTED if a HEADERS frame is received on a control stream [HTTP/3 7.2.2]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated controlHeaders
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_FRAME_UNEXPECTED if a second SETTINGS frame is received [HTTP/3 7.2.4]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated doubleSettings
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
 {- this is MAY
         it "MUST send H3_SETTINGS_ERROR if duplicate setting identifiers exist [HTTP/3 7.2.4]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings0
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
 -}
         it "MUST send H3_SETTINGS_ERROR if HTTP/2 settings are included [HTTP/3 7.2.4.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings1
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
         it "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
         it "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
         it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it "MUST send QPACK_DECODER_STREAM_ERROR if Insert Count Increment is 0 [QPACK 4.4.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnDecoderStreamCreated zeroInsertCountIncrement
-            runC qcc cconf conf `shouldThrow` applicationProtocolErrorsIn [QpackDecoderStreamError]
+            runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [QpackDecoderStreamError]
 
 ----------------------------------------------------------------
 
