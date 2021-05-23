@@ -212,11 +212,7 @@ zeroInsertCountIncrement strm = QUIC.sendStream strm "\x00"
 addQUICHook :: QUIC.ClientConfig -> (QUIC.Hooks -> QUIC.Hooks) -> QUIC.ClientConfig
 addQUICHook cc modify = cc'
   where
-    conf = QUIC.ccConfig cc
-    hooks = QUIC.confHooks conf
-    hooks' = modify hooks
-    conf' = conf { QUIC.confHooks = hooks' }
-    cc' = cc { QUIC.ccConfig = conf' }
+    cc' = cc { QUIC.ccHooks = modify $ QUIC.ccHooks cc }
 
 setOnResetStreamReceived :: (QUIC.Stream -> ApplicationProtocolError -> IO ()) -> QUIC.Hooks -> QUIC.Hooks
 setOnResetStreamReceived f hooks = hooks { QUIC.onResetStreamReceived = f }

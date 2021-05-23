@@ -10,11 +10,13 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.UnixTime
+import Data.Word
 import Foreign.C.Types
 import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
+import System.IO
 import Text.Printf
 
 import ClientX
@@ -35,8 +37,10 @@ data Options = Options {
   , opt0RTT        :: Bool
   , optRetry       :: Bool
   , optQuantum     :: Bool
+  , optInteractive :: Bool
   , optMigration   :: Maybe Migration
   , optPacketSize  :: Maybe Int
+  , optPerformance :: Word64
   } deriving Show
 
 defaultOptions :: Options
@@ -53,8 +57,10 @@ defaultOptions = Options {
   , opt0RTT        = False
   , optRetry       = False
   , optQuantum     = False
+  , optInteractive = False
   , optMigration   = Nothing
   , optPacketSize  = Nothing
+  , optPerformance = 0
   }
 
 usage :: String
@@ -86,6 +92,9 @@ options = [
   , Option ['s'] ["packet-size"]
     (ReqArg (\n o -> o { optPacketSize = Just (read n) }) "<size>")
     "specify QUIC packet size (UDP payload size)"
+  , Option ['i'] ["interactive"]
+    (NoArg (\o -> o { optInteractive = True }))
+    "prefer hq (HTTP/0.9)"
   , Option ['V'] ["vernego"]
     (NoArg (\o -> o { optVerNego = True }))
     "try version negotiation"
@@ -113,6 +122,9 @@ options = [
   , Option ['A'] ["address-mobility"]
     (NoArg (\o -> o { optMigration = Just MigrateTo }))
     "use a new address and a new server CID"
+  , Option ['t'] ["performance"]
+    (ReqArg (\n o -> o { optPerformance = read n }) "<size>")
+    "measure performance"
   ]
 
 showUsageAndExit :: String -> IO a
@@ -139,6 +151,7 @@ main = do
              | otherwise   = "/"
         addr:port:_ = ips
         ccalpn ver
+          | optPerformance /= 0 = return $ Just ["perf"]
           | otherwise = let (h3X, hqX) = makeProtos ver
                             protos | optHQ     = [hqX,h3X]
                                    | otherwise = [h3X,hqX]
@@ -150,22 +163,21 @@ main = do
           | optQuantum = let bs = BS.replicate 1200 0
                          in params { greaseParameter = Just bs }
           | otherwise  = params
-        conf = defaultClientConfig {
+        cc0 = defaultClientConfig
+        cc = cc0 {
             ccServerName = addr
           , ccPortName   = port
           , ccALPN       = ccalpn
           , ccValidate   = optValidate
           , ccPacketSize = optPacketSize
           , ccDebugLog   = optDebugLog
-          , ccConfig     = defaultConfig {
-                confVersions   = confver $ confVersions defaultConfig
-              , confParameters = confparams $ confParameters defaultConfig
-              , confKeyLog     = getLogger optKeyLogFile
-              , confGroups     = getGroups optGroups
-              , confQLog       = optQLogDir
-              , confHooks      = defaultHooks {
-                    onCloseCompleted = putMVar cmvar ()
-                  }
+          , ccVersions   = confver $ ccVersions cc0
+          , ccParameters = confparams $ ccParameters cc0
+          , ccKeyLog     = getLogger optKeyLogFile
+          , ccGroups     = getGroups (ccGroups cc0) optGroups
+          , ccQLog       = optQLogDir
+          , ccHooks      = defaultHooks {
+                onCloseCompleted = putMVar cmvar ()
               }
           }
         debug | optDebugLog = putStrLn
@@ -183,12 +195,12 @@ main = do
                   Nothing -> return False
                   _       -> return True
           }
-    runClient conf opts aux
+    runClient cc opts aux
 
 runClient :: ClientConfig -> Options -> Aux -> IO ()
-runClient conf opts@Options{..} aux@Aux{..} = do
+runClient cc opts@Options{..} aux@Aux{..} = do
     auxDebug "------------------------"
-    (info1,info2,res,mig,client') <- runQUICClient conf $ \conn -> do
+    (info1,info2,res,mig,client') <- runQUICClient cc $ \conn -> do
         i1 <- getConnectionInfo conn
         let client = case alpn i1 of
               Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ
@@ -200,7 +212,10 @@ runClient conf opts@Options{..} aux@Aux{..} = do
               auxDebug $ "Migration by " ++ show mtyp
               return x
         t1 <- getUnixTime
-        client aux conn
+        if optInteractive then do
+            console aux client conn
+          else do
+            client aux conn
         stats <- getConnectionStats conn
         print stats
         t2 <- getUnixTime
@@ -216,7 +231,7 @@ runClient conf opts@Options{..} aux@Aux{..} = do
         exitSuccess
       else if optResumption then do
         if isResumptionPossible res then do
-            info3 <- runClient2 conf opts aux res client'
+            info3 <- runClient2 cc opts aux res client'
             if handshakeMode info3 == PreSharedKey then do
                 putStrLn "Result: (R) TLS resumption ... OK"
                 exitSuccess
@@ -228,7 +243,7 @@ runClient conf opts@Options{..} aux@Aux{..} = do
             exitFailure
       else if opt0RTT then do
         if is0RTTPossible res then do
-            info3 <- runClient2 conf opts aux res client'
+            info3 <- runClient2 cc opts aux res client'
             if handshakeMode info3 == RTT0 then do
                 putStrLn "Result: (Z) 0-RTT ... OK"
                 exitSuccess
@@ -286,15 +301,15 @@ runClient conf opts@Options{..} aux@Aux{..} = do
 
 runClient2 :: ClientConfig -> Options -> Aux -> ResumptionInfo -> Cli
            -> IO ConnectionInfo
-runClient2 conf Options{..} aux@Aux{..} res client = do
+runClient2 cc Options{..} aux@Aux{..} res client = do
     threadDelay 100000
     auxDebug "<<<< next connection >>>>"
     auxDebug "------------------------"
-    runQUICClient conf' $ \conn -> do
+    runQUICClient cc' $ \conn -> do
         void $ client aux conn
         getConnectionInfo conn
   where
-    conf' = conf {
+    cc' = cc {
         ccResumption = res
       , ccUse0RTT    = opt0RTT && is0RTTPossible res
       }
@@ -308,3 +323,35 @@ printThroughput t1 t2 ConnectionStats{..} =
     millisecs = fromIntegral s * 1000 + fromIntegral u `div` 1000
     bytesPerSeconds :: Double
     bytesPerSeconds = fromIntegral rxBytes * (1000 :: Double) * 8 / fromIntegral millisecs / 1024 / 1024
+
+console :: Aux -> (Aux -> Connection -> IO a) -> Connection -> IO ()
+console aux client conn = do
+    waitEstablished conn
+    putStrLn "g -- get"
+    putStrLn "k -- update key"
+    putStrLn "m -- migrate"
+    putStrLn "p -- ping"
+    putStrLn "q -- quit"
+    loop
+   where
+     loop = do
+         hSetBuffering stdout NoBuffering
+         putStr "> "
+         hSetBuffering stdout LineBuffering
+         l <- getLine
+         case l of
+           "q" -> putStrLn "bye"
+           "m" -> do
+               migrate conn MigrateTo >>= print
+               loop
+           "g" -> do
+               putStrLn $ "GET " ++ auxPath aux
+               _ <- client aux conn
+               loop
+           "p" -> do
+               putStrLn "Ping"
+               sendFrames conn RTT1Level [Ping]
+               loop
+           _   -> do
+               putStrLn "No such command"
+               loop

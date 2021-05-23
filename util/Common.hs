@@ -28,9 +28,9 @@ namedGroups =
     , ("x448",      X448)
     ]
 
-getGroups :: Maybe String -> [Group]
-getGroups Nothing   = confGroups defaultConfig
-getGroups (Just gs) = catMaybes $ map (`lookup` namedGroups) $ split ',' gs
+getGroups :: [Group] -> Maybe String -> [Group]
+getGroups grps Nothing   = grps
+getGroups _    (Just gs) = mapMaybe (`lookup` namedGroups) $ split ',' gs
 
 split :: Char -> String -> [String]
 split _ "" = []

@@ -84,6 +84,8 @@ serverOpts argv =
       (_,_,errs) -> showUsageAndExit $ concat errs
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
+chooseALPN _ protos
+  | "perf" `elem` protos = return "perf"
 chooseALPN ver protos = return $ case mh3idx of
     Nothing    -> case mhqidx of
       Nothing    -> ""
@@ -107,21 +109,20 @@ main = do
         aps = (,port) <$> addrs
     smgr <- SM.newSessionManager SM.defaultConfig
     Right cred@(!_cc,!_priv) <- credentialLoadX509 optCertFile optKeyFile
-    let conf = defaultServerConfig {
+    let sc0 = defaultServerConfig
+        sc = sc0 {
             scAddresses      = aps
           , scALPN           = Just chooseALPN
           , scRequireRetry   = optRetry
           , scSessionManager = smgr
-          , scEarlyDataSize  = 1024
+          , scUse0RTT        = True
           , scDebugLog       = optDebugLogDir
-          , scConfig         = defaultConfig {
-                confKeyLog      = getLogger optKeyLogFile
-              , confGroups      = getGroups optGroups
-              , confQLog        = optQLogDir
-              , confCredentials = Credentials [cred]
-              }
+          , scKeyLog         = getLogger optKeyLogFile
+          , scGroups         = getGroups (scGroups sc0) optGroups
+          , scQLog           = optQLogDir
+          , scCredentials    = Credentials [cred]
           }
-    runQUICServer conf $ \conn -> do
+    runQUICServer sc $ \conn -> do
         info <- getConnectionInfo conn
         let server = case alpn info of
               Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ

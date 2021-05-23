@@ -20,10 +20,8 @@ makeTestServerConfig = do
     cred <- either error id <$> credentialLoadX509 "test/servercert.pem" "test/serverkey.pem"
     let credentials = Credentials [cred]
     return testServerConfig {
-        scConfig = (scConfig testServerConfig) {
-              confCredentials = credentials
-            , confQLog = Just "/Users/kazu/tmp/qlog/"
-            }
+        scCredentials = credentials
+      , scQLog = Just "/Users/kazu/tmp/qlog/"
       , scALPN = Just chooseALPN
       }
 
@@ -35,9 +33,7 @@ testServerConfig = defaultServerConfig {
 testClientConfig :: ClientConfig
 testClientConfig = defaultClientConfig {
     ccPortName = "8003"
-  , ccConfig = defaultConfig {
-        confKeyLog = \msg -> appendFile "/Users/kazu/tls_key.log" (msg ++ "\n")
-      }
+  , ccKeyLog = \msg -> appendFile "/Users/kazu/tls_key.log" (msg ++ "\n")
   }
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
