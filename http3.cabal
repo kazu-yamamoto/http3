@@ -137,6 +137,7 @@ executable server
                       , quic
                       , tls
                       , tls-session-manager
+                      , unliftio
   Default-Extensions:  Strict StrictData
 
 executable client
@@ -159,6 +160,7 @@ executable client
                       , quic
                       , tls
                       , unix-time
+                      , unliftio
   Default-Extensions:  Strict StrictData
 
 executable qif
@@ -178,4 +180,5 @@ executable qif
                       , http3
                       , quic
                       , stm
+                      , unliftio
   Default-Extensions:  Strict StrictData
