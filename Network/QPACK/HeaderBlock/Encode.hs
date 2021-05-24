@@ -10,13 +10,13 @@ module Network.QPACK.HeaderBlock.Encode (
   , CompressionAlgo(..)
   ) where
 
-import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
 import Network.HPACK (HeaderList, EncodeStrategy(..), TokenHeaderList, CompressionAlgo(..))
 import Network.HPACK.Internal
 import Network.HPACK.Token
+import qualified UnliftIO.Exception as E
 
 import Imports
 import Network.QPACK.HeaderBlock.Prefix

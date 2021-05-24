@@ -19,12 +19,12 @@ module Network.QPACK.Instruction (
   , decodeDI
   ) where
 
-import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK.Internal
 import Network.HPACK.Token
+import qualified UnliftIO.Exception as E
 
 import Imports
 import Network.QPACK.Types

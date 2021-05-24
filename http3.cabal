@@ -69,6 +69,7 @@ library
                      , sockaddr
                      , stm
                      , time-manager
+                     , unliftio
   default-extensions:  Strict StrictData
 
 Test-suite spec
@@ -87,7 +88,6 @@ Test-suite spec
                        QPACK.TableSpec
   Build-Depends:       base >= 4.9 && < 5
                      , QuickCheck
-                     , async
                      , attoparsec
                      , base16-bytestring
                      , bytestring
@@ -103,6 +103,7 @@ Test-suite spec
                      , quic
                      , stm
                      , tls
+                     , unliftio
   default-extensions:  Strict StrictData
 
 Test-Suite doctest

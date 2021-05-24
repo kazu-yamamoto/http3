@@ -63,7 +63,6 @@ module Network.HTTP3.Server (
   ) where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Data.IORef
 import Network.HPACK.Token
 import Network.HTTP2.Internal (InpObj(..))
@@ -74,6 +73,7 @@ import Network.HTTP2.Server.Internal (Request(..), Response(..), Aux(..))
 import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
+import qualified UnliftIO.Exception as E
 
 import Imports
 import Network.HTTP3.Config
@@ -115,7 +115,7 @@ readerServer ctx server = loop
         sid = QUIC.streamId strm
 
 processRequest :: Context -> Server -> Stream -> IO ()
-processRequest ctx server strm = E.handle reset $ do
+processRequest ctx server strm = E.handleAny reset $ do
     th <- registerThread ctx
     src <- newSource strm
     mvt <- recvHeader ctx src
@@ -139,7 +139,6 @@ processRequest ctx server strm = E.handle reset $ do
           server req aux $ sendResponse ctx strm th
   where
     reset se
-      | Just E.ThreadKilled <- E.fromException se = return ()
       | Just (_ :: DecodeError) <- E.fromException se = abort ctx QpackDecompressionFailed
       | otherwise = QUIC.resetStream strm H3MessageError
 

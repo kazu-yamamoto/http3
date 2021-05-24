@@ -23,7 +23,6 @@ module Network.HQ.Client (
   , H2.getResponseBodyChunk
   ) where
 
-import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HPACK
@@ -33,6 +32,7 @@ import Network.HTTP2.Internal (InpObj(..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
+import qualified UnliftIO.Exception as E
 
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Recv (newSource, readSource)

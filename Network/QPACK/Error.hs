@@ -11,8 +11,8 @@ module Network.QPACK.Error (
   , DecoderInstructionError(..)
   ) where
 
-import Control.Exception
 import Data.Typeable
+import UnliftIO.Exception
 
 import Network.QUIC
 

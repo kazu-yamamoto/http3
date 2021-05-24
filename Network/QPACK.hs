@@ -41,13 +41,13 @@ module Network.QPACK (
   ) where
 
 import Control.Concurrent.STM
-import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK (HeaderTable, TokenHeaderList, HeaderList, ValueTable, getHeaderValue, toHeaderTable)
 import Network.HPACK.Internal
 import Network.QUIC.Internal (stdoutLogger)
+import qualified UnliftIO.Exception as E
 
 import Imports
 import Network.QPACK.Error

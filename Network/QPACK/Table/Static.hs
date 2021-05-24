@@ -6,10 +6,10 @@ module Network.QPACK.Table.Static (
   , staticTableList
   ) where
 
-import qualified Control.Exception as E
 import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
 import Network.HPACK.Internal
+import qualified UnliftIO.Exception as E
 
 import Network.QPACK.Error
 import Network.QPACK.Types
@@ -32,7 +32,7 @@ staticTableSize = length staticTableList
 toStaticEntry :: AbsoluteIndex -> Entry
 toStaticEntry (AbsoluteIndex sidx)
   | sidx < staticTableSize = staticTable `unsafeAt` sidx
-  | otherwise              = E.throw IllegalStaticIndex
+  | otherwise              = E.impureThrow IllegalStaticIndex
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry

@@ -51,7 +51,6 @@ module Network.HTTP3.Client (
   ) where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Data.IORef
 import Network.HTTP2.Client (Scheme, Authority, Client)
 import qualified Network.HTTP2.Client as H2
@@ -60,6 +59,7 @@ import Network.HTTP2.Internal (InpObj(..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
+import qualified UnliftIO.Exception as E
 
 import Network.HTTP3.Config
 import Network.HTTP3.Context

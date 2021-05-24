@@ -2,8 +2,6 @@
 
 module HTTP3.ServerSpec where
 
-import Control.Concurrent.Async
-import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
 import Network.HTTP.Types
@@ -11,6 +9,8 @@ import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
 import qualified Network.QUIC as QUIC
 import Test.Hspec
+import UnliftIO.Async
+import qualified UnliftIO.Exception as E
 
 import HTTP3.Config
 import HTTP3.Server

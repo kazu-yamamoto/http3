@@ -6,10 +6,10 @@
 
 module ServerX where
 
-import qualified Control.Exception as E
 import qualified Network.HQ.Server as HQ
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP3.Server as H3
+import qualified UnliftIO.Exception as E
 
 import Network.QUIC
 

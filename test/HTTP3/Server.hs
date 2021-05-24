@@ -9,7 +9,6 @@ module HTTP3.Server (
   ) where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Control.Monad
 import Crypto.Hash (Context, SHA1) -- cryptonite
 import qualified Crypto.Hash as CH
@@ -24,6 +23,7 @@ import Network.HTTP3.Server
 import qualified Network.QUIC as QUIC
 import Network.Socket ()
 import Test.Hspec
+import qualified UnliftIO.Exception as E
 
 import HTTP3.Config
 
