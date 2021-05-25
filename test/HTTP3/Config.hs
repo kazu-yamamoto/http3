@@ -21,7 +21,6 @@ makeTestServerConfig = do
     let credentials = Credentials [cred]
     return testServerConfig {
         scCredentials = credentials
-      , scQLog = Just "/Users/kazu/tmp/qlog/"
       , scALPN = Just chooseALPN
       }
 
@@ -33,7 +32,6 @@ testServerConfig = defaultServerConfig {
 testClientConfig :: ClientConfig
 testClientConfig = defaultClientConfig {
     ccPortName = "8003"
-  , ccKeyLog = \msg -> appendFile "/Users/kazu/tls_key.log" (msg ++ "\n")
   }
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
