@@ -13,9 +13,9 @@ import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
 import Network.QPACK.Internal
 import qualified Network.QUIC as QUIC
-import System.Timeout
 import Test.Hspec
 import qualified UnliftIO.Exception as E
+import UnliftIO.Timeout
 
 ----------------------------------------------------------------
 
