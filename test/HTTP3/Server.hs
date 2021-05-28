@@ -20,7 +20,7 @@ import Data.IP ()
 import Network.HPACK
 import Network.HTTP.Types
 import Network.HTTP3.Server
-import qualified Network.QUIC as QUIC
+import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
 import Test.Hspec
 import qualified UnliftIO.Exception as E
@@ -30,7 +30,7 @@ import HTTP3.Config
 setup :: IO ThreadId
 setup = do
     sc <- makeTestServerConfig
-    tid <- forkIO $ QUIC.runQUICServer sc loop
+    tid <- forkIO $ QUIC.run sc loop
     threadDelay 500000 -- give enough time to the server
     return tid
   where

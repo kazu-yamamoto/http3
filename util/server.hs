@@ -20,6 +20,8 @@ import System.IO
 
 import Common
 import Network.QUIC
+import Network.QUIC.Internal
+import Network.QUIC.Server
 import ServerX
 
 data Options = Options {
@@ -122,7 +124,7 @@ main = do
           , scQLog           = optQLogDir
           , scCredentials    = Credentials [cred]
           }
-    runQUICServer sc $ \conn -> do
+    run sc $ \conn -> do
         info <- getConnectionInfo conn
         let server = case alpn info of
               Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ

@@ -14,7 +14,7 @@ module Network.HTTP3.Context (
   , registerThread
   , timeoutClose
   , newStream
-  , QUIC.closeStream
+  , closeStream
   , pReadMaker
   , addThreadId
   , abort
@@ -26,9 +26,8 @@ import Control.Concurrent
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HTTP2.Internal (PositionReadMaker)
-import Network.QUIC (Connection, Stream)
-import qualified Network.QUIC as QUIC
-import Network.QUIC.Internal (isServer, isClient)
+import Network.QUIC
+import Network.QUIC.Internal (isServer, isClient, connDebugLog)
 import System.Mem.Weak
 import qualified System.TimeManager as T
 import qualified UnliftIO.Exception as E
@@ -61,7 +60,7 @@ newContext conn conf ctl = do
         hooks  = confHooks conf
     Context conn enc dec sw preadM timmgr hooks <$> newIORef []
   where
-    abortWith aerr _se = QUIC.abortConnection conn aerr ""
+    abortWith aerr _se = abortConnection conn aerr ""
 
 clearContext :: Context -> IO ()
 clearContext ctx = clearThreads ctx
@@ -71,7 +70,7 @@ switch conn ctl handleEI handleDI styp
   | styp == H3ControlStreams   = ctl
   | styp == QPACKEncoderStream = handleEI
   | styp == QPACKDecoderStream = handleDI
-  | otherwise                  = \_ -> QUIC.connDebugLog conn "switch unknown stream type"
+  | otherwise                  = \_ -> connDebugLog conn "switch unknown stream type"
 
 isH3Server :: Context -> Bool
 isH3Server Context{..} = isServer ctxConnection
@@ -80,7 +79,7 @@ isH3Client :: Context -> Bool
 isH3Client Context{..} = isClient ctxConnection
 
 accept :: Context -> IO Stream
-accept Context{..} = QUIC.acceptStream ctxConnection
+accept Context{..} = acceptStream ctxConnection
 
 qpackEncode :: Context -> QEncoder
 qpackEncode Context{..} = ctxQEncoder
@@ -90,9 +89,9 @@ qpackDecode Context{..} = ctxQDecoder
 
 unidirectional :: Context -> Stream -> IO ()
 unidirectional Context{..} strm = do
-    w8:_ <- BS.unpack <$> QUIC.recvStream strm 1 -- fixme: variable length
+    w8:_ <- BS.unpack <$> recvStream strm 1 -- fixme: variable length
     let typ = toH3StreamType $ fromIntegral w8
-    ctxUniSwitch typ (QUIC.recvStream strm)
+    ctxUniSwitch typ (recvStream strm)
 
 registerThread :: Context -> IO T.Handle
 registerThread Context{..} = T.registerKillThread ctxManager (return ())
@@ -103,7 +102,7 @@ timeoutClose Context{..} closer = do
     return $ T.tickle th
 
 newStream :: Context -> IO Stream
-newStream Context{..} = QUIC.stream ctxConnection
+newStream Context{..} = stream ctxConnection
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
@@ -125,8 +124,8 @@ clearThreads Context{..} = do
           Nothing  -> return ()
           Just tid -> killThread tid
 
-abort :: Context -> QUIC.ApplicationProtocolError -> IO ()
-abort ctx aerr = QUIC.abortConnection (ctxConnection ctx) aerr ""
+abort :: Context -> ApplicationProtocolError -> IO ()
+abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""
 
 getHooks :: Context -> Hooks
 getHooks = ctxHooks

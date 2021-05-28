@@ -12,7 +12,9 @@ import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
 import Network.QPACK.Internal
-import qualified Network.QUIC as QUIC
+import Network.QUIC
+import Network.QUIC.Client
+import Network.QUIC.Internal hiding (timeout)
 import Test.Hspec
 import qualified UnliftIO.Exception as E
 import UnliftIO.Timeout
@@ -21,14 +23,14 @@ import UnliftIO.Timeout
 
 type Millisecond = Int
 
-runC :: QUIC.ClientConfig -> H3.ClientConfig -> H3.Config -> Millisecond -> IO (Maybe ())
-runC qcc cconf conf ms = timeout us $ QUIC.runQUICClient qcc $ \conn -> do
-    info <- QUIC.getConnectionInfo conn
-    case QUIC.alpn info of
+runC :: ClientConfig -> H3.ClientConfig -> H3.Config -> Millisecond -> IO (Maybe ())
+runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
+    info <- getConnectionInfo conn
+    case alpn info of
       Just proto | "hq" `BS.isPrefixOf` proto -> do
-                       QUIC.waitEstablished conn
+                       waitEstablished conn
                        putStrLn $ "Warning: " ++ C8.unpack proto ++ " is negotiated. Skipping this test. Use \"h3spec -s HTTP/3\" next time."
-                       E.throwIO $ QUIC.ApplicationProtocolErrorIsReceived H3InternalError ""
+                       E.throwIO $ ApplicationProtocolErrorIsReceived H3InternalError ""
       _                                       -> H3.run conn cconf conf client
   where
     us = ms * 1000
@@ -38,7 +40,7 @@ runC qcc cconf conf ms = timeout us $ QUIC.runQUICClient qcc $ \conn -> do
         threadDelay 100000
         return ret
 
-h3ErrorSpec :: QUIC.ClientConfig -> H3.ClientConfig -> Millisecond -> SpecWith a
+h3ErrorSpec :: ClientConfig -> H3.ClientConfig -> Millisecond -> SpecWith a
 h3ErrorSpec qcc cconf ms = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers" $ do
@@ -47,19 +49,19 @@ h3ErrorSpec qcc cconf ms = do
             runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         it "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.1.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.1.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (QUIC.ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
             runC qcc' cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
@@ -91,7 +93,7 @@ h3ErrorSpec qcc cconf ms = do
             let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
             runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
         it "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]" $ \_ -> do
-            let conf = addHook conf0 $ setOnControlStreamCreated QUIC.closeStream
+            let conf = addHook conf0 $ setOnControlStreamCreated closeStream
             runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it "MUST send QPACK_DECODER_STREAM_ERROR if Insert Count Increment is 0 [QPACK 4.4.3]" $ \_ -> do
             let conf = addHook conf0 $ setOnDecoderStreamCreated zeroInsertCountIncrement
@@ -112,13 +114,13 @@ setOnControlFrameCreated f hooks = hooks { H3.onControlFrameCreated = f }
 setOnHeadersFrameCreated :: ([H3Frame] -> [H3Frame]) -> H3.Hooks -> H3.Hooks
 setOnHeadersFrameCreated f hooks = hooks { H3.onHeadersFrameCreated = f }
 
-setOnControlStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnControlStreamCreated :: (Stream -> IO ()) -> H3.Hooks -> H3.Hooks
 setOnControlStreamCreated f hooks = hooks { H3.onControlStreamCreated = f }
 
-setOnEncoderStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnEncoderStreamCreated :: (Stream -> IO ()) -> H3.Hooks -> H3.Hooks
 setOnEncoderStreamCreated f hooks = hooks { H3.onEncoderStreamCreated = f }
 
-setOnDecoderStreamCreated :: (QUIC.Stream -> IO ()) -> H3.Hooks -> H3.Hooks
+setOnDecoderStreamCreated :: (Stream -> IO ()) -> H3.Hooks -> H3.Hooks
 setOnDecoderStreamCreated f hooks = hooks { H3.onDecoderStreamCreated = f }
 
 ----------------------------------------------------------------
@@ -200,29 +202,29 @@ illegalSettings1 _ = [H3Frame H3FrameSettings "\x07\x40\x64\x02\x40\xc8\x01\x50\
 ----------------------------------------------------------------
 
 -- SetDynamicTableCapacity 10000000000
-largeTableCapacity :: QUIC.Stream -> IO ()
-largeTableCapacity strm = QUIC.sendStream strm "\x3f\xe1\xc7\xaf\xa0\x25"
+largeTableCapacity :: Stream -> IO ()
+largeTableCapacity strm = sendStream strm "\x3f\xe1\xc7\xaf\xa0\x25"
 
 -- InsertCountIncrement 0
-zeroInsertCountIncrement :: QUIC.Stream -> IO ()
-zeroInsertCountIncrement strm = QUIC.sendStream strm "\x00"
+zeroInsertCountIncrement :: Stream -> IO ()
+zeroInsertCountIncrement strm = sendStream strm "\x00"
 
 ----------------------------------------------------------------
 
-addQUICHook :: QUIC.ClientConfig -> (QUIC.Hooks -> QUIC.Hooks) -> QUIC.ClientConfig
+addQUICHook :: ClientConfig -> (Hooks -> Hooks) -> ClientConfig
 addQUICHook cc modify = cc'
   where
-    cc' = cc { QUIC.ccHooks = modify $ QUIC.ccHooks cc }
+    cc' = cc { ccHooks = modify $ ccHooks cc }
 
-setOnResetStreamReceived :: (QUIC.Stream -> ApplicationProtocolError -> IO ()) -> QUIC.Hooks -> QUIC.Hooks
-setOnResetStreamReceived f hooks = hooks { QUIC.onResetStreamReceived = f }
+setOnResetStreamReceived :: (Stream -> ApplicationProtocolError -> IO ()) -> Hooks -> Hooks
+setOnResetStreamReceived f hooks = hooks { onResetStreamReceived = f }
 
 ----------------------------------------------------------------
 
-applicationProtocolError :: QUIC.QUICException -> Bool
-applicationProtocolError (QUIC.ApplicationProtocolErrorIsReceived ae _) = ae `elem` [H3GeneralProtocolError,H3InternalError]
+applicationProtocolError :: QUICException -> Bool
+applicationProtocolError (ApplicationProtocolErrorIsReceived ae _) = ae `elem` [H3GeneralProtocolError,H3InternalError]
 applicationProtocolError _ = False
 
-applicationProtocolErrorsIn :: [QUIC.ApplicationProtocolError] -> QUIC.QUICException -> Bool
-applicationProtocolErrorsIn aes qe@(QUIC.ApplicationProtocolErrorIsReceived ae _) = (ae `elem` aes) || applicationProtocolError qe
+applicationProtocolErrorsIn :: [ApplicationProtocolError] -> QUICException -> Bool
+applicationProtocolErrorsIn aes qe@(ApplicationProtocolErrorIsReceived ae _) = (ae `elem` aes) || applicationProtocolError qe
 applicationProtocolErrorsIn _   _                           = False

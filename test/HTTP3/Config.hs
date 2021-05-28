@@ -7,13 +7,12 @@ module HTTP3.Config (
   ) where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as C8
 import qualified Data.List as L
 import qualified Network.HTTP3.Client as H3
 import Network.TLS (Credentials(..), credentialLoadX509)
 
-import Network.QUIC
+import Network.QUIC.Client
+import Network.QUIC.Internal
 
 makeTestServerConfig :: IO ServerConfig
 makeTestServerConfig = do
@@ -35,24 +34,16 @@ testClientConfig = defaultClientConfig {
   }
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
-chooseALPN ver protos = return $ case mh3idx of
+chooseALPN _ver protos = return $ case mh3idx of
     Nothing    -> case mhqidx of
       Nothing    -> ""
-      Just _     -> hqX
+      Just _     -> "hq"
     Just h3idx ->  case mhqidx of
-      Nothing    -> h3X
-      Just hqidx -> if h3idx < hqidx then h3X else hqX
+      Nothing    -> "h3"
+      Just hqidx -> if h3idx < hqidx then "h3" else "hq"
   where
-    (h3X, hqX) = makeProtos ver
-    mh3idx = h3X `L.elemIndex` protos
-    mhqidx = hqX `L.elemIndex` protos
-
-makeProtos :: Version -> (ByteString, ByteString)
-makeProtos ver = (h3X,hqX)
-  where
-    verbs = C8.pack $ show $ fromVersion ver
-    h3X = "h3-" `BS.append` verbs
-    hqX = "hq-" `BS.append` verbs
+    mh3idx = "h3" `L.elemIndex` protos
+    mhqidx = "hq" `L.elemIndex` protos
 
 testH3ClientConfig :: H3.ClientConfig
 testH3ClientConfig = H3.ClientConfig "https" "127.0.0.1"

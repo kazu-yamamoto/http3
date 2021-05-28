@@ -7,7 +7,7 @@ import qualified Data.ByteString as B
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
-import qualified Network.QUIC as QUIC
+import qualified Network.QUIC.Client as QUIC
 import Test.Hspec
 import UnliftIO.Async
 import qualified UnliftIO.Exception as E
@@ -24,7 +24,7 @@ h3spec = do
         it "handles normal cases" $ \_ -> runClient
 
 runClient :: IO ()
-runClient = QUIC.runQUICClient testClientConfig $ \conn ->
+runClient = QUIC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
       C.run conn testH3ClientConfig conf client
   where
