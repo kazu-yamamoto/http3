@@ -5,6 +5,7 @@
 
 module ClientX where
 
+import Control.Concurrent
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
@@ -26,27 +27,37 @@ data Aux = Aux {
 type Cli = Aux -> Connection -> IO ()
 
 
-clientHQ :: Cli
-clientHQ = clientX HQ.run
+clientHQ :: Int -> Cli
+clientHQ n = clientX n HQ.run
 
-clientH3 :: Cli
-clientH3 = clientX H3.run
+clientH3 :: Int -> Cli
+clientH3 n = clientX n H3.run
 
-clientX ::  (Connection -> H3.ClientConfig -> H3.Config -> H3.Client () -> IO ()) -> Cli
-clientX run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf client
+clientX :: Int -> (Connection -> H3.ClientConfig -> H3.Config -> H3.Client () -> IO ()) -> Cli
+clientX n0 run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf client
   where
+    req = H3.requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
     cliconf = H3.ClientConfig {
         scheme = "https"
       , authority = C8.pack auxAuthority
       }
-    client sendRequest = do
-        let req = H3.requestNoBody methodGet (C8.pack auxPath) [("User-Agent", "HaskellQuic/0.0.0")]
-        sendRequest req $ \rsp -> do
-            auxShow "------------------------"
-            loop rsp
-            auxShow "------------------------"
-    loop rsp = do
-        x <- H3.getResponseBodyChunk rsp
-        when (x /= "") $ do
-            auxShow x
-            loop rsp
+    client sendRequest = loop n0
+      where
+        loop 0 = return ()
+        loop n = do
+            () <- sendRequest req $ \rsp -> do
+                auxDebug "GET"
+                auxShow "------------------------"
+                consume rsp
+                auxShow "------------------------"
+            when (n /= 1) $ do
+                threadDelay 1000000
+                loop (n - 1)
+    consume rsp = do
+        bs <- H3.getResponseBodyChunk rsp
+        if bs == "" then do
+            auxDebug "Fin received"
+          else do
+            auxShow bs
+            auxDebug $ show (C8.length bs) ++ " bytes received"
+            consume rsp

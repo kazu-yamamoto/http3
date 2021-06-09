@@ -39,14 +39,10 @@ import Network.HTTP3.Recv (newSource, readSource)
 
 -- | Running an HQ client.
 run :: Connection -> H3.ClientConfig -> H3.Config -> H2.Client a -> IO a
-run conn _ _ client = E.bracket open close $ \strm -> do
-    client $ sendRequest strm
-  where
-    open = QUIC.stream conn
-    close = QUIC.closeStream
+run conn _ _ client = client $ sendRequest conn
 
-sendRequest :: QUIC.Stream -> Request -> (Response -> IO a) -> IO a
-sendRequest strm (Request outobj) processResponse = do
+sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
+sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm -> do
     let hdr = H2.outObjHeaders outobj
         Just path = lookup ":path" hdr
         requestLine = BS.concat ["GET ", path, "\r\n"]
@@ -58,3 +54,6 @@ sendRequest strm (Request outobj) processResponse = do
     let readB = readSource src
         rsp = Response $ InpObj vt Nothing readB refH
     processResponse rsp
+  where
+    open = QUIC.stream conn
+    close = QUIC.closeStream
