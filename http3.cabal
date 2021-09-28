@@ -11,6 +11,8 @@ category:            Network
 cabal-version:       >=1.10
 build-type:          Simple
 extra-source-files:  ChangeLog.md
+extra-source-files:  test/servercert.pem
+extra-source-files:  test/serverkey.pem
 
 ----------------------------------------------------------------
 
