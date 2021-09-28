@@ -1,18 +1,33 @@
+cabal-version:       2.4
 name:                http3
 version:             0.0.0
 author:              Kazu Yamamoto <kazu@iij.ad.jp>
 maintainer:          Kazu Yamamoto <kazu@iij.ad.jp>
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 synopsis:            HTTP/3 library
 description:         HTTP/3 library including frames, QPACK, client and server.
 homepage:            https://github.com/kazu-yamamoto/http3
 category:            Network
-cabal-version:       >=1.10
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 extra-source-files:  test/servercert.pem
 extra-source-files:  test/serverkey.pem
+extra-source-files:  test/inputFile
+extra-source-files:  qifs/qifs/*.qif
+extra-source-files:  qifs/encoded/qpack-05/examples/*.1
+extra-source-files:  qifs/encoded/qpack-05/f5/*.0
+extra-source-files:  qifs/encoded/qpack-05/f5/*.1
+extra-source-files:  qifs/encoded/qpack-05/ls-qpack/*.0
+extra-source-files:  qifs/encoded/qpack-05/ls-qpack/*.1
+extra-source-files:  qifs/encoded/qpack-05/nghttp3/*.0
+extra-source-files:  qifs/encoded/qpack-05/nghttp3/*.1
+extra-source-files:  qifs/encoded/qpack-05/proxygen/*.0
+extra-source-files:  qifs/encoded/qpack-05/proxygen/*.1
+extra-source-files:  qifs/encoded/qpack-05/qthingey/*.0
+extra-source-files:  qifs/encoded/qpack-05/qthingey/*.1
+extra-source-files:  qifs/encoded/qpack-05/quinn/*.0
+extra-source-files:  qifs/encoded/qpack-05/quinn/*.1
 
 ----------------------------------------------------------------
 
