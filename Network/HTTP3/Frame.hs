@@ -116,12 +116,12 @@ decodeH3Frame hf = withReadBuffer hf $ \rbuf -> do
     return $ H3Frame typ bs
 
 data QInt = QInit
-          | QMore Word8        -- ^ Masked first byte
-                  Int          -- ^ Bytes required
-                  Int          -- ^ Bytes received so far. (sum . map length)
-                  [ByteString] -- ^ Reverse order
-          | QDone Int64        -- ^ Result
-                  ByteString   -- ^ leftover
+          | QMore Word8        -- Masked first byte
+                  Int          -- Bytes required
+                  Int          -- Bytes received so far. (sum . map length)
+                  [ByteString] -- Reverse order
+          | QDone Int64        -- Result
+                  ByteString   -- leftover
           deriving (Eq,Show)
 
 parseQInt :: QInt -> ByteString -> QInt
@@ -162,13 +162,13 @@ data IFrame =
             | ILen H3FrameType QInt
             -- | Parsing payload
             | IPay H3FrameType
-                   Int -- ^ Bytes required
-                   Int -- ^ Bytes received so far.  (sum . map length)
-                   [ByteString] -- ^ Reverse order
+                   Int -- Bytes required
+                   Int -- Bytes received so far.  (sum . map length)
+                   [ByteString] -- Reverse order
             -- | Parsing done
             | IDone H3FrameType
-                    ByteString -- ^ Payload (entire or sentinel)
-                    ByteString -- ^ Leftover
+                    ByteString -- Payload (entire or sentinel)
+                    ByteString -- Leftover
             deriving (Eq, Show)
 
 parseH3Frame :: IFrame -> ByteString -> IFrame
