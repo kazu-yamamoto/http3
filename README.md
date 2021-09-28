@@ -1,3 +1,5 @@
+![GitHub Actions status](https://github.com/kazu-yamamoto/http3/workflows/Haskell%20CI/badge.svg)
+
 ## HTTP/3 and QPACK implementation in Haskell
 
 This package implements HTTP/3 and QPACK based on Haskell lightweight threads.
