@@ -31,6 +31,7 @@ testServerConfig = defaultServerConfig {
 testClientConfig :: ClientConfig
 testClientConfig = defaultClientConfig {
     ccPortName = "8003"
+  , ccValidate = False
   }
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
