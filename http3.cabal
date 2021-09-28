@@ -105,6 +105,7 @@ Test-suite spec
                      , tls
                      , unliftio
   default-extensions:  Strict StrictData
+  build-tool-depends: hspec-discover:hspec-discover
 
 Test-Suite doctest
   Type:                 exitcode-stdio-1.0
