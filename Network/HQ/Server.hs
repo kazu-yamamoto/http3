@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
+-- | A server library for HTTP/0.9.
+
 module Network.HQ.Server (
   -- * Runner
     run

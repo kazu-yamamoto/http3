@@ -5,6 +5,7 @@ import Network.HTTP3.Frame
 import Network.QUIC (Stream)
 import qualified System.TimeManager as T
 
+-- | Hooks mainly for error testing.
 data Hooks = Hooks {
     onControlFrameCreated :: [H3Frame] -> [H3Frame]
   , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
@@ -13,6 +14,7 @@ data Hooks = Hooks {
   , onDecoderStreamCreated :: Stream -> IO ()
   }
 
+-- | Default hooks.
 defaultHooks :: Hooks
 defaultHooks = Hooks {
     onControlFrameCreated = id

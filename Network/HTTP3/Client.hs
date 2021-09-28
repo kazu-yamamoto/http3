@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
+-- | A client library for HTTP/3.
+
 module Network.HTTP3.Client (
   -- * Runner
     run

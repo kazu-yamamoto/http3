@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- | A server library for HTTP/3.
+
 module Network.HTTP3.Server (
   -- * Runner
     run
