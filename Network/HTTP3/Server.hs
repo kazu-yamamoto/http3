@@ -47,7 +47,6 @@ module Network.HTTP3.Server (
   , H2.pushPromise
   , H2.promiseRequestPath
   , H2.promiseResponse
-  , H2.promiseWeight
   -- * Types
   , H2.Path
   , H2.Authority

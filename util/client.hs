@@ -168,7 +168,7 @@ main = do
                                    | otherwise = [h3X,hqX]
                         in return $ Just protos
         gvers vers
-          | optVerNego = GreasingVersion : otherVersions vers
+          | optVerNego = GreasingVersion : vers
           | otherwise  = vers
         setTPQuantum params
           | optQuantum = let bs = BS.replicate 1200 0
