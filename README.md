@@ -6,5 +6,5 @@ This package implements HTTP/3 and QPACK based on Haskell lightweight threads.
 
 This package covers:
 
-- [draft-ietf-quic-http](https://tools.ietf.org/html/draft-ietf-quic-http)
-- [draft-ietf-quic-qpack](https://tools.ietf.org/html/draft-ietf-quic-qpack)
+- [HTTP/3](https://tools.ietf.org/html/rfc9114)
+- [QPACK: Field Compression for HTTP/3](https://tools.ietf.org/html/rfc9204)
