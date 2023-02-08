@@ -1,6 +1,6 @@
 cabal-version:       2.4
 name:                http3
-version:             0.0.0
+version:             0.0.1
 author:              Kazu Yamamoto <kazu@iij.ad.jp>
 maintainer:          Kazu Yamamoto <kazu@iij.ad.jp>
 license:             BSD-3-Clause
