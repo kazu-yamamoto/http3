@@ -62,7 +62,7 @@ sendNext ctx strm th curr tlrmkr0 = do
 newByteStringWith :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
 newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
-    Next len mnext1 <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
+    Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
     if len == 0 then
         return ("", Nothing, tlrmkr0)
       else do
