@@ -1,202 +1,207 @@
-cabal-version:       2.4
-name:                http3
-version:             0.0.1
-author:              Kazu Yamamoto <kazu@iij.ad.jp>
-maintainer:          Kazu Yamamoto <kazu@iij.ad.jp>
-license:             BSD-3-Clause
-license-file:        LICENSE
-synopsis:            HTTP/3 library
-description:         HTTP/3 library including frames, QPACK, client and server.
-homepage:            https://github.com/kazu-yamamoto/http3
-category:            Network
-build-type:          Simple
-extra-source-files:  ChangeLog.md
-extra-source-files:  test/servercert.pem
-extra-source-files:  test/serverkey.pem
-extra-source-files:  test/inputFile
-extra-source-files:  qifs/qifs/*.qif
-extra-source-files:  qifs/encoded/qpack-05/examples/*.1
-extra-source-files:  qifs/encoded/qpack-05/f5/*.0
-extra-source-files:  qifs/encoded/qpack-05/f5/*.1
-extra-source-files:  qifs/encoded/qpack-05/ls-qpack/*.0
-extra-source-files:  qifs/encoded/qpack-05/ls-qpack/*.1
-extra-source-files:  qifs/encoded/qpack-05/nghttp3/*.0
-extra-source-files:  qifs/encoded/qpack-05/nghttp3/*.1
-extra-source-files:  qifs/encoded/qpack-05/proxygen/*.0
-extra-source-files:  qifs/encoded/qpack-05/proxygen/*.1
-extra-source-files:  qifs/encoded/qpack-05/qthingey/*.0
-extra-source-files:  qifs/encoded/qpack-05/qthingey/*.1
-extra-source-files:  qifs/encoded/qpack-05/quinn/*.0
-extra-source-files:  qifs/encoded/qpack-05/quinn/*.1
+cabal-version:      2.4
+name:               http3
+version:            0.0.1
+license:            BSD-3-Clause
+license-file:       LICENSE
+maintainer:         Kazu Yamamoto <kazu@iij.ad.jp>
+author:             Kazu Yamamoto <kazu@iij.ad.jp>
+homepage:           https://github.com/kazu-yamamoto/http3
+synopsis:           HTTP/3 library
+description:        HTTP/3 library including frames, QPACK, client and server.
+category:           Network
+build-type:         Simple
+extra-source-files:
+    ChangeLog.md
+    test/servercert.pem
+    test/serverkey.pem
+    test/inputFile
+    qifs/qifs/*.qif
+    qifs/encoded/qpack-05/examples/*.1
+    qifs/encoded/qpack-05/f5/*.0
+    qifs/encoded/qpack-05/f5/*.1
+    qifs/encoded/qpack-05/ls-qpack/*.0
+    qifs/encoded/qpack-05/ls-qpack/*.1
+    qifs/encoded/qpack-05/nghttp3/*.0
+    qifs/encoded/qpack-05/nghttp3/*.1
+    qifs/encoded/qpack-05/proxygen/*.0
+    qifs/encoded/qpack-05/proxygen/*.1
+    qifs/encoded/qpack-05/qthingey/*.0
+    qifs/encoded/qpack-05/qthingey/*.1
+    qifs/encoded/qpack-05/quinn/*.0
+    qifs/encoded/qpack-05/quinn/*.1
 
-----------------------------------------------------------------
+source-repository head
+    type:     git
+    location: git://github.com/kazu-yamamoto/http3
 
-Source-Repository head
-  Type:                 git
-  Location:             git://github.com/kazu-yamamoto/http3
-
-Flag devel
-  Description:          Development commands
-  Default:              False
-
-----------------------------------------------------------------
+flag devel
+    description: Development commands
+    default:     False
 
 library
-  default-language:    Haskell2010
-  ghc-options:         -Wall
-  exposed-modules:     Network.HQ.Client
-                       Network.HQ.Server
-                       Network.HTTP3.Client
-                       Network.HTTP3.Internal
-                       Network.HTTP3.Server
-                       Network.QPACK
-                       Network.QPACK.Internal
-  other-modules:       Imports
-                       Network.HTTP3.Config
-                       Network.HTTP3.Context
-                       Network.HTTP3.Control
-                       Network.HTTP3.Error
-                       Network.HTTP3.Frame
-                       Network.HTTP3.Recv
-                       Network.HTTP3.Send
-                       Network.HTTP3.Settings
-                       Network.HTTP3.Stream
-                       Network.QPACK.Error
-                       Network.QPACK.HeaderBlock
-                       Network.QPACK.HeaderBlock.Decode
-                       Network.QPACK.HeaderBlock.Encode
-                       Network.QPACK.HeaderBlock.Prefix
-                       Network.QPACK.Instruction
-                       Network.QPACK.Table
-                       Network.QPACK.Table.Dynamic
-                       Network.QPACK.Table.RevIndex
-                       Network.QPACK.Table.Static
-                       Network.QPACK.Token
-                       Network.QPACK.Types
-  build-depends:       base >= 4.9 && < 5
-                     , array
-                     , bytestring
-                     , case-insensitive
-                     , containers
-                     , http2                     >= 4.1      && < 5
-                     , http-types
-                     , network
-                     , network-byte-order
-                     , quic
-                     , sockaddr
-                     , stm
-                     , time-manager
-                     , unliftio
-  default-extensions:  Strict StrictData
+    exposed-modules:
+        Network.HQ.Client
+        Network.HQ.Server
+        Network.HTTP3.Client
+        Network.HTTP3.Internal
+        Network.HTTP3.Server
+        Network.QPACK
+        Network.QPACK.Internal
 
-Test-suite spec
-  type:                exitcode-stdio-1.0
-  default-language:    Haskell2010
-  hs-source-dirs:      test
-  ghc-options:         -Wall -threaded
-  main-is:             Spec.hs
-  other-modules:       HTTP3.Config
-                       HTTP3.Error
-                       HTTP3.ErrorSpec
-                       HTTP3.Server
-                       HTTP3.ServerSpec
-                       QPACK.InstructionSpec
-                       QPACK.QIFSpec
-                       QPACK.TableSpec
-  Build-Depends:       base >= 4.9 && < 5
-                     , QuickCheck
-                     , attoparsec
-                     , base16-bytestring
-                     , bytestring
-                     , conduit
-                     , conduit-extra
-                     , cryptonite
-                     , hspec >= 1.3
-                     , http-types
-                     , http2
-                     , http3
-                     , iproute
-                     , network
-                     , quic
-                     , stm
-                     , tls
-                     , unliftio
-  default-extensions:  Strict StrictData
-  build-tool-depends: hspec-discover:hspec-discover
+    other-modules:
+        Imports
+        Network.HTTP3.Config
+        Network.HTTP3.Context
+        Network.HTTP3.Control
+        Network.HTTP3.Error
+        Network.HTTP3.Frame
+        Network.HTTP3.Recv
+        Network.HTTP3.Send
+        Network.HTTP3.Settings
+        Network.HTTP3.Stream
+        Network.QPACK.Error
+        Network.QPACK.HeaderBlock
+        Network.QPACK.HeaderBlock.Decode
+        Network.QPACK.HeaderBlock.Encode
+        Network.QPACK.HeaderBlock.Prefix
+        Network.QPACK.Instruction
+        Network.QPACK.Table
+        Network.QPACK.Table.Dynamic
+        Network.QPACK.Table.RevIndex
+        Network.QPACK.Table.Static
+        Network.QPACK.Token
+        Network.QPACK.Types
 
-Test-Suite doctest
-  Type:                 exitcode-stdio-1.0
-  Default-Language:     Haskell2010
-  HS-Source-Dirs:       test
-  Ghc-Options:          -Wall -threaded
-  Main-Is:              doctests.hs
-  Build-Depends:        base >= 4.9 && < 5
-                      , doctest >= 0.9.3
-  Default-Extensions:  Strict StrictData
+    default-language:   Haskell2010
+    default-extensions: Strict StrictData
+    ghc-options:        -Wall
+    build-depends:
+        base >=4.9 && <5,
+        array,
+        bytestring,
+        case-insensitive,
+        containers,
+        http2 >=4.1 && <5,
+        http-types,
+        network,
+        network-byte-order,
+        quic,
+        sockaddr,
+        stm,
+        time-manager,
+        unliftio
 
 executable server
-  if flag(devel)
-    buildable:          True
-  else
-    buildable:          False
-  default-language:     Haskell2010
-  hs-source-dirs:       util
-  main-is:              server.hs
-  other-modules:        Common
-                        ServerX
-  ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.9 && < 5
-                      , base16-bytestring
-                      , bytestring
-                      , filepath
-                      , http-types
-                      , http2
-                      , http3
-                      , quic
-                      , tls
-                      , tls-session-manager
-                      , unliftio
-  Default-Extensions:  Strict StrictData
+    main-is:            server.hs
+    hs-source-dirs:     util
+    other-modules:
+        Common
+        ServerX
+
+    default-language:   Haskell2010
+    default-extensions: Strict StrictData
+    ghc-options:        -Wall -threaded -rtsopts
+    build-depends:
+        base >=4.9 && <5,
+        base16-bytestring,
+        bytestring,
+        filepath,
+        http-types,
+        http2,
+        http3,
+        quic,
+        tls,
+        tls-session-manager,
+        unliftio
+
+    if flag(devel)
+
+    else
+        buildable: False
 
 executable client
-  if flag(devel)
-    buildable:          True
-  else
-    buildable:          False
-  default-language:     Haskell2010
-  hs-source-dirs:       util
-  main-is:              client.hs
-  other-modules:        Common
-                        ClientX
-  ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.9 && < 5
-                      , base16-bytestring
-                      , bytestring
-                      , filepath
-                      , http-types
-                      , http3
-                      , quic
-                      , tls
-                      , unix-time
-                      , unliftio
-  Default-Extensions:  Strict StrictData
+    main-is:            client.hs
+    hs-source-dirs:     util
+    other-modules:
+        Common
+        ClientX
+
+    default-language:   Haskell2010
+    default-extensions: Strict StrictData
+    ghc-options:        -Wall -threaded -rtsopts
+    build-depends:
+        base >=4.9 && <5,
+        base16-bytestring,
+        bytestring,
+        filepath,
+        http-types,
+        http3,
+        quic,
+        tls,
+        unix-time,
+        unliftio
+
+    if flag(devel)
+
+    else
+        buildable: False
 
 executable qif
-  if flag(devel)
-    buildable:          True
-  else
-    buildable:          False
-  default-language:     Haskell2010
-  hs-source-dirs:       util
-  main-is:              qif.hs
-  ghc-options:          -Wall -threaded -rtsopts
-  build-depends:        base >= 4.9 && < 5
-                      , attoparsec
-                      , bytestring
-                      , conduit
-                      , conduit-extra
-                      , http3
-                      , quic
-                      , stm
-                      , unliftio
-  Default-Extensions:  Strict StrictData
+    main-is:            qif.hs
+    hs-source-dirs:     util
+    default-language:   Haskell2010
+    default-extensions: Strict StrictData
+    ghc-options:        -Wall -threaded -rtsopts
+    build-depends:
+        base >=4.9 && <5,
+        attoparsec,
+        bytestring,
+        conduit,
+        conduit-extra,
+        http3,
+        quic,
+        stm,
+        unliftio
+
+    if flag(devel)
+
+    else
+        buildable: False
+
+test-suite spec
+    type:               exitcode-stdio-1.0
+    main-is:            Spec.hs
+    build-tool-depends: hspec-discover:hspec-discover
+    hs-source-dirs:     test
+    other-modules:
+        HTTP3.Config
+        HTTP3.Error
+        HTTP3.ErrorSpec
+        HTTP3.Server
+        HTTP3.ServerSpec
+        QPACK.InstructionSpec
+        QPACK.QIFSpec
+        QPACK.TableSpec
+
+    default-language:   Haskell2010
+    default-extensions: Strict StrictData
+    ghc-options:        -Wall -threaded
+    build-depends:
+        base >=4.9 && <5,
+        QuickCheck,
+        attoparsec,
+        base16-bytestring,
+        bytestring,
+        conduit,
+        conduit-extra,
+        cryptonite,
+        hspec >=1.3,
+        http-types,
+        http2,
+        http3,
+        iproute,
+        network,
+        quic,
+        stm,
+        tls,
+        unliftio
