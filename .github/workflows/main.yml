@@ -20,6 +20,8 @@ jobs:
           ghc: '8.10'
 
     steps:
+    - run: git config --global core.autocrlf false
+
     - uses: actions/checkout@v3
 
     - uses: haskell/actions/setup@v2
