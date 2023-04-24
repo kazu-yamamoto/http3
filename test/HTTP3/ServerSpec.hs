@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module HTTP3.ServerSpec where
 
@@ -28,8 +29,13 @@ runClient = QUIC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
       C.run conn testH3ClientConfig conf client
   where
-    client sendRequest = mapConcurrently_ ($ sendRequest) clients
-    clients = [client0,client1,client2,client3]
+    client :: C.Client ()
+    client sendRequest = foldr1 concurrently_ [
+        client0 sendRequest
+      , client1 sendRequest
+      , client2 sendRequest
+      , client3 sendRequest
+      ]
 
 client0 :: C.Client ()
 client0 sendRequest = do
