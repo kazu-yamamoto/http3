@@ -123,14 +123,14 @@ processRequest ctx server strm = E.handleAny reset $ do
     case mvt of
       Nothing -> QUIC.resetStream strm H3MessageError
       Just ht@(_,vt) -> do
-          when (isNothing $ getHeaderValue tokenMethod vt) $ do
-              QUIC.resetStream strm H3MessageError
-          when (isNothing $ getHeaderValue tokenScheme vt) $ do
-              QUIC.resetStream strm H3MessageError
-          when (isNothing $ getHeaderValue tokenAuthority vt) $ do
-              QUIC.resetStream strm H3MessageError
-          when (isNothing $ getHeaderValue tokenPath vt) $ do
-              QUIC.resetStream strm H3MessageError
+          let mMethod    = getHeaderValue tokenMethod vt
+              mScheme    = getHeaderValue tokenScheme vt
+              mAuthority = getHeaderValue tokenAuthority vt
+              mPath      = getHeaderValue tokenPath vt
+          case (mMethod, mScheme, mAuthority, mPath) of
+              (Just "CONNECT", _, Just _, _)   -> return ()
+              (Just _, Just _, Just _, Just _) -> return ()
+              otherwise                        -> QUIC.resetStream strm H3MessageError
           -- fixme: Content-Length
           refI <- newIORef IInit
           refH <- newIORef Nothing
