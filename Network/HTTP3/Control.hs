@@ -54,7 +54,7 @@ controlStream conn ref recv = loop0
           else do
             (done, st1) <- readIORef ref >>= parse0 bs
             writeIORef ref st1
-            if done then loop0 else loop
+            if done then loop else loop0
     loop = do
         bs <- recv 1024
         if bs == "" then
