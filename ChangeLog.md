@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.4
+
+* Using "crypton" intead of "cryptonite".
+
 ## 0.0.3
 
 * Fixes for HTTP/3 CONNECT proxy
