@@ -48,8 +48,8 @@ data Context = Context {
   , ctxPReadMaker :: PositionReadMaker
   , ctxManager    :: T.Manager
   , ctxHooks      :: Hooks
-  , ctxMySockAddr   :: Maybe SockAddr
-  , ctxPeerSockAddr :: Maybe SockAddr
+  , ctxMySockAddr   :: SockAddr
+  , ctxPeerSockAddr :: SockAddr
   , ctxThreads    :: IORef [Weak ThreadId]
   }
 
@@ -66,7 +66,7 @@ newContext conn conf ctl = do
         hooks  = confHooks conf
         mysa = localSockAddr info
         peersa = remoteSockAddr info
-    Context conn enc dec sw preadM timmgr hooks (Just mysa) (Just peersa) <$> newIORef []
+    Context conn enc dec sw preadM timmgr hooks mysa peersa <$> newIORef []
   where
     abortWith aerr _se = abortConnection conn aerr ""
 
@@ -138,8 +138,8 @@ abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""
 getHooks :: Context -> Hooks
 getHooks = ctxHooks
 
-getMySockAddr :: Context -> Maybe SockAddr
+getMySockAddr :: Context -> SockAddr
 getMySockAddr = ctxMySockAddr
 
-getPeerSockAddr :: Context -> Maybe SockAddr
+getPeerSockAddr :: Context -> SockAddr
 getPeerSockAddr = ctxMySockAddr
