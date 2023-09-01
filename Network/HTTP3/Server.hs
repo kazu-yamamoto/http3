@@ -130,7 +130,7 @@ processRequest ctx server strm = E.handleAny reset $ do
           case (mMethod, mScheme, mAuthority, mPath) of
               (Just "CONNECT", _, Just _, _)   -> return ()
               (Just _, Just _, Just _, Just _) -> return ()
-              otherwise                        -> QUIC.resetStream strm H3MessageError
+              _                                -> QUIC.resetStream strm H3MessageError
           -- fixme: Content-Length
           refI <- newIORef IInit
           refH <- newIORef Nothing
