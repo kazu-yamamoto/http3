@@ -51,21 +51,23 @@ import Network.HTTP3.Recv (newSource, readSource)
 -- | Running an HQ server.
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = do
-    myaddr <- QUIC.localSockAddr <$> QUIC.getConnectionInfo conn
+    info <- QUIC.getConnectionInfo conn
+    let mysa = QUIC.localSockAddr info
+        peersa = QUIC.remoteSockAddr info
     forever $ do
         strm <- QUIC.acceptStream conn
-        forkFinally (processRequest conf myaddr server strm) (\_ -> QUIC.closeStream strm)
+        forkFinally (processRequest conf mysa peersa server strm) (\_ -> QUIC.closeStream strm)
 
-processRequest :: Config -> SockAddr -> Server -> Stream -> IO ()
-processRequest conf myaddr server strm
+processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO ()
+processRequest conf mysa peersa server strm
   | QUIC.isClientInitiatedBidirectional sid = do
         th <- T.register (confTimeoutManager conf) (return ())
-        vt <- recvHeader strm myaddr
+        vt <- recvHeader strm mysa
         src <- newSource strm
         refH <- newIORef Nothing
         let readB = readSource src
             req = Request $ InpObj vt Nothing readB refH
-            aux = Aux th
+            aux = Aux th mysa peersa
         server req aux $ sendResponse conf strm
   | otherwise = return () -- fixme: should consume the data?
   where

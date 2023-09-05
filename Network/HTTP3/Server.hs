@@ -136,7 +136,7 @@ processRequest ctx server strm = E.handleAny reset $ do
           refH <- newIORef Nothing
           let readB = recvBody ctx src refI refH
               req = Request $ InpObj ht Nothing readB refH
-          let aux = Aux th
+          let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
           server req aux $ sendResponse ctx strm th
   where
     reset se

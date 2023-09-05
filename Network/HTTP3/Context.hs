@@ -20,6 +20,8 @@ module Network.HTTP3.Context (
   , abort
   , getHooks
   , Hooks(..) -- re-export
+  , getMySockAddr
+  , getPeerSockAddr
   ) where
 
 import Control.Concurrent
@@ -28,6 +30,7 @@ import Data.IORef
 import Network.HTTP2.Internal (PositionReadMaker)
 import Network.QUIC
 import Network.QUIC.Internal (isServer, isClient, connDebugLog)
+import Network.Socket (SockAddr)
 import System.Mem.Weak
 import qualified System.TimeManager as T
 import qualified UnliftIO.Exception as E
@@ -45,6 +48,8 @@ data Context = Context {
   , ctxPReadMaker :: PositionReadMaker
   , ctxManager    :: T.Manager
   , ctxHooks      :: Hooks
+  , ctxMySockAddr   :: SockAddr
+  , ctxPeerSockAddr :: SockAddr
   , ctxThreads    :: IORef [Weak ThreadId]
   }
 
@@ -52,13 +57,16 @@ newContext :: Connection -> Config -> InstructionHandler -> IO Context
 newContext conn conf ctl = do
     (enc, handleDI) <- newQEncoder defaultQEncoderConfig
     (dec, handleEI) <- newQDecoder defaultQDecoderConfig
+    info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catchAny` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catchAny` abortWith QpackEncoderStreamError
         sw = switch conn ctl handleEI' handleDI'
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
         hooks  = confHooks conf
-    Context conn enc dec sw preadM timmgr hooks <$> newIORef []
+        mysa = localSockAddr info
+        peersa = remoteSockAddr info
+    Context conn enc dec sw preadM timmgr hooks mysa peersa <$> newIORef []
   where
     abortWith aerr _se = abortConnection conn aerr ""
 
@@ -129,3 +137,9 @@ abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""
 
 getHooks :: Context -> Hooks
 getHooks = ctxHooks
+
+getMySockAddr :: Context -> SockAddr
+getMySockAddr = ctxMySockAddr
+
+getPeerSockAddr :: Context -> SockAddr
+getPeerSockAddr = ctxMySockAddr
