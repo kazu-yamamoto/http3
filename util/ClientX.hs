@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE Strict #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE RankNTypes #-}
 
 module ClientX where
 
