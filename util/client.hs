@@ -154,14 +154,12 @@ main :: IO ()
 main = do
     args <- getArgs
     (opts@Options{..}, ips) <- clientOpts args
-    let ipslen = length ips
-    when (ipslen /= 2 && ipslen /= 3) $
-        showUsageAndExit "cannot recognize <addr> and <port>\n"
+    (addr,port,path) <- case ips of
+      [a,b]   -> return (a,b,"/")
+      [a,b,c] -> return (a,b,c)
+      _       -> showUsageAndExit "cannot recognize <addr> and <port>\n"
     cmvar <- newEmptyMVar
-    let path | ipslen == 3 = ips !! 2
-             | otherwise   = "/"
-        addr:port:_ = ips
-        ccalpn ver
+    let ccalpn ver
           | optPerformance /= 0 = return $ Just ["perf"]
           | otherwise = let (h3X, hqX) = makeProtos ver
                             protos | optHQ     = [hqX,h3X]

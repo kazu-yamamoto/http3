@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.QPACK.Table.Dynamic where

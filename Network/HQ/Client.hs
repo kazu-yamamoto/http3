@@ -28,6 +28,7 @@ module Network.HQ.Client (
 
 import qualified Data.ByteString as BS
 import Data.IORef
+import Data.Maybe (fromJust)
 import Network.HPACK
 import qualified Network.HTTP2.Client as H2
 import Network.HTTP2.Client.Internal (Request(..), Response(..))
@@ -47,7 +48,7 @@ run conn _ _ client = client $ sendRequest conn
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
 sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm -> do
     let hdr = H2.outObjHeaders outobj
-        Just path = lookup ":path" hdr
+        path = fromJust $ lookup ":path" hdr
         requestLine = BS.concat ["GET ", path, "\r\n"]
     QUIC.sendStream strm requestLine
     QUIC.shutdownStream strm
