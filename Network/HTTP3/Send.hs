@@ -12,7 +12,7 @@ import Data.IORef
 import Foreign.ForeignPtr
 import Network.HPACK (toHeaderTable)
 import qualified Network.HTTP.Types as HT
-import Network.HTTP2.Internal
+import Network.HTTP2.Internal hiding (timeoutClose)
 import Network.QUIC
 import qualified System.TimeManager as T
 
