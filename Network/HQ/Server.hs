@@ -113,6 +113,8 @@ sendResponse conf strm (Response outobj) _ = case H2.outObjBody outobj of
         let next = H2.fillBuilderBodyGetNext builder
         sendNext strm next
     H2.OutBodyStreaming strmbdy -> sendStreaming strm strmbdy
+    H2.OutBodyStreamingUnmask _ ->
+        error "sendResponse: server does not support OutBodyStreamingUnmask"
 
 sendNext :: Stream -> H2.DynaNext -> IO ()
 sendNext strm action = do
