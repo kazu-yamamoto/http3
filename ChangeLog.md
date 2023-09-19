@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.5
+
+* Supporting http2 v4.2.0.
+
 ## 0.0.4
 
 * Using "crypton" intead of "cryptonite".
