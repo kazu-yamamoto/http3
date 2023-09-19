@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Network.HTTP3.Send (
     sendHeader
@@ -15,6 +16,7 @@ import qualified Network.HTTP.Types as HT
 import Network.HTTP2.Internal hiding (timeoutClose)
 import Network.QUIC
 import qualified System.TimeManager as T
+import qualified UnliftIO.Exception as E
 
 import Imports
 import Network.HTTP3.Context
@@ -44,7 +46,8 @@ sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
         sendNext ctx strm th next tlrmkr
-    OutBodyStreaming strmbdy -> sendStreaming ctx strm th strmbdy tlrmkr
+    OutBodyStreaming strmbdy -> sendStreaming ctx strm th tlrmkr (\unmask push flush -> unmask $ strmbdy push flush)
+    OutBodyStreamingUnmask strmbdy -> sendStreaming ctx strm th tlrmkr strmbdy
   where
     tlrmkr = outObjTrailers outobj
 
@@ -84,10 +87,12 @@ newByteStringAndSend strm th tlrmkr0 action = do
         T.tickle th
         return (signal, tlrmkr1)
 
-sendStreaming :: Context -> Stream -> T.Handle -> ((Builder -> IO ()) -> IO () -> IO ()) -> TrailersMaker -> IO ()
-sendStreaming ctx strm th strmbdy tlrmkr0 = do
+sendStreaming :: Context -> Stream -> T.Handle -> TrailersMaker
+              -> ((forall x. IO x -> IO x) -> (Builder -> IO ()) -> IO () -> IO ())
+              -> IO ()
+sendStreaming ctx strm th tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
-    strmbdy (write ref) flush
+    E.mask $ \unmask -> strmbdy unmask (write ref) flush
     tlrmkr <- readIORef ref
     Trailers trailers <- tlrmkr Nothing
     unless (null trailers) $ sendHeader ctx strm th trailers
