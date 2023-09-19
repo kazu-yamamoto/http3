@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module HTTP3.Error (
     h3ErrorSpec
@@ -34,6 +35,7 @@ runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
       _                                       -> H3.run conn cconf conf client
   where
     us = ms * 1000
+    client :: H3.Client ()
     client sendRequest = do
         let req = H3.requestNoBody methodGet "/" []
         ret <- sendRequest req $ \_rsp -> return ()
