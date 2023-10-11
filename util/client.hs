@@ -17,13 +17,14 @@ import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import System.IO
+import System.Timeout (timeout)
 import Text.Printf
 
 import ClientX
 import Common
 import Network.QUIC
 import Network.QUIC.Client
-import Network.QUIC.Internal hiding (RTT0)
+import Network.QUIC.Internal hiding (RTT0, timeout)
 
 data Options = Options {
     optDebugLog    :: Bool
