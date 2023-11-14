@@ -2,9 +2,9 @@
 {-# LANGUAGE RankNTypes #-}
 
 module Network.HTTP3.Send (
-    sendHeader
-  , sendBody
-  ) where
+    sendHeader,
+    sendBody,
+) where
 
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
@@ -39,14 +39,20 @@ sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel') <- pReadMaker ctx path
         refresh <- case sentinel' of
-                     Closer closer       -> timeoutClose ctx closer
-                     Refresher refresher -> return refresher
+            Closer closer -> timeoutClose ctx closer
+            Refresher refresher -> return refresher
         let next = fillFileBodyGetNext pread fileoff bytecount refresh
         sendNext ctx strm th next tlrmkr
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
         sendNext ctx strm th next tlrmkr
-    OutBodyStreaming strmbdy -> sendStreaming ctx strm th tlrmkr (\unmask push flush -> unmask $ strmbdy push flush)
+    OutBodyStreaming strmbdy ->
+        sendStreaming
+            ctx
+            strm
+            th
+            tlrmkr
+            (\unmask push flush -> unmask $ strmbdy push flush)
     OutBodyStreamingUnmask strmbdy -> sendStreaming ctx strm th tlrmkr strmbdy
   where
     tlrmkr = outObjTrailers outobj
@@ -57,39 +63,48 @@ sendNext ctx strm th curr tlrmkr0 = do
     when (bs /= "") $ encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
     T.tickle th
     case mnext of
-      Nothing -> do
-          Trailers trailers <- tlrmkr Nothing
-          unless (null trailers) $ sendHeader ctx strm th trailers
-      Just next -> sendNext ctx strm th next tlrmkr
+        Nothing -> do
+            Trailers trailers <- tlrmkr Nothing
+            unless (null trailers) $ sendHeader ctx strm th trailers
+        Just next -> sendNext ctx strm th next tlrmkr
 
-newByteStringWith :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
+newByteStringWith
+    :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
 newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
-    if len == 0 then
-        return ("", Nothing, tlrmkr0)
-      else do
-        let bs = PS fp 0 len
-        NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
-        return (bs, mnext1, tlrmkr1)
+    if len == 0
+        then return ("", Nothing, tlrmkr0)
+        else do
+            let bs = PS fp 0 len
+            NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+            return (bs, mnext1, tlrmkr1)
 
-newByteStringAndSend :: Stream -> T.Handle -> TrailersMaker -> B.BufferWriter
-                     -> IO (B.Next, TrailersMaker)
+newByteStringAndSend
+    :: Stream
+    -> T.Handle
+    -> TrailersMaker
+    -> B.BufferWriter
+    -> IO (B.Next, TrailersMaker)
 newByteStringAndSend strm th tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     (len, signal) <- withForeignPtr fp $ \buf -> action buf 2048
-    if len == 0 then
-        return (signal, tlrmkr0)
-      else do
-        let bs = PS fp 0 len
-        NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
-        encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
-        T.tickle th
-        return (signal, tlrmkr1)
+    if len == 0
+        then return (signal, tlrmkr0)
+        else do
+            let bs = PS fp 0 len
+            NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+            encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+            T.tickle th
+            return (signal, tlrmkr1)
 
-sendStreaming :: Context -> Stream -> T.Handle -> TrailersMaker
-              -> ((forall x. IO x -> IO x) -> (Builder -> IO ()) -> IO () -> IO ())
-              -> IO ()
+sendStreaming
+    :: Context
+    -> Stream
+    -> T.Handle
+    -> TrailersMaker
+    -> ((forall x. IO x -> IO x) -> (Builder -> IO ()) -> IO () -> IO ())
+    -> IO ()
 sendStreaming ctx strm th tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
     E.mask $ \unmask -> strmbdy unmask (write ref) flush
@@ -103,8 +118,8 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
         tlrmkr2 <- newByteStringAndSend strm th tlrmkr1 (B.runBuilder builder) >>= loop
         writeIORef ref tlrmkr2
       where
-        loop (B.Done,           tlrmkr1) = return tlrmkr1
-        loop (B.More _ writer,  tlrmkr1) =
+        loop (B.Done, tlrmkr1) = return tlrmkr1
+        loop (B.More _ writer, tlrmkr1) =
             newByteStringAndSend strm th tlrmkr1 writer >>= loop
         loop (B.Chunk bs writer, tlrmkr1) = do
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm

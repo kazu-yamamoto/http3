@@ -1,14 +1,14 @@
 {-# LANGUAGE BinaryLiterals #-}
 
 module Network.QPACK.HeaderBlock.Prefix (
-  -- * Prefix
-    encodePrefix
-  , decodePrefix
-  , encodeRequiredInsertCount
-  , decodeRequiredInsertCount
-  , encodeBase
-  , decodeBase
-  ) where
+    -- * Prefix
+    encodePrefix,
+    decodePrefix,
+    encodeRequiredInsertCount,
+    decodeRequiredInsertCount,
+    encodeBase,
+    decodeBase,
+) where
 
 import Network.ByteOrder
 import Network.HPACK.Internal
@@ -27,7 +27,7 @@ import Network.QPACK.Types
 -- >>> encodeRequiredInsertCount 128 1000
 -- 233
 encodeRequiredInsertCount :: Int -> InsertionPoint -> Int
-encodeRequiredInsertCount _ 0                       = 0
+encodeRequiredInsertCount _ 0 = 0
 encodeRequiredInsertCount maxEntries (InsertionPoint reqInsertCount) =
     (reqInsertCount `mod` (2 * maxEntries)) + 1
 
@@ -40,10 +40,11 @@ encodeRequiredInsertCount maxEntries (InsertionPoint reqInsertCount) =
 decodeRequiredInsertCount :: Int -> InsertionPoint -> Int -> InsertionPoint
 decodeRequiredInsertCount _ _ 0 = 0
 decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encodedInsertCount
-  | encodedInsertCount > fullRange = E.impureThrow IllegalInsertCount
-  | reqInsertCount > maxValue && reqInsertCount <= fullRange = E.impureThrow IllegalInsertCount
-  | reqInsertCount > maxValue = InsertionPoint (reqInsertCount - fullRange)
-  | otherwise                 = InsertionPoint reqInsertCount
+    | encodedInsertCount > fullRange = E.impureThrow IllegalInsertCount
+    | reqInsertCount > maxValue && reqInsertCount <= fullRange =
+        E.impureThrow IllegalInsertCount
+    | reqInsertCount > maxValue = InsertionPoint (reqInsertCount - fullRange)
+    | otherwise = InsertionPoint reqInsertCount
   where
     fullRange = 2 * maxEntries
     maxValue = totalNumberOfInserts + maxEntries
@@ -59,8 +60,8 @@ decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encod
 -- (True,2)
 encodeBase :: InsertionPoint -> BasePoint -> (Bool, Int)
 encodeBase (InsertionPoint reqInsCnt) (BasePoint base)
-  | diff >= 0 = (False, diff)            -- base - reqInsCnt
-  | otherwise = (True,  negate diff - 1) -- reqInsCnt - base - 1
+    | diff >= 0 = (False, diff) -- base - reqInsCnt
+    | otherwise = (True, negate diff - 1) -- reqInsCnt - base - 1
   where
     diff = base - reqInsCnt
 
@@ -71,7 +72,7 @@ encodeBase (InsertionPoint reqInsCnt) (BasePoint base)
 -- BasePoint 6
 decodeBase :: InsertionPoint -> Bool -> Int -> BasePoint
 decodeBase (InsertionPoint reqInsCnt) False deltaBase = BasePoint (reqInsCnt + deltaBase)
-decodeBase (InsertionPoint reqInsCnt) True  deltaBase = BasePoint (reqInsCnt - deltaBase - 1)
+decodeBase (InsertionPoint reqInsCnt) True deltaBase = BasePoint (reqInsCnt - deltaBase - 1)
 
 ----------------------------------------------------------------
 
@@ -81,14 +82,15 @@ encodePrefix :: WriteBuffer -> DynamicTable -> IO ()
 encodePrefix wbuf dyntbl = do
     clearWriteBuffer wbuf
     maxEntries <- getMaxNumOfEntries dyntbl
-    baseIndex  <- getBasePoint dyntbl
-    reqInsCnt  <- getLargestReference dyntbl
+    baseIndex <- getBasePoint dyntbl
+    reqInsCnt <- getLargestReference dyntbl
     -- Required Insert Count
     let ric = encodeRequiredInsertCount maxEntries reqInsCnt
     encodeI wbuf set0 8 ric
     -- Sign bit + Delta Base (7+)
     let (s, base) = encodeBase reqInsCnt baseIndex
-        set | s         = set1
+        set
+            | s = set1
             | otherwise = set0
     encodeI wbuf set 7 base
 
@@ -105,5 +107,7 @@ decodePrefix rbuf dyntbl = do
         w8'' = w8' .&. 0b01111111
     delta <- decodeI 7 w8'' rbuf
     let baseIndex = decodeBase reqInsCnt s delta
-    qpackDebug dyntbl $ putStrLn $ "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
-    return (reqInsCnt,baseIndex)
+    qpackDebug dyntbl $
+        putStrLn $
+            "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
+    return (reqInsCnt, baseIndex)

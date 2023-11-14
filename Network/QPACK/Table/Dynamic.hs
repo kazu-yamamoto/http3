@@ -1,10 +1,10 @@
-{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module Network.QPACK.Table.Dynamic where
 
 import Control.Concurrent.STM
-import Data.Array.Base (unsafeWrite, unsafeRead)
+import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.MArray (newArray)
 import Data.IORef
 import Network.ByteOrder
@@ -15,22 +15,23 @@ import Imports
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
 
-data CodeInfo =
-    EncodeInfo RevIndex -- Reverse index
-               (IORef InsertionPoint)
-  | DecodeInfo HuffmanDecoder
+data CodeInfo
+    = EncodeInfo
+        RevIndex -- Reverse index
+        (IORef InsertionPoint)
+    | DecodeInfo HuffmanDecoder
 
 -- | Dynamic table for QPACK.
-data DynamicTable = DynamicTable {
-    codeInfo          :: CodeInfo
-  , droppingPoint     :: IORef AbsoluteIndex
-  , drainingPoint     :: IORef AbsoluteIndex
-  , insertionPoint    :: TVar InsertionPoint
-  , basePoint         :: IORef BasePoint
-  , maxNumOfEntries   :: TVar Int
-  , circularTable     :: TVar Table
-  , debugQPACK        :: IORef Bool
-  }
+data DynamicTable = DynamicTable
+    { codeInfo :: CodeInfo
+    , droppingPoint :: IORef AbsoluteIndex
+    , drainingPoint :: IORef AbsoluteIndex
+    , insertionPoint :: TVar InsertionPoint
+    , basePoint :: IORef BasePoint
+    , maxNumOfEntries :: TVar Int
+    , circularTable :: TVar Table
+    , debugQPACK :: IORef Bool
+    }
 
 type Table = TArray Index Entry
 
@@ -58,8 +59,10 @@ checkInsertionPoint DynamicTable{..} reqip = atomically $ do
 ----------------------------------------------------------------
 
 -- | Creating 'DynamicTable' for encoding.
-newDynamicTableForEncoding :: Size -- ^ The dynamic table size
-                           -> IO DynamicTable
+newDynamicTableForEncoding
+    :: Size
+    -- ^ The dynamic table size
+    -> IO DynamicTable
 newDynamicTableForEncoding maxsiz = do
     rev <- newRevIndex
     ref <- newIORef 0
@@ -67,42 +70,47 @@ newDynamicTableForEncoding maxsiz = do
     newDynamicTable maxsiz info
 
 -- | Creating 'DynamicTable' for decoding.
-newDynamicTableForDecoding :: Size -- ^ The dynamic table size
-                           -> Size -- ^ The size of temporary buffer for Huffman decoding
-                           -> IO DynamicTable
+newDynamicTableForDecoding
+    :: Size
+    -- ^ The dynamic table size
+    -> Size
+    -- ^ The size of temporary buffer for Huffman decoding
+    -> IO DynamicTable
 newDynamicTableForDecoding maxsiz huftmpsiz = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
-    tvar <- newTVarIO $ Just (gcbuf,huftmpsiz)
+    tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
     let decoder = decodeHLock tvar
         info = DecodeInfo decoder
     newDynamicTable maxsiz info
 
-decodeHLock :: TVar (Maybe (GCBuffer,Int)) -> ReadBuffer -> Int -> IO ByteString
-decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf,bufsiz) ->
-  withForeignPtr gcbuf $ \buf -> do
-    wbuf <- newWriteBuffer buf bufsiz
-    decH wbuf rbuf len
-    toByteString wbuf
+decodeHLock
+    :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
+decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
+    withForeignPtr gcbuf $ \buf -> do
+        wbuf <- newWriteBuffer buf bufsiz
+        decH wbuf rbuf len
+        toByteString wbuf
   where
     lock = atomically $ do
         mx <- readTVar tvar
         case mx of
-          Nothing -> retry
-          Just x   -> do
-              writeTVar tvar Nothing
-              return x
+            Nothing -> retry
+            Just x -> do
+                writeTVar tvar Nothing
+                return x
     unlock x = atomically $ writeTVar tvar $ Just x
 
 newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
 newDynamicTable maxsiz info = do
-    tbl <- atomically $ newArray (0,end) dummyEntry
-    DynamicTable info <$> newIORef 0       -- droppingPoint
-                      <*> newIORef 0       -- drainingPoint
-                      <*> newTVarIO 0      -- insertionPoint
-                      <*> newIORef 0       -- basePoint
-                      <*> newTVarIO maxN   -- maxNumOfEntries
-                      <*> newTVarIO tbl    -- maxDynamicTableSize
-                      <*> newIORef False   -- debugQPACK
+    tbl <- atomically $ newArray (0, end) dummyEntry
+    DynamicTable info
+        <$> newIORef 0 -- droppingPoint
+        <*> newIORef 0 -- drainingPoint
+        <*> newTVarIO 0 -- insertionPoint
+        <*> newIORef 0 -- basePoint
+        <*> newTVarIO maxN -- maxNumOfEntries
+        <*> newTVarIO tbl -- maxDynamicTableSize
+        <*> newIORef False -- debugQPACK
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -128,7 +136,7 @@ getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 ----------------------------------------------------------------
 
 {-# INLINE getRevIndex #-}
-getRevIndex :: DynamicTable-> RevIndex
+getRevIndex :: DynamicTable -> RevIndex
 getRevIndex DynamicTable{..} = rev
   where
     EncodeInfo rev _ = codeInfo

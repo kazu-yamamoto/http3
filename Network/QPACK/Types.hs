@@ -5,17 +5,19 @@ module Network.QPACK.Types where
 
 import Imports
 
-newtype AbsoluteIndex    = AbsoluteIndex    Int deriving (Eq, Ord, Show, Num)
+newtype AbsoluteIndex = AbsoluteIndex Int deriving (Eq, Ord, Show, Num)
 newtype InsRelativeIndex = InsRelativeIndex Int deriving (Eq, Ord, Show, Num)
-newtype HBRelativeIndex  = HBRelativeIndex  Int deriving (Eq, Ord, Show, Num)
-newtype PostBaseIndex    = PostBaseIndex    Int deriving (Eq, Ord, Show, Num)
-newtype InsertionPoint   = InsertionPoint   Int deriving (Eq, Ord, Show, Num)
-newtype BasePoint        = BasePoint        Int deriving (Eq, Ord, Show, Num)
+newtype HBRelativeIndex = HBRelativeIndex Int deriving (Eq, Ord, Show, Num)
+newtype PostBaseIndex = PostBaseIndex Int deriving (Eq, Ord, Show, Num)
+newtype InsertionPoint = InsertionPoint Int deriving (Eq, Ord, Show, Num)
+newtype BasePoint = BasePoint Int deriving (Eq, Ord, Show, Num)
 
-data HIndex = SIndex AbsoluteIndex
-            | DIndex AbsoluteIndex
-            deriving (Eq, Ord, Show)
+data HIndex
+    = SIndex AbsoluteIndex
+    | DIndex AbsoluteIndex
+    deriving (Eq, Ord, Show)
 
+{- FOURMOLU_DISABLE -}
 {-
     Dropping    Draining Index               Insertion Point
       |          |                                 |
@@ -39,6 +41,7 @@ data HIndex = SIndex AbsoluteIndex
                                            | 0 | 1 |          Post-Base
                                            bp = 98
 -}
+{- FOURMOLU_ENABLE -}
 
 -- |
 --
@@ -108,11 +111,21 @@ fromPostBaseIndex :: PostBaseIndex -> BasePoint -> AbsoluteIndex
 fromPostBaseIndex (PostBaseIndex pix) (BasePoint bp) =
     AbsoluteIndex (pix + bp)
 
-
 type Setter = Word8 -> Word8
 
-set1, set01, set10, set11, set001, set0001, set0100, set0101, set0010, set00001:: Setter
+set1
+    , set01
+    , set10
+    , set11
+    , set001
+    , set0001
+    , set0100
+    , set0101
+    , set0010
+    , set00001
+        :: Setter
 
+{- FOURMOLU_DISABLE -}
 set1     = (`setBit` 7)
 set01    = (`setBit` 6)
 set10    = (`setBit` 7)
@@ -130,3 +143,4 @@ set0    = id
 set00   = id
 set000  = id
 set0000 = id
+{- FOURMOLU_ENABLE -}

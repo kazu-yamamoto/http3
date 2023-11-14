@@ -3,36 +3,41 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- | A client library for HTTP/0.9.
-
 module Network.HQ.Client (
-  -- * Runner
-    run
-  -- * Runner arguments
-  , H3.ClientConfig(..)
-  , H3.Config(..)
-  , H3.allocSimpleConfig
-  , H3.freeSimpleConfig
-  , H3.Scheme
-  , H3.Authority
-  -- * HQ client
-  , H2.Client
-  -- * Request
-  , Request
-  -- * Creating request
-  , H2.requestNoBody
-  -- * Response
-  , Response
-  -- ** Accessing response
-  , H2.getResponseBodyChunk
-  ) where
+    -- * Runner
+    run,
+
+    -- * Runner arguments
+    H3.ClientConfig (..),
+    H3.Config (..),
+    H3.allocSimpleConfig,
+    H3.freeSimpleConfig,
+    H3.Scheme,
+    H3.Authority,
+
+    -- * HQ client
+    H2.Client,
+
+    -- * Request
+    Request,
+
+    -- * Creating request
+    H2.requestNoBody,
+
+    -- * Response
+    Response,
+
+    -- ** Accessing response
+    H2.getResponseBodyChunk,
+) where
 
 import qualified Data.ByteString as BS
 import Data.IORef
 import Data.Maybe (fromJust)
 import Network.HPACK
 import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Request(..), Response(..))
-import Network.HTTP2.Internal (InpObj(..))
+import Network.HTTP2.Client.Internal (Request (..), Response (..))
+import Network.HTTP2.Internal (InpObj (..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC

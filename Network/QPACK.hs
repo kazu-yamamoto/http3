@@ -3,48 +3,60 @@
 
 -- | Thread-safe QPACK encoder/decoder.
 module Network.QPACK (
-  -- * Encoder
-    QEncoderConfig(..)
-  , defaultQEncoderConfig
-  , QEncoder
-  , newQEncoder
-  -- * Decoder
-  , QDecoderConfig(..)
-  , defaultQDecoderConfig
-  , QDecoder
-  , newQDecoder
-  -- ** Decoder for debugging
-  , QDecoderS
-  , newQDecoderS
-  -- * Types
-  , EncodedEncoderInstruction
-  , EncoderInstructionHandler
-  , EncoderInstructionHandlerS
-  , EncodedDecoderInstruction
-  , DecoderInstructionHandler
-  , InstructionHandler
-  , Size
-  -- * Strategy
-  , EncodeStrategy(..)
-  , CompressionAlgo(..)
-  -- * Re-exports
-  , HeaderTable
-  , TokenHeaderList
-  , ValueTable
-  , Header
-  , HeaderList
-  , getHeaderValue
-  , toHeaderTable
-  , original
-  , foldedCase
-  , mk
-  ) where
+    -- * Encoder
+    QEncoderConfig (..),
+    defaultQEncoderConfig,
+    QEncoder,
+    newQEncoder,
+
+    -- * Decoder
+    QDecoderConfig (..),
+    defaultQDecoderConfig,
+    QDecoder,
+    newQDecoder,
+
+    -- ** Decoder for debugging
+    QDecoderS,
+    newQDecoderS,
+
+    -- * Types
+    EncodedEncoderInstruction,
+    EncoderInstructionHandler,
+    EncoderInstructionHandlerS,
+    EncodedDecoderInstruction,
+    DecoderInstructionHandler,
+    InstructionHandler,
+    Size,
+
+    -- * Strategy
+    EncodeStrategy (..),
+    CompressionAlgo (..),
+
+    -- * Re-exports
+    HeaderTable,
+    TokenHeaderList,
+    ValueTable,
+    Header,
+    HeaderList,
+    getHeaderValue,
+    toHeaderTable,
+    original,
+    foldedCase,
+    mk,
+) where
 
 import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Network.ByteOrder
-import Network.HPACK (HeaderTable, TokenHeaderList, HeaderList, ValueTable, getHeaderValue, toHeaderTable)
+import Network.HPACK (
+    HeaderList,
+    HeaderTable,
+    TokenHeaderList,
+    ValueTable,
+    getHeaderValue,
+    toHeaderTable,
+ )
 import Network.HPACK.Internal
 import Network.QUIC.Internal (stdoutLogger)
 import qualified UnliftIO.Exception as E
@@ -59,13 +71,14 @@ import Network.QPACK.Types
 ----------------------------------------------------------------
 
 -- | QPACK encoder.
-type QEncoder = TokenHeaderList -> IO (EncodedFieldSection, EncodedEncoderInstruction)
+type QEncoder =
+    TokenHeaderList -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 
 -- | QPACK decoder.
 type QDecoder = EncodedFieldSection -> IO HeaderTable
 
 -- | QPACK simple decoder.
-type QDecoderS =EncodedFieldSection -> IO HeaderList
+type QDecoderS = EncodedFieldSection -> IO HeaderList
 
 -- | Encoder instruction handler.
 type EncoderInstructionHandler = (Int -> IO EncodedEncoderInstruction) -> IO ()
@@ -85,26 +98,28 @@ type InstructionHandler = (Int -> IO ByteString) -> IO ()
 ----------------------------------------------------------------
 
 -- | Configuration for QPACK encoder.
-data QEncoderConfig = QEncoderConfig {
-    ecDynamicTableSize      :: Size
-  , ecHeaderBlockBufferSize :: Size
-  , ecPrefixBufferSize      :: Size
-  , ecInstructionBufferSize :: Size
-  , encStrategy             :: EncodeStrategy
-  } deriving Show
+data QEncoderConfig = QEncoderConfig
+    { ecDynamicTableSize :: Size
+    , ecHeaderBlockBufferSize :: Size
+    , ecPrefixBufferSize :: Size
+    , ecInstructionBufferSize :: Size
+    , encStrategy :: EncodeStrategy
+    }
+    deriving (Show)
 
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
 -- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecPrefixBufferSize = 128, ecInstructionBufferSize = 4096, encStrategy = EncodeStrategy {compressionAlgo = Static, useHuffman = True}}
 defaultQEncoderConfig :: QEncoderConfig
-defaultQEncoderConfig = QEncoderConfig {
-    ecDynamicTableSize      = 4096
-  , ecHeaderBlockBufferSize = 4096
-  , ecPrefixBufferSize      =  128
-  , ecInstructionBufferSize = 4096
-  , encStrategy             = EncodeStrategy Static True
-  }
+defaultQEncoderConfig =
+    QEncoderConfig
+        { ecDynamicTableSize = 4096
+        , ecHeaderBlockBufferSize = 4096
+        , ecPrefixBufferSize = 128
+        , ecInstructionBufferSize = 4096
+        , encStrategy = EncodeStrategy Static True
+        }
 
 -- | Creating a new QPACK encoder.
 newQEncoder :: QEncoderConfig -> IO (QEncoder, DecoderInstructionHandler)
@@ -120,37 +135,42 @@ newQEncoder QEncoderConfig{..} = do
         handler = decoderInstructionHandler dyntbl
     return (enc, handler)
 
-qpackEncoder :: EncodeStrategy
-             -> GCBuffer -> Int
-             -> GCBuffer -> Int
-             -> GCBuffer -> Int
-             -> DynamicTable
-             -> TokenHeaderList
-             -> IO (EncodedFieldSection,EncodedEncoderInstruction)
+qpackEncoder
+    :: EncodeStrategy
+    -> GCBuffer
+    -> Int
+    -> GCBuffer
+    -> Int
+    -> GCBuffer
+    -> Int
+    -> DynamicTable
+    -> TokenHeaderList
+    -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl ts =
     withForeignPtr gcbuf1 $ \buf1 ->
-    withForeignPtr gcbuf2 $ \buf2 ->
-    withForeignPtr gcbuf3 $ \buf3 -> do
-      wbuf1 <- newWriteBuffer buf1 bufsiz1
-      wbuf2 <- newWriteBuffer buf2 bufsiz2
-      wbuf3 <- newWriteBuffer buf3 bufsiz3
-      thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
-      when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
-      hb0 <- toByteString wbuf1
-      ins <- toByteString wbuf3
-      encodePrefix wbuf2 dyntbl
-      prefix <- toByteString wbuf2
-      let hb = prefix `B.append` hb0
-      return (hb, ins)
+        withForeignPtr gcbuf2 $ \buf2 ->
+            withForeignPtr gcbuf3 $ \buf3 -> do
+                wbuf1 <- newWriteBuffer buf1 bufsiz1
+                wbuf2 <- newWriteBuffer buf2 bufsiz2
+                wbuf3 <- newWriteBuffer buf3 bufsiz3
+                thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+                when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
+                hb0 <- toByteString wbuf1
+                ins <- toByteString wbuf3
+                encodePrefix wbuf2 dyntbl
+                prefix <- toByteString wbuf2
+                let hb = prefix `B.append` hb0
+                return (hb, ins)
 
-decoderInstructionHandler :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
+decoderInstructionHandler
+    :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
 decoderInstructionHandler dyntbl recv = loop
   where
     loop = do
         _ <- getInsertionPoint dyntbl -- fixme
         bs <- recv 1024
         when (bs /= "") $ do
-            (ins,leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
+            (ins, leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
             when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
             qpackDebug dyntbl $ mapM_ print ins
             mapM_ handle ins
@@ -158,26 +178,28 @@ decoderInstructionHandler dyntbl recv = loop
     handle (SectionAcknowledgement _n) = return ()
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
-      | n == 0    = E.throwIO DecoderInstructionError
-      | otherwise = return ()
+        | n == 0 = E.throwIO DecoderInstructionError
+        | otherwise = return ()
 
 ----------------------------------------------------------------
 
 -- | Configuration for QPACK decoder.
-data QDecoderConfig = QDecoderConfig {
-    dcDynamicTableSize      :: Size
-  , dcHuffmanBufferSize     :: Size
-  } deriving Show
+data QDecoderConfig = QDecoderConfig
+    { dcDynamicTableSize :: Size
+    , dcHuffmanBufferSize :: Size
+    }
+    deriving (Show)
 
 -- | Default configuration for QPACK decoder.
 --
 -- >>> defaultQDecoderConfig
 -- QDecoderConfig {dcDynamicTableSize = 4096, dcHuffmanBufferSize = 4096}
 defaultQDecoderConfig :: QDecoderConfig
-defaultQDecoderConfig = QDecoderConfig {
-    dcDynamicTableSize      = 4096
-  , dcHuffmanBufferSize     = 4096
-  }
+defaultQDecoderConfig =
+    QDecoderConfig
+        { dcDynamicTableSize = 4096
+        , dcHuffmanBufferSize = 4096
+        }
 
 -- | Creating a new QPACK decoder.
 newQDecoder :: QDecoderConfig -> IO (QDecoder, EncoderInstructionHandler)
@@ -188,7 +210,8 @@ newQDecoder QDecoderConfig{..} = do
     return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
-newQDecoderS :: QDecoderConfig -> Bool -> IO (QDecoderS, EncoderInstructionHandlerS)
+newQDecoderS
+    :: QDecoderConfig -> Bool -> IO (QDecoderS, EncoderInstructionHandlerS)
 newQDecoderS QDecoderConfig{..} debug = do
     dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
     when debug $ setDebugQPACK dyntbl
@@ -202,7 +225,8 @@ qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl r
 qpackDecoderS :: DynamicTable -> EncodedFieldSection -> IO HeaderList
 qpackDecoderS dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
 
-encoderInstructionHandler :: DynamicTable -> (Int -> IO EncodedEncoderInstruction) -> IO ()
+encoderInstructionHandler
+    :: DynamicTable -> (Int -> IO EncodedEncoderInstruction) -> IO ()
 encoderInstructionHandler dyntbl recv = loop
   where
     loop = do
@@ -213,7 +237,7 @@ encoderInstructionHandler dyntbl recv = loop
 
 encoderInstructionHandlerS :: DynamicTable -> EncodedEncoderInstruction -> IO ()
 encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
-    (ins,leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
+    (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
     qpackDebug dyntbl $ mapM_ print ins
@@ -221,14 +245,14 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
   where
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n)
-      | n > 4096  = E.throwIO EncoderInstructionError
-      | otherwise = return ()
+        | n > 4096 = E.throwIO EncoderInstructionError
+        | otherwise = return ()
     handle (InsertWithNameReference ii val) = atomically $ do
         idx <- case ii of
-                 Left  ai -> return $ SIndex ai
-                 Right ri -> do
-                     ip <- getInsertionPointSTM dyntbl
-                     return $ DIndex $ fromInsRelativeIndex ri ip
+            Left ai -> return $ SIndex ai
+            Right ri -> do
+                ip <- getInsertionPointSTM dyntbl
+                return $ DIndex $ fromInsRelativeIndex ri ip
         ent0 <- toIndexedEntry dyntbl idx
         let ent = toEntryToken (entryToken ent0) val
         insertEntryToDecoder ent dyntbl

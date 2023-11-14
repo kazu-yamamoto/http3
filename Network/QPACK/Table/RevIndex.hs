@@ -2,15 +2,15 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Network.QPACK.Table.RevIndex (
-    RevResult(..)
-  , RevIndex
-  , newRevIndex
-  , renewRevIndex
-  , lookupRevIndex
-  , lookupRevIndex'
-  , insertRevIndex
-  , deleteRevIndexList
-  ) where
+    RevResult (..),
+    RevIndex,
+    newRevIndex,
+    renewRevIndex,
+    lookupRevIndex,
+    lookupRevIndex',
+    insertRevIndex,
+    deleteRevIndexList,
+) where
 
 import Data.Array (Array)
 import qualified Data.Array as A
@@ -43,66 +43,76 @@ data KeyValue = KeyValue HeaderName HeaderValue deriving (Eq, Ord)
 -- in Linear{H}.
 type OtherRevIdex = IORef (Map KeyValue HIndex)
 
-{-# SPECIALIZE INLINE M.lookup :: KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex #-}
-{-# SPECIALIZE INLINE M.delete :: KeyValue -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex #-}
-{-# SPECIALIZE INLINE M.insert :: KeyValue -> HIndex -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex #-}
+{-# SPECIALIZE INLINE M.lookup ::
+    KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
+    #-}
+{-# SPECIALIZE INLINE M.delete ::
+    KeyValue -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex
+    #-}
+{-# SPECIALIZE INLINE M.insert ::
+    KeyValue -> HIndex -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex
+    #-}
 
 ----------------------------------------------------------------
 
 type StaticRevIndex = Array Int StaticEntry
 
-data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving Show
+data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving (Show)
 
 type ValueMap = Map HeaderValue HIndex
 
 ----------------------------------------------------------------
 
 staticRevIndex :: StaticRevIndex
-staticRevIndex = A.array (minTokenIx,51) $ map toEnt zs
+staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
   where
     toEnt (k, xs) = (quicIx $ tokenIx $ toToken k, m)
       where
         m = case xs of
-            []  -> error "staticRevIndex"
-            [("",i)] -> StaticEntry i Nothing
-            (_,i):_  -> StaticEntry i $ Just $ M.fromList xs
+            [] -> error "staticRevIndex"
+            [("", i)] -> StaticEntry i Nothing
+            (_, i) : _ -> StaticEntry i $ Just $ M.fromList xs
     zs = map extract $ groupBy ((==) `on` fst) $ sort lst
       where
-        lst = zipWith (\(k,v) i -> (k,(v,i))) staticTableList $ map (SIndex . AbsoluteIndex) [0..]
+        lst =
+            zipWith (\(k, v) i -> (k, (v, i))) staticTableList $
+                map (SIndex . AbsoluteIndex) [0 ..]
         extract xs = (fst (head xs), map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
 lookupStaticRevIndex :: Int -> HeaderValue -> RevResult
 lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
-    StaticEntry i Nothing  -> K i
+    StaticEntry i Nothing -> K i
     StaticEntry i (Just m) -> case M.lookup v m of
-            Nothing -> K i
-            Just j  -> KV j
+        Nothing -> K i
+        Just j -> KV j
 
 ----------------------------------------------------------------
 
 newDynamicRevIndex :: IO DynamicRevIndex
-newDynamicRevIndex = A.listArray (minTokenIx,maxStaticTokenIx) <$> mapM mk lst
+newDynamicRevIndex = A.listArray (minTokenIx, maxStaticTokenIx) <$> mapM mk lst
   where
     mk _ = newIORef M.empty
-    lst = [minTokenIx..maxStaticTokenIx]
+    lst = [minTokenIx .. maxStaticTokenIx]
 
 renewDynamicRevIndex :: DynamicRevIndex -> IO ()
-renewDynamicRevIndex drev = mapM_ clear [minTokenIx..maxStaticTokenIx]
+renewDynamicRevIndex drev = mapM_ clear [minTokenIx .. maxStaticTokenIx]
   where
     clear t = writeIORef (drev `unsafeAt` t) M.empty
 
 {-# INLINE lookupDynamicStaticRevIndex #-}
-lookupDynamicStaticRevIndex :: Int -> HeaderValue -> DynamicRevIndex -> IO RevResult
+lookupDynamicStaticRevIndex
+    :: Int -> HeaderValue -> DynamicRevIndex -> IO RevResult
 lookupDynamicStaticRevIndex ix v drev = do
     let ref = drev `unsafeAt` ix
     m <- readIORef ref
     case M.lookup v m of
-        Just i  -> return $ KV i
+        Just i -> return $ KV i
         Nothing -> return $ lookupStaticRevIndex ix v
 
 {-# INLINE insertDynamicRevIndex #-}
-insertDynamicRevIndex :: Token -> HeaderValue -> HIndex -> DynamicRevIndex -> IO ()
+insertDynamicRevIndex
+    :: Token -> HeaderValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
     ref = drev `unsafeAt` tokenIx t
@@ -123,11 +133,11 @@ renewOtherRevIndex ref = writeIORef ref M.empty
 
 {-# INLINE lookupOtherRevIndex #-}
 lookupOtherRevIndex :: Header -> OtherRevIdex -> IO RevResult
-lookupOtherRevIndex (k,v) ref = do
-      oth <- readIORef ref
-      case M.lookup (KeyValue k v) oth of
+lookupOtherRevIndex (k, v) ref = do
+    oth <- readIORef ref
+    case M.lookup (KeyValue k v) oth of
         Nothing -> return N
-        Just  i -> return $ KV i
+        Just i -> return $ KV i
 
 {-# INLINE insertOtherRevIndex #-}
 insertOtherRevIndex :: Token -> HeaderValue -> HIndex -> OtherRevIdex -> IO ()
@@ -152,29 +162,33 @@ renewRevIndex (RevIndex dyn oth) = do
     renewOtherRevIndex oth
 
 {-# INLINE lookupRevIndex #-}
-lookupRevIndex :: Token
-               -> HeaderValue
-               -> RevIndex
-               -> IO RevResult
+lookupRevIndex
+    :: Token
+    -> HeaderValue
+    -> RevIndex
+    -> IO RevResult
 lookupRevIndex t@Token{..} v (RevIndex dyn oth)
-  | ix < 0          = lookupOtherRevIndex (k,v) oth
-  | shouldBeIndexed = lookupDynamicStaticRevIndex ix v dyn
-  -- path: is not indexed but ":path /" should be used, sigh.
-  | otherwise       = return $ lookupStaticRevIndex ix v
+    | ix < 0 = lookupOtherRevIndex (k, v) oth
+    | shouldBeIndexed = lookupDynamicStaticRevIndex ix v dyn
+    -- path: is not indexed but ":path /" should be used, sigh.
+    | otherwise = return $ lookupStaticRevIndex ix v
   where
     ix = quicIx tokenIx
     k = tokenFoldedKey t
+
 --    ent = toEntryToken t v -- fixme
 
 {-# INLINE lookupRevIndex' #-}
-lookupRevIndex' :: Token
-                -> HeaderValue
-                -> RevResult
+lookupRevIndex'
+    :: Token
+    -> HeaderValue
+    -> RevResult
 lookupRevIndex' Token{..} v
-  | ix >= 0   = lookupStaticRevIndex ix v
-  | otherwise = N -- fixme
+    | ix >= 0 = lookupStaticRevIndex ix v
+    | otherwise = N -- fixme
   where
     ix = quicIx tokenIx
+
 --    k = tokenFoldedKey t -- fixme
 
 ----------------------------------------------------------------
@@ -182,14 +196,14 @@ lookupRevIndex' Token{..} v
 {-# INLINE insertRevIndex #-}
 insertRevIndex :: Entry -> HIndex -> RevIndex -> IO ()
 insertRevIndex (Entry _ t v) i (RevIndex dyn oth)
-  | quicIx (tokenIx t) >= 0 = insertDynamicRevIndex t v i dyn
-  | otherwise               = insertOtherRevIndex   t v i oth
+    | quicIx (tokenIx t) >= 0 = insertDynamicRevIndex t v i dyn
+    | otherwise = insertOtherRevIndex t v i oth
 
 {-# INLINE deleteRevIndex #-}
 deleteRevIndex :: RevIndex -> Entry -> IO ()
 deleteRevIndex (RevIndex dyn oth) (Entry _ t v)
-  | quicIx (tokenIx t) >= 0 = deleteDynamicRevIndex t v dyn
-  | otherwise               = deleteOtherRevIndex   t v oth
+    | quicIx (tokenIx t) >= 0 = deleteDynamicRevIndex t v dyn
+    | otherwise = deleteOtherRevIndex t v oth
 
 {-# INLINE deleteRevIndexList #-}
 deleteRevIndexList :: [Entry] -> RevIndex -> IO ()

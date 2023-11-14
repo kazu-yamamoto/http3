@@ -6,30 +6,31 @@ import Network.QUIC (Stream)
 import qualified System.TimeManager as T
 
 -- | Hooks mainly for error testing.
-data Hooks = Hooks {
-    onControlFrameCreated :: [H3Frame] -> [H3Frame]
-  , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
-  , onControlStreamCreated :: Stream -> IO ()
-  , onEncoderStreamCreated :: Stream -> IO ()
-  , onDecoderStreamCreated :: Stream -> IO ()
-  }
+data Hooks = Hooks
+    { onControlFrameCreated :: [H3Frame] -> [H3Frame]
+    , onHeadersFrameCreated :: [H3Frame] -> [H3Frame]
+    , onControlStreamCreated :: Stream -> IO ()
+    , onEncoderStreamCreated :: Stream -> IO ()
+    , onDecoderStreamCreated :: Stream -> IO ()
+    }
 
 -- | Default hooks.
 defaultHooks :: Hooks
-defaultHooks = Hooks {
-    onControlFrameCreated = id
-  , onHeadersFrameCreated = id
-  , onControlStreamCreated = \_ -> return ()
-  , onEncoderStreamCreated = \_ -> return ()
-  , onDecoderStreamCreated = \_ -> return ()
-  }
+defaultHooks =
+    Hooks
+        { onControlFrameCreated = id
+        , onHeadersFrameCreated = id
+        , onControlStreamCreated = \_ -> return ()
+        , onEncoderStreamCreated = \_ -> return ()
+        , onDecoderStreamCreated = \_ -> return ()
+        }
 
 -- | Configuration for HTTP\/3 or HQ.
-data Config = Config {
-    confHooks :: Hooks
-  , confPositionReadMaker :: PositionReadMaker
-  , confTimeoutManager :: T.Manager
-  }
+data Config = Config
+    { confHooks :: Hooks
+    , confPositionReadMaker :: PositionReadMaker
+    , confTimeoutManager :: T.Manager
+    }
 
 -- | Allocating a simple configuration with a handle-based position
 --   reader and a locally allocated timeout manager.

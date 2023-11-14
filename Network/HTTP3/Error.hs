@@ -1,28 +1,30 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Network.HTTP3.Error (
-    ApplicationProtocolError(H3NoError
-                            ,H3GeneralProtocolError
-                            ,H3InternalError
-                            ,H3StreamCreationError
-                            ,H3ClosedCriticalStream
-                            ,H3FrameUnexpected
-                            ,H3FrameError
-                            ,H3ExcessiveLoad
-                            ,H3IdError
-                            ,H3SettingsError
-                            ,H3MissingSettings
-                            ,H3RequestRejected
-                            ,H3RequestCancelled
-                            ,H3RequestIncomplete
-                            ,H3MessageError
-                            ,H3ConnectError
-                            ,H3VersionFallback
-                            )
-  ) where
+    ApplicationProtocolError (
+        H3NoError,
+        H3GeneralProtocolError,
+        H3InternalError,
+        H3StreamCreationError,
+        H3ClosedCriticalStream,
+        H3FrameUnexpected,
+        H3FrameError,
+        H3ExcessiveLoad,
+        H3IdError,
+        H3SettingsError,
+        H3MissingSettings,
+        H3RequestRejected,
+        H3RequestCancelled,
+        H3RequestIncomplete,
+        H3MessageError,
+        H3ConnectError,
+        H3VersionFallback
+    ),
+) where
 
 import Network.QUIC
 
+{- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError
 pattern H3NoError                 = ApplicationProtocolError 0x100
 
@@ -73,3 +75,4 @@ pattern H3ConnectError            = ApplicationProtocolError 0x10f
 
 pattern H3VersionFallback        :: ApplicationProtocolError
 pattern H3VersionFallback         = ApplicationProtocolError 0x110
+{- FOURMOLU_ENABLE -}
