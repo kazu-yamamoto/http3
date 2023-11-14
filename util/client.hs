@@ -18,14 +18,14 @@ import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import System.IO
-import System.Timeout (timeout)
 import Text.Printf
+import qualified UnliftIO.Timeout as T
 
 import ClientX
 import Common
 import Network.QUIC
 import Network.QUIC.Client
-import Network.QUIC.Internal hiding (RTT0, timeout)
+import Network.QUIC.Internal hiding (RTT0)
 
 data Options = Options
     { optDebugLog :: Bool
@@ -200,12 +200,16 @@ main :: IO ()
 main = do
     args <- getArgs
     (opts@Options{..}, ips) <- clientOpts args
-    (addr, port, path) <- case ips of
-        [a, b] -> return (a, b, "/")
-        [a, b, c] -> return (a, b, c)
-        _ -> showUsageAndExit "cannot recognize <addr> and <port>\n"
+    let ipslen = length ips
+    when (ipslen /= 2 && ipslen /= 3) $
+        showUsageAndExit "cannot recognize <addr> and <port>\n"
     cmvar <- newEmptyMVar
-    let ccalpn ver
+    let path
+            | ipslen == 3 = ips !! 2
+            | otherwise = "/"
+        addr = head ips
+        port = head $ tail ips
+        ccalpn ver
             | optPerformance /= 0 = return $ Just ["perf"]
             | otherwise =
                 let (h3X, hqX) = makeProtos ver
@@ -254,7 +258,7 @@ main = do
                 , auxDebug = debug
                 , auxShow = showContent
                 , auxCheckClose = do
-                    mx <- timeout 1000000 $ takeMVar cmvar
+                    mx <- T.timeout 1000000 $ takeMVar cmvar
                     case mx of
                         Nothing -> return False
                         _ -> return True
@@ -267,8 +271,8 @@ runClient cc opts@Options{..} aux@Aux{..} = do
     (info1, info2, res, mig, client') <- run cc $ \conn -> do
         i1 <- getConnectionInfo conn
         let client = case alpn i1 of
-                Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ optNumOfReqs
-                _ -> clientH3 optNumOfReqs
+                 Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ optNumOfReqs
+                 _ -> clientH3 optNumOfReqs
         m <- case optMigration of
             Nothing -> return False
             Just mtyp -> do
