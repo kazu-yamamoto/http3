@@ -52,7 +52,7 @@ clientX n0 run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig
                 consume rsp
                 auxShow "------------------------"
             when (n /= 1) $ do
-                threadDelay 1000000
+                threadDelay 100000
                 loop (n - 1)
     consume rsp = do
         bs <- H3.getResponseBodyChunk rsp
