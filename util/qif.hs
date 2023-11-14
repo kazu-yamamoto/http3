@@ -9,7 +9,7 @@ import Control.Concurrent.STM
 import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
-import Data.ByteString (ByteString, ByteString)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
@@ -19,7 +19,7 @@ import qualified UnliftIO.Exception as E
 
 import Network.QPACK
 
-data Block = Block Int ByteString deriving Show
+data Block = Block Int ByteString deriving (Show)
 
 ----------------------------------------------------------------
 
@@ -27,26 +27,32 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-      [size,efile]       -> dump (read size) efile
-      [size,efile,qfile] -> test (read size) efile qfile
-      _ -> putStrLn "qif size <encode-file> [<qif-file>]"
+        [size, efile] -> dump (read size) efile
+        [size, efile, qfile] -> test (read size) efile qfile
+        _ -> putStrLn "qif size <encode-file> [<qif-file>]"
 
 ----------------------------------------------------------------
 
 dump :: Int -> FilePath -> IO ()
 dump size efile = do
-    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } True
-    runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . dumpSwitch dec insthdr))
+    (dec, insthdr) <-
+        newQDecoderS defaultQDecoderConfig{dcDynamicTableSize = size} True
+    runConduitRes
+        ( sourceFile efile
+            .| conduitParser block
+            .| mapM_C (liftIO . dumpSwitch dec insthdr)
+        )
 
-dumpSwitch :: (ByteString -> IO HeaderList)
-       -> EncoderInstructionHandlerS
-       -> (a, Block)
-       -> IO ()
+dumpSwitch
+    :: (ByteString -> IO HeaderList)
+    -> EncoderInstructionHandlerS
+    -> (a, Block)
+    -> IO ()
 dumpSwitch dec insthdr (_, Block n bs)
-  | n == 0    = do
+    | n == 0 = do
         putStrLn "---- Stream 0"
         insthdr bs
-  | otherwise = do
+    | otherwise = do
         putStrLn $ "---- Stream " ++ show n
         _ <- dec bs
         return ()
@@ -55,9 +61,10 @@ dumpSwitch dec insthdr (_, Block n bs)
 
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
-    (dec, insthdr') <- newQDecoderS defaultQDecoderConfig { dcDynamicTableSize = size } False
+    (dec, insthdr') <-
+        newQDecoderS defaultQDecoderConfig{dcDynamicTableSize = size} False
     q <- newTQueueIO
-    let recv   = atomically $ readTQueue q
+    let recv = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x
         insthdr bs = do
             emp <- atomically $ isEmptyTQueue q
@@ -67,40 +74,45 @@ test size efile qfile = do
     mvar <- newEmptyMVar
     withFile qfile ReadMode $ \h -> do
         tid <- forkIO $ decode dec h recv mvar
-        runConduitRes (sourceFile efile .| conduitParser block .| mapM_C (liftIO . testSwitch send insthdr))
+        runConduitRes
+            ( sourceFile efile
+                .| conduitParser block
+                .| mapM_C (liftIO . testSwitch send insthdr)
+            )
         takeMVar mvar
         killThread tid
 
-testSwitch :: (Block -> IO ())
-           -> EncoderInstructionHandlerS
-           -> (a, Block)
-           -> IO ()
+testSwitch
+    :: (Block -> IO ())
+    -> EncoderInstructionHandlerS
+    -> (a, Block)
+    -> IO ()
 testSwitch send insthdr (_, blk@(Block n bs))
-  | n == 0    = insthdr bs
-  | otherwise = send blk
+    | n == 0 = insthdr bs
+    | otherwise = send blk
 
 decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
 decode dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        if hdr' == [] then
-            putMVar mvar ()
-          else do
-            Block n bs <- recv
-            hdr <- dec bs
-            if hdr == hdr' then
-                loop
-              else do
-                putStrLn $ "---- Stream " ++ show n
-                mapM_ print hdr
-                putStrLn "----"
-                mapM_ print hdr'
-                putStrLn "----"
-                putMVar mvar ()
+        if hdr' == []
+            then putMVar mvar ()
+            else do
+                Block n bs <- recv
+                hdr <- dec bs
+                if hdr == hdr'
+                    then loop
+                    else do
+                        putStrLn $ "---- Stream " ++ show n
+                        mapM_ print hdr
+                        putStrLn "----"
+                        mapM_ print hdr'
+                        putStrLn "----"
+                        putMVar mvar ()
 
 fromCaseSensitive :: HeaderList -> HeaderList
-fromCaseSensitive = map (\(k,v) -> (foldedCase $ mk k,v))
+fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
 
 ----------------------------------------------------------------
 
@@ -124,19 +136,19 @@ headerlist h = loop id
     loop b = do
         ml <- line h
         case ml of
-          Nothing -> return $ b []
-          Just l
-            | l == ""   -> return $ b []
-            | otherwise -> do
-                  let (k,v0) = BS8.break (== '\t') l
-                      v = BS8.drop 1 v0
-                  loop (b . ((k,v) :))
+            Nothing -> return $ b []
+            Just l
+                | l == "" -> return $ b []
+                | otherwise -> do
+                    let (k, v0) = BS8.break (== '\t') l
+                        v = BS8.drop 1 v0
+                    loop (b . ((k, v) :))
 
 line :: Handle -> IO (Maybe ByteString)
 line h = do
     el <- E.try $ BS8.hGetLine h
     case el of
-      Left (_ :: E.IOException) -> return Nothing
-      Right l
-        | BS8.take 1 l == "#" -> line h
-        | otherwise           -> return $ Just l
+        Left (_ :: E.IOException) -> return Nothing
+        Right l
+            | BS8.take 1 l == "#" -> line h
+            | otherwise -> return $ Just l

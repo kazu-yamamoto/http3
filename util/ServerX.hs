@@ -19,11 +19,13 @@ serverHQ = serverX HQ.run
 serverH3 :: Connection -> IO ()
 serverH3 = serverX H3.run
 
-serverX :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()
+serverX
+    :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()
 serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
-  run conn conf $ \_req _aux sendResponse -> do
-    let hdr = [ ("Content-Type", "text/html; charset=utf-8")
-              , ("Server", "HaskellQuic/0.0.0")
-              ]
-        rsp = H3.responseBuilder H.ok200 hdr "Hello, world!"
-    sendResponse rsp []
+    run conn conf $ \_req _aux sendResponse -> do
+        let hdr =
+                [ ("Content-Type", "text/html; charset=utf-8")
+                , ("Server", "HaskellQuic/0.0.0")
+                ]
+            rsp = H3.responseBuilder H.ok200 hdr "Hello, world!"
+        sendResponse rsp []
