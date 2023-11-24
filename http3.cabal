@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               http3
-version:            0.0.6
+version:            0.0.7
 license:            BSD-3-Clause
 license-file:       LICENSE
 maintainer:         Kazu Yamamoto <kazu@iij.ad.jp>
@@ -81,11 +81,11 @@ library
         bytestring,
         case-insensitive,
         containers,
-        http2 >=4.2.0 && <5,
+        http2 >=5.0 && <5.1,
         http-types,
         network,
         network-byte-order,
-        quic >= 0.1.2,
+        quic >= 0.1.11 && < 0.2,
         sockaddr,
         stm,
         time-manager,

@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.7
+
+* Supporting http2 v5.0.
+
 ## 0.0.6
 
 * Rescuing GHC 9.0 for testing.
