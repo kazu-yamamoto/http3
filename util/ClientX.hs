@@ -49,7 +49,7 @@ clientX n0 run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig
             { scheme = "https"
             , authority = C8.pack auxAuthority
             }
-    client sendRequest = loop n0
+    client sendRequest _aux = loop n0
       where
         loop 0 = return ()
         loop n = do

@@ -66,11 +66,12 @@ import Control.Concurrent
 import Data.IORef
 import Network.HTTP2.Client (Authority, Client, Scheme)
 import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Request (..), Response (..))
+import Network.HTTP2.Client.Internal (Aux (..), Request (..), Response (..))
 import Network.HTTP2.Internal (InpObj (..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
+import Network.QUIC.Internal (possibleMyStreams)
 import qualified UnliftIO.Exception as E
 
 import Network.HTTP3.Config
@@ -95,12 +96,16 @@ run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
     addThreadId ctx tid0
     tid1 <- forkIO $ readerClient ctx
     addThreadId ctx tid1
-    client $ sendRequest ctx scheme authority
+    client (sendRequest ctx scheme authority) aux
   where
     open = do
         ref <- newIORef IInit
         newContext conn conf (controlStream conn ref)
     close = clearContext
+    aux =
+        Aux
+            { auxPossibleClientStreams = possibleMyStreams conn
+            }
 
 readerClient :: Context -> IO ()
 readerClient ctx = loop

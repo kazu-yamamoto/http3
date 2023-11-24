@@ -36,7 +36,7 @@ runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
   where
     us = ms * 1000
     client :: H3.Client ()
-    client sendRequest = do
+    client sendRequest _aux = do
         let req = H3.requestNoBody methodGet "/" []
         ret <- sendRequest req $ \_rsp -> return ()
         threadDelay 100000

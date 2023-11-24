@@ -30,33 +30,33 @@ runClient = QUIC.run testClientConfig $ \conn ->
       C.run conn testH3ClientConfig conf client
   where
     client :: C.Client ()
-    client sendRequest = foldr1 concurrently_ [
-        client0 sendRequest
-      , client1 sendRequest
-      , client2 sendRequest
-      , client3 sendRequest
+    client sendRequest _aux = foldr1 concurrently_ [
+        client0 sendRequest _aux
+      , client1 sendRequest _aux
+      , client2 sendRequest _aux
+      , client3 sendRequest _aux
       ]
 
 client0 :: C.Client ()
-client0 sendRequest = do
+client0 sendRequest _aux = do
     let req = C.requestNoBody methodGet "/" []
     sendRequest req $ \rsp -> do
         C.responseStatus rsp `shouldBe` Just ok200
 
 client1 :: C.Client ()
-client1 sendRequest = do
+client1 sendRequest _aux = do
     let req = C.requestNoBody methodGet "/something" []
     sendRequest req $ \rsp -> do
         C.responseStatus rsp `shouldBe` Just notFound404
 
 client2 :: C.Client ()
-client2 sendRequest = do
+client2 sendRequest _aux = do
     let req = C.requestNoBody methodPut "/" []
     sendRequest req $ \rsp -> do
         C.responseStatus rsp `shouldBe` Just methodNotAllowed405
 
 client3 :: C.Client ()
-client3 sendRequest = do
+client3 sendRequest _aux = do
     let req0 = C.requestFile methodPost "/echo" [] $ FileSpec "test/inputFile" 0 1012731
         req = C.setRequestTrailersMaker req0 maker
     sendRequest req $ \rsp -> do

@@ -36,10 +36,11 @@ import Data.IORef
 import Data.Maybe (fromJust)
 import Network.HPACK
 import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Request (..), Response (..))
+import Network.HTTP2.Client.Internal (Request (..), Response (..), Aux (..))
 import Network.HTTP2.Internal (InpObj (..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
+import Network.QUIC.Internal (possibleMyStreams)
 import qualified Network.QUIC as QUIC
 import qualified UnliftIO.Exception as E
 
@@ -48,7 +49,12 @@ import Network.HTTP3.Recv (newSource, readSource)
 
 -- | Running an HQ client.
 run :: Connection -> H3.ClientConfig -> H3.Config -> H2.Client a -> IO a
-run conn _ _ client = client $ sendRequest conn
+run conn _ _ client = client (sendRequest conn) aux
+  where
+    aux =
+        Aux
+            { auxPossibleClientStreams = possibleMyStreams conn
+            }
 
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
 sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm -> do
