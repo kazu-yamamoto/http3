@@ -63,6 +63,7 @@ module Network.HTTP3.Client (
 ) where
 
 import Control.Concurrent
+import qualified Data.ByteString.Char8 as C8
 import Data.IORef
 import Network.HTTP2.Client (Authority, Client, Scheme)
 import qualified Network.HTTP2.Client as H2
@@ -130,7 +131,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     let hdr = H2.outObjHeaders outobj
         hdr' =
             (":scheme", scm)
-                : (":authority", auth)
+                : (":authority", C8.pack auth)
                 : hdr
     E.bracket (newStream ctx) closeStream $ \strm -> do
         sendHeader ctx strm th hdr'

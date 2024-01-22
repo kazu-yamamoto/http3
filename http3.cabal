@@ -81,7 +81,7 @@ library
         bytestring,
         case-insensitive,
         containers,
-        http2 >=5.0 && <5.1,
+        http2 >=5.1 && <5.2,
         http-types,
         network,
         network-byte-order,
