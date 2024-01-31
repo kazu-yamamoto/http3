@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.8
+
+* Using http2 v5.1.
+
 ## 0.0.7
 
 * Supporting http2 v5.0.
