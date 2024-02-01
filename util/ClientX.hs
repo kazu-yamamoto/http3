@@ -47,7 +47,7 @@ clientX n0 run Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig
     cliconf =
         H3.ClientConfig
             { scheme = "https"
-            , authority = C8.pack auxAuthority
+            , authority = auxAuthority
             }
     client sendRequest _aux = loop n0
       where
