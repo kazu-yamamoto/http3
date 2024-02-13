@@ -32,7 +32,7 @@ extra-source-files:
 
 source-repository head
     type:     git
-    location: git://github.com/kazu-yamamoto/http3
+    location: http3://github.com/kazu-yamamoto/http3
 
 flag devel
     description: Development commands
