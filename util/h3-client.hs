@@ -121,7 +121,7 @@ options =
         ['i']
         ["interactive"]
         (NoArg (\o -> o{optInteractive = True}))
-        "prefer hq (HTTP/0.9)"
+        "enter interactive mode"
     , Option
         ['V']
         ["vernego"]
@@ -271,8 +271,8 @@ runClient cc opts@Options{..} aux@Aux{..} = do
     (info1, info2, res, mig, client') <- run cc $ \conn -> do
         i1 <- getConnectionInfo conn
         let client = case alpn i1 of
-                 Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ optNumOfReqs
-                 _ -> clientH3 optNumOfReqs
+                Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ optNumOfReqs
+                _ -> clientH3 optNumOfReqs
         m <- case optMigration of
             Nothing -> return False
             Just mtyp -> do
