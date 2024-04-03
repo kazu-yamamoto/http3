@@ -91,8 +91,8 @@ library
         time-manager,
         unliftio
 
-executable server
-    main-is:            server.hs
+executable h3-server
+    main-is:            h3-server.hs
     hs-source-dirs:     util
     other-modules:
         Common
@@ -119,8 +119,8 @@ executable server
     else
         buildable: False
 
-executable client
-    main-is:            client.hs
+executable h3-client
+    main-is:            h3-client.hs
     hs-source-dirs:     util
     other-modules:
         Common
