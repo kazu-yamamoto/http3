@@ -105,6 +105,7 @@ executable h3-server
         base >=4.9 && <5,
         base16-bytestring,
         bytestring,
+        crypton,
         filepath,
         http-types,
         http2,
