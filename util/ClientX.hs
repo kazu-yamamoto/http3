@@ -21,6 +21,13 @@ import Network.QUIC
 import qualified UnliftIO.Exception as E
 
 import qualified Network.HQ.Client as HQ
+import Network.HTTP3.Client (
+    Client,
+    ClientConfig (..),
+    Config,
+    Path,
+    SendRequest,
+ )
 import qualified Network.HTTP3.Client as H3
 
 data Aux = Aux
@@ -30,7 +37,7 @@ data Aux = Aux
     , auxCheckClose :: IO Bool
     }
 
-type Cli = Aux -> [H3.Path] -> Connection -> IO ()
+type Cli = Aux -> [Path] -> Connection -> IO ()
 
 clientHQ :: Int -> Cli
 clientHQ n = clientX n HQ.run
@@ -40,23 +47,23 @@ clientH3 n = clientX n H3.run
 
 clientX
     :: Int
-    -> (Connection -> H3.ClientConfig -> H3.Config -> H3.Client () -> IO ())
+    -> (Connection -> ClientConfig -> Config -> Client () -> IO ())
     -> Cli
 clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
     run conn cliconf conf $ client n0 aux paths
   where
     cliconf =
-        H3.ClientConfig
+        ClientConfig
             { scheme = "https"
             , authority = auxAuthority
             }
 
-client :: Int -> Aux -> [H3.Path] -> H3.SendRequest -> H3.Aux -> IO ()
+client :: Int -> Aux -> [Path] -> SendRequest -> H3.Aux -> IO ()
 client n0 aux paths sendRequest _aux =
     foldr1 concurrently_ $
         map (client' n0 aux sendRequest) paths
 
-client' :: Int -> Aux -> H3.SendRequest -> H3.Path -> IO ()
+client' :: Int -> Aux -> SendRequest -> Path -> IO ()
 client' n0 Aux{..} sendRequest path = loop n0
   where
     req =
