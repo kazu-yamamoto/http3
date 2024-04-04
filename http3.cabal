@@ -81,7 +81,7 @@ library
         bytestring,
         case-insensitive,
         containers,
-        http2 >=5.1 && <5.2,
+        http2 >=5.1.4 && <5.2,
         http-types,
         network,
         network-byte-order,
@@ -131,6 +131,7 @@ executable h3-client
     ghc-options:        -Wall -threaded -rtsopts
     build-depends:
         base >=4.9 && <5,
+        async,
         base16-bytestring,
         bytestring,
         filepath,

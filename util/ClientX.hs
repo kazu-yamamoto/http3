@@ -12,6 +12,7 @@ module ClientX (
 ) where
 
 import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
@@ -23,14 +24,13 @@ import qualified Network.HQ.Client as HQ
 import qualified Network.HTTP3.Client as H3
 
 data Aux = Aux
-    { auxPath :: ByteString
-    , auxAuthority :: String
+    { auxAuthority :: String
     , auxDebug :: String -> IO ()
     , auxShow :: ByteString -> IO ()
     , auxCheckClose :: IO Bool
     }
 
-type Cli = Aux -> Connection -> IO ()
+type Cli = Aux -> [H3.Path] -> Connection -> IO ()
 
 clientHQ :: Int -> Cli
 clientHQ n = clientX n HQ.run
@@ -42,7 +42,8 @@ clientX
     :: Int
     -> (Connection -> H3.ClientConfig -> H3.Config -> H3.Client () -> IO ())
     -> Cli
-clientX n0 run aux@Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf -> run conn cliconf conf (client n0 aux auxPath)
+clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+    run conn cliconf conf $ client n0 aux paths
   where
     cliconf =
         H3.ClientConfig
@@ -50,8 +51,13 @@ clientX n0 run aux@Aux{..} conn = E.bracket H3.allocSimpleConfig H3.freeSimpleCo
             , authority = auxAuthority
             }
 
-client :: Int -> Aux -> ByteString -> H3.Client ()
-client n0 Aux{..} path sendRequest _aux = loop n0
+client :: Int -> Aux -> [H3.Path] -> H3.SendRequest -> H3.Aux -> IO ()
+client n0 aux paths sendRequest _aux =
+    foldr1 concurrently_ $
+        map (client' n0 aux sendRequest) paths
+
+client' :: Int -> Aux -> H3.SendRequest -> H3.Path -> IO ()
+client' n0 Aux{..} sendRequest path = loop n0
   where
     req =
         H3.requestNoBody

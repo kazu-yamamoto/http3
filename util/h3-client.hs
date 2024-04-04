@@ -13,6 +13,7 @@ import qualified Data.ByteString.Char8 as C8
 import Data.UnixTime
 import Data.Word
 import Foreign.C.Types
+import qualified Network.HTTP3.Client as H3
 import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
@@ -203,8 +204,8 @@ main = do
     (host, port, paths) <- case ips of
         [] -> showUsageAndExit usage
         _ : [] -> showUsageAndExit usage
-        h : p : [] -> return (h, read p, ["/"])
-        h : p : ps -> return (h, read p, C8.pack <$> ps)
+        h : p : [] -> return (h, p, ["/"])
+        h : p : ps -> return (h, p, C8.pack <$> ps)
     cmvar <- newEmptyMVar
     let ccalpn ver
             | optPerformance /= 0 = return $ Just ["perf"]
@@ -250,8 +251,7 @@ main = do
             | otherwise = \_ -> return ()
         aux =
             Aux
-                { auxPath = head paths
-                , auxAuthority = host
+                { auxAuthority = host
                 , auxDebug = debug
                 , auxShow = showContent
                 , auxCheckClose = do
@@ -260,10 +260,10 @@ main = do
                         Nothing -> return False
                         _ -> return True
                 }
-    runClient cc opts aux
+    runClient cc opts aux paths
 
-runClient :: ClientConfig -> Options -> Aux -> IO ()
-runClient cc opts@Options{..} aux@Aux{..} = do
+runClient :: ClientConfig -> Options -> Aux -> [H3.Path] -> IO ()
+runClient cc opts@Options{..} aux@Aux{..} paths = do
     auxDebug "------------------------"
     (info1, info2, res, mig, client') <- run cc $ \conn -> do
         i1 <- getConnectionInfo conn
@@ -279,9 +279,9 @@ runClient cc opts@Options{..} aux@Aux{..} = do
         t1 <- getUnixTime
         if optInteractive
             then do
-                console aux client conn
+                console aux paths client conn
             else do
-                client aux conn
+                client aux paths conn
         stats <- getConnectionStats conn
         print stats
         t2 <- getUnixTime
@@ -299,7 +299,7 @@ runClient cc opts@Options{..} aux@Aux{..} = do
         | optResumption -> do
             if isResumptionPossible res
                 then do
-                    info3 <- runClient2 cc opts aux res client'
+                    info3 <- runClient2 cc opts aux paths res client'
                     if handshakeMode info3 == PreSharedKey
                         then do
                             putStrLn "Result: (R) TLS resumption ... OK"
@@ -313,7 +313,7 @@ runClient cc opts@Options{..} aux@Aux{..} = do
         | opt0RTT -> do
             if is0RTTPossible res
                 then do
-                    info3 <- runClient2 cc opts aux res client'
+                    info3 <- runClient2 cc opts aux paths res client'
                     if handshakeMode info3 == RTT0
                         then do
                             putStrLn "Result: (Z) 0-RTT ... OK"
@@ -379,15 +379,16 @@ runClient2
     :: ClientConfig
     -> Options
     -> Aux
+    -> [H3.Path]
     -> ResumptionInfo
     -> Cli
     -> IO ConnectionInfo
-runClient2 cc Options{..} aux@Aux{..} res client = do
+runClient2 cc Options{..} aux@Aux{..} paths res client = do
     threadDelay 100000
     auxDebug "<<<< next connection >>>>"
     auxDebug "------------------------"
     run cc' $ \conn -> do
-        void $ client aux conn
+        void $ client aux paths conn
         getConnectionInfo conn
   where
     cc' =
@@ -416,8 +417,8 @@ printThroughput t1 t2 ConnectionStats{..} =
             / 1024
             / 1024
 
-console :: Aux -> (Aux -> Connection -> IO ()) -> Connection -> IO ()
-console aux client conn = do
+console :: Aux -> [H3.Path] -> Cli -> Connection -> IO ()
+console aux paths client conn = do
     waitEstablished conn
     putStrLn "q -- quit"
     putStrLn "g -- get"
@@ -433,8 +434,8 @@ console aux client conn = do
         case l of
             "q" -> putStrLn "bye"
             "g" -> do
-                putStrLn $ "GET " ++ C8.unpack (auxPath aux)
-                _ <- forkIO $ client aux conn
+                mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
+                _ <- forkIO $ client aux paths conn
                 loop
             "p" -> do
                 putStrLn "Ping"

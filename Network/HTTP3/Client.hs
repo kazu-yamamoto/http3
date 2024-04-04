@@ -19,6 +19,8 @@ module Network.HTTP3.Client (
 
     -- * HTTP\/3 client
     Client,
+    SendRequest,
+    Aux,
 
     -- * Request
     Request,
@@ -65,7 +67,7 @@ module Network.HTTP3.Client (
 import Control.Concurrent
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
-import Network.HTTP2.Client (Authority, Client, Scheme)
+import Network.HTTP2.Client (Authority, Client, Scheme, SendRequest)
 import qualified Network.HTTP2.Client as H2
 import Network.HTTP2.Client.Internal (Aux (..), Request (..), Response (..))
 import Network.HTTP2.Internal (InpObj (..))
