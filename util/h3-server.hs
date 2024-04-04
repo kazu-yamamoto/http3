@@ -87,7 +87,7 @@ options =
     ]
 
 usage :: String
-usage = "Usage: server [OPTION] addr [addrs] port"
+usage = "Usage: h3-server [OPTION] addr [addrs] port"
 
 showUsageAndExit :: String -> IO a
 showUsageAndExit msg = do
