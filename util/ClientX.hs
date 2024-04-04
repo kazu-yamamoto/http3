@@ -50,7 +50,7 @@ clientX
     -> (Connection -> ClientConfig -> Config -> Client () -> IO ())
     -> Cli
 clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
-    run conn cliconf conf $ client n0 aux paths
+    run conn cliconf conf $ client aux n0 paths
   where
     cliconf =
         ClientConfig
@@ -58,13 +58,13 @@ clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSi
             , authority = auxAuthority
             }
 
-client :: Int -> Aux -> [Path] -> SendRequest -> H3.Aux -> IO ()
-client n0 aux paths sendRequest _aux =
+client :: Aux -> Int -> [Path] -> Client ()
+client aux n0 paths sendRequest _aux =
     foldr1 concurrently_ $
-        map (client' n0 aux sendRequest) paths
+        map (client' aux n0 sendRequest) paths
 
-client' :: Int -> Aux -> SendRequest -> Path -> IO ()
-client' n0 Aux{..} sendRequest path = loop n0
+client' :: Aux -> Int -> SendRequest -> Path -> IO ()
+client' Aux{..} n0 sendRequest path = loop n0
   where
     req =
         H3.requestNoBody
