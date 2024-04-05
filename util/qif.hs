@@ -96,7 +96,7 @@ decode dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        if hdr' == []
+        if null hdr'
             then putMVar mvar ()
             else do
                 Block n bs <- recv
@@ -124,7 +124,7 @@ block = do
     return $ Block num dat
 
 toInt :: ByteString -> Int
-toInt bs = BS.foldl' f 0 bs
+toInt = BS.foldl' f 0
   where
     f n w8 = n * 256 + fromIntegral w8
 
