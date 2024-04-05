@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE Strict #-}
-{-# LANGUAGE StrictData #-}
 
 module ClientX (
     Aux (..),
