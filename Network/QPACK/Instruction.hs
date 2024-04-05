@@ -23,8 +23,15 @@ module Network.QPACK.Instruction (
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
-import Network.HPACK.Internal
-import Network.HPACK.Token
+import Network.HPACK.Internal (
+    HuffmanDecoder,
+    decodeH,
+    decodeI,
+    decodeS,
+    encodeI,
+    encodeS,
+    entryHeaderName,
+ )
 import qualified UnliftIO.Exception as E
 
 import Imports
@@ -37,8 +44,8 @@ type InsIndex = Either AbsoluteIndex InsRelativeIndex
 
 data EncoderInstruction
     = SetDynamicTableCapacity Int
-    | InsertWithNameReference InsIndex HeaderValue
-    | InsertWithoutNameReference Token HeaderValue
+    | InsertWithNameReference InsIndex FieldValue
+    | InsertWithoutNameReference Token FieldValue
     | Duplicate InsRelativeIndex
     deriving (Eq)
 
@@ -46,7 +53,7 @@ instance Show EncoderInstruction where
     show (SetDynamicTableCapacity n) = "SetDynamicTableCapacity " ++ show n
     show (InsertWithNameReference (Left aidx) v) =
         "InsertWithNameReference \""
-            ++ BS8.unpack (entryHeaderName (toStaticEntry aidx))
+            ++ BS8.unpack (original (entryHeaderName (toStaticEntry aidx)))
             ++ "\" \""
             ++ BS8.unpack v
             ++ "\""

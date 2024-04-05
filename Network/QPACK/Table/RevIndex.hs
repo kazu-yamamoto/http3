@@ -19,8 +19,8 @@ import Data.Function (on)
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Network.HPACK.Internal
-import Network.HPACK.Token
+import Network.HPACK.Internal (Entry (..))
+import Network.HTTP.Semantics
 
 import Imports
 import Network.QPACK.Table.Static
@@ -37,7 +37,7 @@ data RevIndex = RevIndex DynamicRevIndex OtherRevIdex
 
 type DynamicRevIndex = Array Int (IORef ValueMap)
 
-data KeyValue = KeyValue HeaderName HeaderValue deriving (Eq, Ord)
+data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
@@ -59,14 +59,14 @@ type StaticRevIndex = Array Int StaticEntry
 
 data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving (Show)
 
-type ValueMap = Map HeaderValue HIndex
+type ValueMap = Map FieldValue HIndex
 
 ----------------------------------------------------------------
 
 staticRevIndex :: StaticRevIndex
 staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
   where
-    toEnt (k, xs) = (quicIx $ tokenIx $ toToken k, m)
+    toEnt (k, xs) = (quicIx $ tokenIx $ toToken $ foldedCase k, m)
       where
         m = case xs of
             [] -> error "staticRevIndex"
@@ -80,7 +80,7 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
         extract xs = (fst (head xs), map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
-lookupStaticRevIndex :: Int -> HeaderValue -> RevResult
+lookupStaticRevIndex :: Int -> FieldValue -> RevResult
 lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
     StaticEntry i Nothing -> K i
     StaticEntry i (Just m) -> case M.lookup v m of
@@ -90,9 +90,9 @@ lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
 ----------------------------------------------------------------
 
 newDynamicRevIndex :: IO DynamicRevIndex
-newDynamicRevIndex = A.listArray (minTokenIx, maxStaticTokenIx) <$> mapM mk lst
+newDynamicRevIndex = A.listArray (minTokenIx, maxStaticTokenIx) <$> mapM mk' lst
   where
-    mk _ = newIORef M.empty
+    mk' _ = newIORef M.empty
     lst = [minTokenIx .. maxStaticTokenIx]
 
 renewDynamicRevIndex :: DynamicRevIndex -> IO ()
@@ -102,7 +102,7 @@ renewDynamicRevIndex drev = mapM_ clear [minTokenIx .. maxStaticTokenIx]
 
 {-# INLINE lookupDynamicStaticRevIndex #-}
 lookupDynamicStaticRevIndex
-    :: Int -> HeaderValue -> DynamicRevIndex -> IO RevResult
+    :: Int -> FieldValue -> DynamicRevIndex -> IO RevResult
 lookupDynamicStaticRevIndex ix v drev = do
     let ref = drev `unsafeAt` ix
     m <- readIORef ref
@@ -112,13 +112,13 @@ lookupDynamicStaticRevIndex ix v drev = do
 
 {-# INLINE insertDynamicRevIndex #-}
 insertDynamicRevIndex
-    :: Token -> HeaderValue -> HIndex -> DynamicRevIndex -> IO ()
+    :: Token -> FieldValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
     ref = drev `unsafeAt` tokenIx t
 
 {-# INLINE deleteDynamicRevIndex #-}
-deleteDynamicRevIndex :: Token -> HeaderValue -> DynamicRevIndex -> IO ()
+deleteDynamicRevIndex :: Token -> FieldValue -> DynamicRevIndex -> IO ()
 deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
   where
     ref = drev `unsafeAt` tokenIx t
@@ -132,7 +132,7 @@ renewOtherRevIndex :: OtherRevIdex -> IO ()
 renewOtherRevIndex ref = writeIORef ref M.empty
 
 {-# INLINE lookupOtherRevIndex #-}
-lookupOtherRevIndex :: Header -> OtherRevIdex -> IO RevResult
+lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIdex -> IO RevResult
 lookupOtherRevIndex (k, v) ref = do
     oth <- readIORef ref
     case M.lookup (KeyValue k v) oth of
@@ -140,13 +140,13 @@ lookupOtherRevIndex (k, v) ref = do
         Just i -> return $ KV i
 
 {-# INLINE insertOtherRevIndex #-}
-insertOtherRevIndex :: Token -> HeaderValue -> HIndex -> OtherRevIdex -> IO ()
+insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIdex -> IO ()
 insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
   where
     k = tokenFoldedKey t
 
 {-# INLINE deleteOtherRevIndex #-}
-deleteOtherRevIndex :: Token -> HeaderValue -> OtherRevIdex -> IO ()
+deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIdex -> IO ()
 deleteOtherRevIndex t v ref = modifyIORef' ref $ M.delete (KeyValue k v)
   where
     k = tokenFoldedKey t
@@ -164,7 +164,7 @@ renewRevIndex (RevIndex dyn oth) = do
 {-# INLINE lookupRevIndex #-}
 lookupRevIndex
     :: Token
-    -> HeaderValue
+    -> FieldValue
     -> RevIndex
     -> IO RevResult
 lookupRevIndex t@Token{..} v (RevIndex dyn oth)
@@ -181,7 +181,7 @@ lookupRevIndex t@Token{..} v (RevIndex dyn oth)
 {-# INLINE lookupRevIndex' #-}
 lookupRevIndex'
     :: Token
-    -> HeaderValue
+    -> FieldValue
     -> RevResult
 lookupRevIndex' Token{..} v
     | ix >= 0 = lookupStaticRevIndex ix v

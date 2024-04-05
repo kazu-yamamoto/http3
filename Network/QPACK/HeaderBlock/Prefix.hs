@@ -11,7 +11,7 @@ module Network.QPACK.HeaderBlock.Prefix (
 ) where
 
 import Network.ByteOrder
-import Network.HPACK.Internal
+import Network.HPACK.Internal (decodeI, encodeI)
 import qualified UnliftIO.Exception as E
 
 import Imports

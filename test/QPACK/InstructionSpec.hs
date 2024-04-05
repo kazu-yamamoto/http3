@@ -3,7 +3,7 @@
 module QPACK.InstructionSpec where
 
 import Data.ByteString ()
-import Network.HPACK.Token
+import Network.HTTP.Semantics
 import Network.QPACK.Internal
 import Test.Hspec
 

@@ -11,7 +11,6 @@ module Network.HTTP3.Recv (
 
 import qualified Data.ByteString as BS
 import Data.IORef
-import Network.HPACK (HeaderTable)
 import Network.QUIC
 
 import Imports
@@ -40,7 +39,7 @@ pushbackSource :: Source -> ByteString -> IO ()
 pushbackSource _ "" = return ()
 pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
 
-recvHeader :: Context -> Source -> IO (Maybe HeaderTable)
+recvHeader :: Context -> Source -> IO (Maybe TokenHeaderTable)
 recvHeader ctx src = loop IInit
   where
     loop st = do
@@ -64,7 +63,11 @@ recvHeader ctx src = loop IInit
                 st' -> loop st'
 
 recvBody
-    :: Context -> Source -> IORef IFrame -> IORef (Maybe HeaderTable) -> IO ByteString
+    :: Context
+    -> Source
+    -> IORef IFrame
+    -> IORef (Maybe TokenHeaderTable)
+    -> IO ByteString
 recvBody ctx src refI refH = do
     st <- readIORef refI
     loop st

@@ -11,9 +11,10 @@ import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
-import Network.HPACK (toHeaderTable)
+import Network.HPACK.Internal (toTokenHeaderTable)
+import Network.HTTP.Semantics.Client
+import Network.HTTP.Semantics.IO
 import qualified Network.HTTP.Types as HT
-import Network.HTTP2.Internal hiding (timeoutClose)
 import Network.QUIC
 import qualified System.TimeManager as T
 import qualified UnliftIO.Exception as E
@@ -25,7 +26,7 @@ import Network.HTTP3.Frame
 sendHeader :: Context -> Stream -> T.Handle -> HT.ResponseHeaders -> IO ()
 sendHeader ctx strm th hdrs = do
     -- fixme: fixHeaders
-    (ths, _) <- toHeaderTable hdrs
+    (ths, _) <- toTokenHeaderTable hdrs
     (hdr, "") <- qpackEncode ctx ths
     let frames = [H3Frame H3FrameHeaders hdr]
         frames' = onHeadersFrameCreated (getHooks ctx) frames

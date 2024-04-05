@@ -12,43 +12,42 @@ module Network.HQ.Client (
     H3.Config (..),
     H3.allocSimpleConfig,
     H3.freeSimpleConfig,
-    H3.Scheme,
-    H3.Authority,
+    Scheme,
+    Authority,
 
     -- * HQ client
-    H2.Client,
+    Client,
 
     -- * Request
     Request,
 
     -- * Creating request
-    H2.requestNoBody,
+    requestNoBody,
 
     -- * Response
     Response,
 
     -- ** Accessing response
-    H2.getResponseBodyChunk,
+    getResponseBodyChunk,
 ) where
 
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.Maybe (fromJust)
 import Network.HPACK
-import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Aux (..), Request (..), Response (..))
-import Network.HTTP2.Internal (InpObj (..))
-import qualified Network.HTTP2.Internal as H2
+import Network.HTTP.Semantics
+import Network.HTTP.Semantics.Client
+import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
 import qualified UnliftIO.Exception as E
 
+import Imports
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Recv (newSource, readSource)
 
 -- | Running an HQ client.
-run :: Connection -> H3.ClientConfig -> H3.Config -> H2.Client a -> IO a
+run :: Connection -> H3.ClientConfig -> H3.Config -> Client a -> IO a
 run conn _ _ client = client (sendRequest conn) aux
   where
     aux =
@@ -58,14 +57,14 @@ run conn _ _ client = client (sendRequest conn) aux
 
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
 sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm -> do
-    let hdr = H2.outObjHeaders outobj
+    let hdr = outObjHeaders outobj
         path = fromJust $ lookup ":path" hdr
         requestLine = BS.concat ["GET ", path, "\r\n"]
     QUIC.sendStream strm requestLine
     QUIC.shutdownStream strm
     src <- newSource strm
     refH <- newIORef Nothing
-    vt <- toHeaderTable []
+    vt <- toTokenHeaderTable []
     let readB = readSource src
         rsp = Response $ InpObj vt Nothing readB refH
     processResponse rsp

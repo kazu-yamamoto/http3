@@ -14,69 +14,20 @@ module Network.HTTP3.Client (
     freeSimpleConfig,
     Hooks (..),
     defaultHooks,
-    Scheme,
-    Authority,
-
-    -- * HTTP\/3 client
-    Client,
-    SendRequest,
-    Aux,
-
-    -- * Request
-    Request,
-
-    -- * Creating request
-    H2.requestNoBody,
-    H2.requestFile,
-    H2.requestStreaming,
-    H2.requestBuilder,
-
-    -- ** Trailers maker
-    H2.TrailersMaker,
-    H2.NextTrailersMaker (..),
-    H2.defaultTrailersMaker,
-    H2.setRequestTrailersMaker,
-
-    -- * Response
-    Response,
-
-    -- ** Accessing response
-    H2.responseStatus,
-    H2.responseHeaders,
-    H2.responseBodySize,
-    H2.getResponseBodyChunk,
-    H2.getResponseTrailers,
-
-    -- * Types
-    H2.Method,
-    H2.Path,
-    H2.FileSpec (..),
-    H2.FileOffset,
-    H2.ByteCount,
-
-    -- * RecvN
-    H2.defaultReadN,
-
-    -- * Position read for files
-    H2.PositionReadMaker,
-    H2.PositionRead,
-    H2.Sentinel (..),
-    H2.defaultPositionReadMaker,
+    module Network.HTTP.Semantics.Client,
 ) where
 
 import Control.Concurrent
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
-import Network.HTTP2.Client (Authority, Client, Scheme, SendRequest)
-import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Aux (..), Request (..), Response (..))
-import Network.HTTP2.Internal (InpObj (..))
-import qualified Network.HTTP2.Internal as H2
+import Network.HTTP.Semantics.Client
+import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
 import qualified UnliftIO.Exception as E
 
+import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
@@ -93,7 +44,7 @@ data ClientConfig = ClientConfig
     }
 
 -- | Running an HTTP\/3 client.
-run :: Connection -> ClientConfig -> Config -> H2.Client a -> IO a
+run :: Connection -> ClientConfig -> Config -> Client a -> IO a
 run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
     tid0 <- forkIO $ setupUnidirectional conn conf
     addThreadId ctx tid0
@@ -130,7 +81,7 @@ sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse = do
     th <- registerThread ctx
-    let hdr = H2.outObjHeaders outobj
+    let hdr = outObjHeaders outobj
         hdr' =
             (":scheme", scm)
                 : (":authority", C8.pack auth)

@@ -33,13 +33,12 @@ module Network.QPACK (
     CompressionAlgo (..),
 
     -- * Re-exports
-    HeaderTable,
+    TokenHeaderTable,
     TokenHeaderList,
     ValueTable,
     Header,
-    HeaderList,
-    getHeaderValue,
-    toHeaderTable,
+    getFieldValue,
+    toTokenHeaderTable,
     original,
     foldedCase,
     mk,
@@ -50,15 +49,14 @@ import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Network.ByteOrder
-import Network.HPACK (
-    HeaderList,
-    HeaderTable,
-    TokenHeaderList,
-    ValueTable,
-    getHeaderValue,
-    toHeaderTable,
+import Network.HPACK.Internal (
+    GCBuffer,
+    Size,
+    entryToken,
+    toEntryToken,
+    toTokenHeaderTable,
  )
-import Network.HPACK.Internal
+import Network.HTTP.Types
 import Network.QUIC.Internal (stdoutLogger)
 import qualified UnliftIO.Exception as E
 
@@ -76,10 +74,10 @@ type QEncoder =
     TokenHeaderList -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 
 -- | QPACK decoder.
-type QDecoder = EncodedFieldSection -> IO HeaderTable
+type QDecoder = EncodedFieldSection -> IO TokenHeaderTable
 
 -- | QPACK simple decoder.
-type QDecoderS = EncodedFieldSection -> IO HeaderList
+type QDecoderS = EncodedFieldSection -> IO [Header]
 
 -- | Encoder instruction handler.
 type EncoderInstructionHandler = (Int -> IO EncodedEncoderInstruction) -> IO ()
@@ -233,10 +231,10 @@ newQDecoderS QDecoderConfig{..} debug = do
         handler = encoderInstructionHandlerS dyntbl
     return (dec, handler)
 
-qpackDecoder :: DynamicTable -> EncodedFieldSection -> IO HeaderTable
+qpackDecoder :: DynamicTable -> EncodedFieldSection -> IO TokenHeaderTable
 qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
 
-qpackDecoderS :: DynamicTable -> EncodedFieldSection -> IO HeaderList
+qpackDecoderS :: DynamicTable -> EncodedFieldSection -> IO [Header]
 qpackDecoderS dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
 
 encoderInstructionHandler

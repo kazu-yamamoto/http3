@@ -44,7 +44,7 @@ dump size efile = do
         )
 
 dumpSwitch
-    :: (ByteString -> IO HeaderList)
+    :: (ByteString -> IO [Header])
     -> EncoderInstructionHandlerS
     -> (a, Block)
     -> IO ()
@@ -111,7 +111,7 @@ decode dec h recv mvar = loop
                         putStrLn "----"
                         putMVar mvar ()
 
-fromCaseSensitive :: HeaderList -> HeaderList
+fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
 
 ----------------------------------------------------------------
@@ -130,7 +130,7 @@ toInt = BS.foldl' f 0
 
 ----------------------------------------------------------------
 
-headerlist :: Handle -> IO HeaderList
+headerlist :: Handle -> IO [Header]
 headerlist h = loop id
   where
     loop b = do
@@ -142,7 +142,7 @@ headerlist h = loop id
                 | otherwise -> do
                     let (k, v0) = BS8.break (== '\t') l
                         v = BS8.drop 1 v0
-                    loop (b . ((k, v) :))
+                    loop (b . ((mk k, v) :))
 
 line :: Handle -> IO (Maybe ByteString)
 line h = do

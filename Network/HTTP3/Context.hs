@@ -27,7 +27,7 @@ module Network.HTTP3.Context (
 import Control.Concurrent
 import qualified Data.ByteString as BS
 import Data.IORef
-import Network.HTTP2.Internal (PositionReadMaker)
+import Network.HTTP.Semantics.Client
 import Network.QUIC
 import Network.QUIC.Internal (connDebugLog, isClient, isServer)
 import Network.Socket (SockAddr)

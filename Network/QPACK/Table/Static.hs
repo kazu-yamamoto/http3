@@ -8,7 +8,8 @@ module Network.QPACK.Table.Static (
 
 import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
-import Network.HPACK.Internal
+import Network.HPACK.Internal (Entry, Index, Size, toEntry)
+import Network.HTTP.Types (Header)
 import qualified UnliftIO.Exception as E
 
 import Network.QPACK.Error

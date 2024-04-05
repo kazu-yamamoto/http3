@@ -89,5 +89,5 @@ trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
   where
     ctx' = CH.hashUpdate ctx bs
 
-firstTrailerValue :: HeaderTable -> HeaderValue
+firstTrailerValue :: TokenHeaderTable -> FieldValue
 firstTrailerValue = snd . Prelude.head . fst

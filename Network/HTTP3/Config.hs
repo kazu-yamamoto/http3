@@ -1,6 +1,6 @@
 module Network.HTTP3.Config where
 
-import Network.HTTP2.Internal
+import Network.HTTP.Semantics.Client
 import Network.HTTP3.Frame
 import Network.QUIC (Stream)
 import qualified System.TimeManager as T

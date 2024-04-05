@@ -8,7 +8,16 @@ import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.MArray (newArray)
 import Data.IORef
 import Network.ByteOrder
-import Network.HPACK.Internal
+import Network.HPACK.Internal (
+    Entry,
+    GCBuffer,
+    HuffmanDecoder,
+    Index,
+    Size,
+    decH,
+    dummyEntry,
+    maxNumbers,
+ )
 import qualified UnliftIO.Exception as E
 
 import Imports

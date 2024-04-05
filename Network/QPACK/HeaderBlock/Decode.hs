@@ -6,9 +6,15 @@ import Control.Concurrent.STM
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
-import Network.HPACK (HeaderList, HeaderTable, TokenHeader)
-import Network.HPACK.Internal
-import Network.HPACK.Token (toToken, tokenKey)
+import Network.HPACK.Internal (
+    decodeI,
+    decodeS,
+    decodeSimple,
+    decodeSophisticated,
+    entryToken,
+    entryTokenHeader,
+ )
+import Network.HTTP.Types
 
 import Imports
 import Network.QPACK.HeaderBlock.Prefix
@@ -18,7 +24,7 @@ import Network.QPACK.Types
 decodeTokenHeader
     :: DynamicTable
     -> ReadBuffer
-    -> IO HeaderTable
+    -> IO TokenHeaderTable
 decodeTokenHeader dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
     checkInsertionPoint dyntbl reqip
@@ -27,7 +33,7 @@ decodeTokenHeader dyntbl rbuf = do
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
-    -> IO HeaderList
+    -> IO [Header]
 decodeTokenHeaderS dyntbl rbuf = do
     (reqip, bp) <- decodePrefix rbuf dyntbl
     debug <- getDebugQPACK dyntbl

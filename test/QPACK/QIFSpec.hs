@@ -61,7 +61,7 @@ switch send insthdr (_, blk@(Block n bs))
     | otherwise = send blk
 
 decode
-    :: (ByteString -> IO HeaderList)
+    :: (ByteString -> IO [Header])
     -> Handle
     -> IO Block
     -> MVar ()
@@ -79,7 +79,7 @@ decode dec h recv mvar = loop
                 hdr `shouldBe` hdr'
                 loop
 
-fromCaseSensitive :: HeaderList -> HeaderList
+fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
 
 block :: Parser Block
@@ -96,7 +96,7 @@ toInt bs = BS.foldl' f 0 bs
 
 ----------------------------------------------------------------
 
-headerlist :: Handle -> IO HeaderList
+headerlist :: Handle -> IO [Header]
 headerlist h = loop id
   where
     loop b = do
@@ -108,7 +108,7 @@ headerlist h = loop id
                 | otherwise -> do
                     let (k, v0) = BS8.break (== '\t') l
                         v = BS8.drop 1 v0
-                    loop (b . ((k, v) :))
+                    loop (b . ((mk k, v) :))
 
 line :: Handle -> IO (Maybe ByteString)
 line h = do

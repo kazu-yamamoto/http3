@@ -13,14 +13,15 @@ module Network.QPACK.HeaderBlock.Encode (
 import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
-import Network.HPACK (
+import Network.HPACK.Internal (
     CompressionAlgo (..),
     EncodeStrategy (..),
-    HeaderList,
-    TokenHeaderList,
+    encodeI,
+    encodeS,
+    toEntryToken,
  )
-import Network.HPACK.Internal
-import Network.HPACK.Token
+import Network.HTTP.Semantics
+import Network.HTTP.Types
 import qualified UnliftIO.Exception as E
 
 import Imports
@@ -42,7 +43,7 @@ type EncodedEncoderInstruction = B.ByteString
 encodeHeader
     :: EncodeStrategy
     -> DynamicTable
-    -> HeaderList
+    -> [Header]
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 encodeHeader stgy dyntbl hs = do
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
@@ -53,7 +54,7 @@ encodeHeader stgy dyntbl hs = do
     let hb = prefix `B.append` hb0
     return (hb, insb)
   where
-    ts = map (\(k, v) -> let t = toToken k in (t, v)) hs
+    ts = map (\(k, v) -> let t = toToken (foldedCase k) in (t, v)) hs
 
 -- | Converting 'TokenHeaderList' to the QPACK format.
 encodeTokenHeader

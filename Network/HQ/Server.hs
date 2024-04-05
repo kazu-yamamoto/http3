@@ -18,16 +18,16 @@ module Network.HQ.Server (
     Request,
 
     -- ** Accessing request
-    H2.requestPath,
+    requestPath,
 
     -- * Response
     Response,
 
     -- ** Creating response
-    H2.responseNoBody,
-    H2.responseFile,
-    H2.responseStreaming,
-    H2.responseBuilder,
+    responseNoBody,
+    responseFile,
+    responseStreaming,
+    responseBuilder,
 ) where
 
 import Control.Concurrent
@@ -37,12 +37,11 @@ import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
-import Network.HPACK (HeaderTable, toHeaderTable)
-import Network.HTTP2.Internal (InpObj (..))
-import qualified Network.HTTP2.Internal as H2
-import Network.HTTP2.Server (PushPromise, Server)
-import qualified Network.HTTP2.Server as H2
-import Network.HTTP2.Server.Internal (Aux (..), Request (..), Response (..))
+import Network.HPACK.Internal (toTokenHeaderTable)
+import Network.HTTP.Semantics.IO
+import Network.HTTP.Semantics.Server
+import Network.HTTP.Semantics.Server.Internal
+
 import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
 import Network.SockAddr (showSockAddrBS)
@@ -80,7 +79,7 @@ processRequest conf mysa peersa server strm
   where
     sid = QUIC.streamId strm
 
-recvHeader :: Stream -> SockAddr -> IO HeaderTable
+recvHeader :: Stream -> SockAddr -> IO TokenHeaderTable
 recvHeader strm myaddr = do
     (method, path) <- recvRequestLine id
     let auth = showSockAddrBS myaddr
@@ -90,7 +89,7 @@ recvHeader strm myaddr = do
                 : (":scheme", "https")
                 : (":authority", auth)
                 : []
-    toHeaderTable vt
+    toTokenHeaderTable vt
   where
     recvRequestLine builder = do
         bs <- QUIC.recvStream strm 1024
@@ -105,29 +104,29 @@ recvHeader strm myaddr = do
         path = BS.take (BS.length path0 - 2) path0
 
 sendResponse :: Config -> Stream -> Response -> [PushPromise] -> IO ()
-sendResponse conf strm (Response outobj) _ = case H2.outObjBody outobj of
-    H2.OutBodyNone -> return ()
-    H2.OutBodyFile (H2.FileSpec path fileoff bytecount) -> do
+sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
+    OutBodyNone -> return ()
+    OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel') <- confPositionReadMaker conf path
         let timmgr = confTimeoutManager conf
         refresh <- case sentinel' of
-            H2.Closer closer -> do
+            Closer closer -> do
                 th <- T.register timmgr closer
                 return $ T.tickle th
-            H2.Refresher refresher -> return refresher
-        let next = H2.fillFileBodyGetNext pread fileoff bytecount refresh
+            Refresher refresher -> return refresher
+        let next = fillFileBodyGetNext pread fileoff bytecount refresh
         sendNext strm next
-    H2.OutBodyBuilder builder -> do
-        let next = H2.fillBuilderBodyGetNext builder
+    OutBodyBuilder builder -> do
+        let next = fillBuilderBodyGetNext builder
         sendNext strm next
-    H2.OutBodyStreaming strmbdy -> sendStreaming strm strmbdy
-    H2.OutBodyStreamingUnmask _ ->
+    OutBodyStreaming strmbdy -> sendStreaming strm strmbdy
+    OutBodyStreamingUnmask _ ->
         error "sendResponse: server does not support OutBodyStreamingUnmask"
 
-sendNext :: Stream -> H2.DynaNext -> IO ()
+sendNext :: Stream -> DynaNext -> IO ()
 sendNext strm action = do
     fp <- BS.mallocByteString 2048
-    H2.Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
+    Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
     if len == 0
         then return ()
         else do
