@@ -74,7 +74,7 @@ defaultOptions =
         }
 
 usage :: String
-usage = "Usage: h3-client [OPTION] addr port"
+usage = "Usage: h3-client [OPTION] addr port [path]"
 
 options :: [OptDescr (Options -> Options)]
 options =
