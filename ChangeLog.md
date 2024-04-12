@@ -1,5 +1,10 @@
 # Revision history for http3
 
+## 0.0.10
+
+* Locking QPCK encoder
+* Renaming util/{client,server} to util/{h3-client,h3-server}.
+
 ## 0.0.9
 
 * Fixing the support for http2 v5.1.
