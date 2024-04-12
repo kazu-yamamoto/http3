@@ -45,6 +45,7 @@ module Network.QPACK (
     mk,
 ) where
 
+import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
@@ -131,7 +132,18 @@ newQEncoder QEncoderConfig{..} = do
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
     gcbuf3 <- mallocPlainForeignPtrBytes bufsiz3
     dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
-    let enc = qpackEncoder encStrategy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl
+    lock <- newMVar ()
+    let enc =
+            qpackEncoder
+                encStrategy
+                gcbuf1
+                bufsiz1
+                gcbuf2
+                bufsiz2
+                gcbuf3
+                bufsiz3
+                dyntbl
+                lock
         handler = decoderInstructionHandler dyntbl
     return (enc, handler)
 
@@ -144,23 +156,25 @@ qpackEncoder
     -> GCBuffer
     -> Int
     -> DynamicTable
+    -> MVar ()
     -> TokenHeaderList
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
-qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl ts =
-    withForeignPtr gcbuf1 $ \buf1 ->
-        withForeignPtr gcbuf2 $ \buf2 ->
-            withForeignPtr gcbuf3 $ \buf3 -> do
-                wbuf1 <- newWriteBuffer buf1 bufsiz1
-                wbuf2 <- newWriteBuffer buf2 bufsiz2
-                wbuf3 <- newWriteBuffer buf3 bufsiz3
-                thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
-                when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
-                hb0 <- toByteString wbuf1
-                ins <- toByteString wbuf3
-                encodePrefix wbuf2 dyntbl
-                prefix <- toByteString wbuf2
-                let hb = prefix `B.append` hb0
-                return (hb, ins)
+qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
+    withMVar lock $ \_ ->
+        withForeignPtr gcbuf1 $ \buf1 ->
+            withForeignPtr gcbuf2 $ \buf2 ->
+                withForeignPtr gcbuf3 $ \buf3 -> do
+                    wbuf1 <- newWriteBuffer buf1 bufsiz1
+                    wbuf2 <- newWriteBuffer buf2 bufsiz2
+                    wbuf3 <- newWriteBuffer buf3 bufsiz3
+                    thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+                    when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
+                    hb0 <- toByteString wbuf1
+                    ins <- toByteString wbuf3
+                    encodePrefix wbuf2 dyntbl
+                    prefix <- toByteString wbuf2
+                    let hb = prefix `B.append` hb0
+                    return (hb, ins)
 
 decoderInstructionHandler
     :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
