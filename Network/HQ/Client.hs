@@ -36,12 +36,12 @@ import Data.IORef
 import Data.Maybe (fromJust)
 import Network.HPACK
 import qualified Network.HTTP2.Client as H2
-import Network.HTTP2.Client.Internal (Request (..), Response (..), Aux (..))
+import Network.HTTP2.Client.Internal (Aux (..), Request (..), Response (..))
 import Network.HTTP2.Internal (InpObj (..))
 import qualified Network.HTTP2.Internal as H2
 import Network.QUIC (Connection)
-import Network.QUIC.Internal (possibleMyStreams)
 import qualified Network.QUIC as QUIC
+import Network.QUIC.Internal (possibleMyStreams)
 import qualified UnliftIO.Exception as E
 
 import qualified Network.HTTP3.Client as H3

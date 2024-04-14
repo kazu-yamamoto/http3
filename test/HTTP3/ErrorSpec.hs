@@ -10,4 +10,7 @@ import HTTP3.Error
 import HTTP3.Server
 
 spec :: Spec
-spec = beforeAll setup $ afterAll teardown $ h3ErrorSpec testClientConfig testH3ClientConfig 2000 -- 2 seconds
+spec =
+    beforeAll setup $
+        afterAll teardown $
+            h3ErrorSpec testClientConfig testH3ClientConfig 2000 -- 2 seconds

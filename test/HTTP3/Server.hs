@@ -2,12 +2,12 @@
 {-# LANGUAGE RankNTypes #-}
 
 module HTTP3.Server (
-    setup
-  , teardown
-  , trailersMaker
-  , firstTrailerValue
-  , CH.hashInit
-  ) where
+    setup,
+    teardown,
+    trailersMaker,
+    firstTrailerValue,
+    CH.hashInit,
+) where
 
 import Control.Concurrent
 import Control.Monad
@@ -42,13 +42,13 @@ teardown tid = killThread tid
 
 server :: Server
 server req _aux sendResponse = case requestMethod req of
-  Just "GET"  -> case requestPath req of
-                   Just "/" -> sendResponse responseHello []
-                   _        -> sendResponse response404 []
-  Just "POST" -> case requestPath req of
-                   Just "/echo" -> sendResponse (responseEcho req) []
-                   _        -> sendResponse responseHello []
-  _           -> sendResponse response405 []
+    Just "GET" -> case requestPath req of
+        Just "/" -> sendResponse responseHello []
+        _ -> sendResponse response404 []
+    Just "POST" -> case requestPath req of
+        Just "/echo" -> sendResponse (responseEcho req) []
+        _ -> sendResponse responseHello []
+    _ -> sendResponse response405 []
 
 responseHello :: Response
 responseHello = responseBuilder ok200 header body
@@ -70,7 +70,8 @@ responseEcho req = setResponseTrailersMaker h2rsp maker
     streamingBody write _flush = do
         loop
         mt <- getRequestTrailers req
-        firstTrailerValue <$> mt `shouldBe` Just "b0870457df2b8cae06a88657a198d9b52f8e2b0a"
+        firstTrailerValue <$> mt
+            `shouldBe` Just "b0870457df2b8cae06a88657a198d9b52f8e2b0a"
       where
         loop = do
             bs <- getRequestBodyChunk req

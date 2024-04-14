@@ -27,15 +27,17 @@ h3spec = do
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
-      C.run conn testH3ClientConfig conf client
+        C.run conn testH3ClientConfig conf client
   where
     client :: C.Client ()
-    client sendRequest _aux = foldr1 concurrently_ [
-        client0 sendRequest _aux
-      , client1 sendRequest _aux
-      , client2 sendRequest _aux
-      , client3 sendRequest _aux
-      ]
+    client sendRequest _aux =
+        foldr1
+            concurrently_
+            [ client0 sendRequest _aux
+            , client1 sendRequest _aux
+            , client2 sendRequest _aux
+            , client3 sendRequest _aux
+            ]
 
 client0 :: C.Client ()
 client0 sendRequest _aux = do
@@ -65,6 +67,7 @@ client3 sendRequest _aux = do
                 unless (B.null bs) comsumeBody
         comsumeBody
         mt <- C.getResponseTrailers rsp
-        firstTrailerValue <$> mt `shouldBe` Just "b0870457df2b8cae06a88657a198d9b52f8e2b0a"
+        firstTrailerValue <$> mt
+            `shouldBe` Just "b0870457df2b8cae06a88657a198d9b52f8e2b0a"
   where
     maker = trailersMaker hashInit
