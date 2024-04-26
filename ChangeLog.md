@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.11
+
+* Using http-semantics.
+
 ## 0.0.10
 
 * Locking QPCK encoder
