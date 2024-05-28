@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.12
+
+* Catching up http-semantics v0.0.1.
+
 ## 0.0.11
 
 * Using http-semantics.
