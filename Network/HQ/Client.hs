@@ -44,7 +44,7 @@ import qualified UnliftIO.Exception as E
 
 import Imports
 import qualified Network.HTTP3.Client as H3
-import Network.HTTP3.Recv (newSource, readSource)
+import Network.HTTP3.Recv (newSource, readSource')
 
 -- | Running an HQ client.
 run :: Connection -> H3.ClientConfig -> H3.Config -> Client a -> IO a
@@ -65,7 +65,7 @@ sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm
     src <- newSource strm
     refH <- newIORef Nothing
     vt <- toTokenHeaderTable []
-    let readB = readSource src
+    let readB = readSource' src
         rsp = Response $ InpObj vt Nothing readB refH
     processResponse rsp
   where

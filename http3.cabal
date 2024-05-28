@@ -81,7 +81,7 @@ library
         bytestring,
         case-insensitive,
         containers,
-        http-semantics,
+        http-semantics >= 0.0.1,
         http-types,
         http2 >=5.2 && <5.3,
         network,

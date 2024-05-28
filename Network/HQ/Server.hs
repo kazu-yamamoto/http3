@@ -50,7 +50,7 @@ import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Config
-import Network.HTTP3.Recv (newSource, readSource)
+import Network.HTTP3.Recv (newSource, readSource')
 
 -- | Running an HQ server.
 run :: Connection -> Config -> Server -> IO ()
@@ -71,7 +71,7 @@ processRequest conf mysa peersa server strm
         vt <- recvHeader strm mysa
         src <- newSource strm
         refH <- newIORef Nothing
-        let readB = readSource src
+        let readB = readSource' src
             req = Request $ InpObj vt Nothing readB refH
             aux = Aux th mysa peersa
         server req aux $ sendResponse conf strm

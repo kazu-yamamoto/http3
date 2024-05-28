@@ -5,6 +5,7 @@ module Network.HTTP3.Recv (
     Source,
     newSource,
     readSource,
+    readSource',
     recvHeader,
     recvBody,
 ) where
@@ -34,6 +35,11 @@ readSource Source{..} = do
         Just x -> do
             writeIORef sourcePending Nothing
             return x
+
+readSource' :: Source -> IO (ByteString, Bool)
+readSource' src = do
+    x <- readSource src
+    return $ if x == "" then (x, True) else (x, False)
 
 pushbackSource :: Source -> ByteString -> IO ()
 pushbackSource _ "" = return ()
@@ -67,7 +73,7 @@ recvBody
     -> Source
     -> IORef IFrame
     -> IORef (Maybe TokenHeaderTable)
-    -> IO ByteString
+    -> IO (ByteString, Bool)
 recvBody ctx src refI refH = do
     st <- readIORef refI
     loop st
@@ -75,7 +81,7 @@ recvBody ctx src refI refH = do
     loop st = do
         bs <- readSource src
         if bs == ""
-            then return ""
+            then return ("", True)
             else case parseH3Frame st bs of
                 IPay H3FrameData siz received bss -> do
                     let st' = IPay H3FrameData siz received []
@@ -83,22 +89,23 @@ recvBody ctx src refI refH = do
                         then loop st'
                         else do
                             writeIORef refI st'
-                            return $ BS.concat $ reverse bss
+                            let ret = BS.concat $ reverse bss
+                            return (ret, False)
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         writeIORef refI IInit
                         -- pushbackSource src leftover -- fixme
                         hdr <- qpackDecode ctx payload
                         writeIORef refH $ Just hdr
-                        return ""
+                        return ("", True)
                     | typ == H3FrameData -> do
                         writeIORef refI IInit
                         pushbackSource src leftover
-                        return payload
+                        return (payload, False)
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
                         loop IInit
                     | otherwise -> do
                         abort ctx H3FrameUnexpected
-                        return payload -- dummy
+                        return (payload, False) -- dummy
                 st' -> loop st'
