@@ -6,7 +6,6 @@ module Network.HTTP3.Send (
     sendBody,
 ) where
 
-import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
@@ -53,7 +52,8 @@ sendBody ctx strm th outobj = case outObjBody outobj of
             strm
             th
             tlrmkr
-            (\unmask push flush -> unmask $ strmbdy push flush)
+            ( \iface -> outBodyUnmask iface $ strmbdy (outBodyPush iface) (outBodyFlush iface)
+            )
     OutBodyStreamingUnmask strmbdy -> sendStreaming ctx strm th tlrmkr strmbdy
   where
     tlrmkr = outObjTrailers outobj
@@ -73,7 +73,7 @@ newByteStringWith
     :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
 newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
-    Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
+    Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0
         then return ("", Nothing, tlrmkr0)
         else do
@@ -104,11 +104,19 @@ sendStreaming
     -> Stream
     -> T.Handle
     -> TrailersMaker
-    -> ((forall x. IO x -> IO x) -> (Builder -> IO ()) -> IO () -> IO ())
+    -> (OutBodyIface -> IO ())
     -> IO ()
 sendStreaming ctx strm th tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
-    E.mask $ \unmask -> strmbdy unmask (write ref) flush
+    E.mask $ \unmask -> do
+        let iface =
+                OutBodyIface
+                    { outBodyUnmask = unmask
+                    , outBodyPush = write ref
+                    , outBodyPushFinal = write ref -- fixme
+                    , outBodyFlush = flush
+                    }
+        strmbdy iface
     tlrmkr <- readIORef ref
     Trailers trailers <- tlrmkr Nothing
     unless (null trailers) $ sendHeader ctx strm th trailers

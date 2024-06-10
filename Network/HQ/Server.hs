@@ -126,7 +126,7 @@ sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
 sendNext :: Stream -> DynaNext -> IO ()
 sendNext strm action = do
     fp <- BS.mallocByteString 2048
-    Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048 65536 -- window size
+    Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0
         then return ()
         else do
