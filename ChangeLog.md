@@ -1,5 +1,10 @@
 # Revision history for http3
 
+## 0.0.13
+
+* Using OutBodyIface.
+  [#5](https://github.com/kazu-yamamoto/http3/pull/5)
+
 ## 0.0.12
 
 * Catching up http-semantics v0.0.1.
