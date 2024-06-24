@@ -112,7 +112,7 @@ executable h3-server
         http2,
         http3,
         quic,
-        tls,
+        tls < 2.2,
         tls-session-manager,
         unliftio
 
