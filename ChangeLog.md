@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.14
+
+* Preparing for tls v2.1
+
 ## 0.0.13
 
 * Using OutBodyIface.
