@@ -120,7 +120,7 @@ sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
         let next = fillBuilderBodyGetNext builder
         sendNext strm next
     OutBodyStreaming strmbdy -> sendStreaming strm strmbdy
-    OutBodyStreamingUnmask _ ->
+    OutBodyStreamingIface _ ->
         error "sendResponse: server does not support OutBodyStreamingUnmask"
 
 sendNext :: Stream -> DynaNext -> IO ()
