@@ -2,6 +2,10 @@
 
 ## 0.0.14
 
+* Using http-semantics v0.2
+
+## 0.0.14
+
 * Preparing for tls v2.1
 
 ## 0.0.13
