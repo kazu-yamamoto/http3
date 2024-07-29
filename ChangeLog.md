@@ -1,6 +1,10 @@
 # Revision history for http3
 
-## 0.0.14
+## 0.0.16
+
+* Using quic v0.2
+
+## 0.0.15
 
 * Using http-semantics v0.2
 
