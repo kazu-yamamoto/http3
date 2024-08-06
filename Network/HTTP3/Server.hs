@@ -40,15 +40,15 @@ run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
     tid <- forkIO $ setupUnidirectional conn conf
     addThreadId ctx tid
-    readerServer ctx server
+    readerServer ctx $ processRequest ctx server
   where
     open = do
         ref <- newIORef IInit
         newContext conn conf (controlStream conn ref)
     close = clearContext
 
-readerServer :: Context -> Server -> IO ()
-readerServer ctx server = loop
+readerServer :: Context -> (Stream -> IO ()) -> IO ()
+readerServer ctx action = loop
   where
     loop = do
         accept ctx >>= process
@@ -58,7 +58,7 @@ readerServer ctx server = loop
             tid <- forkIO $ unidirectional ctx strm
             addThreadId ctx tid
         | QUIC.isClientInitiatedBidirectional sid =
-            void $ forkFinally (processRequest ctx server strm) (\_ -> closeStream strm)
+            void $ forkFinally (action strm) (\_ -> closeStream strm)
         | QUIC.isServerInitiatedUnidirectional sid = return () -- error
         | otherwise = return ()
       where
@@ -71,20 +71,8 @@ processRequest ctx server strm = E.handleAny reset $ do
     mvt <- recvHeader ctx src
     case mvt of
         Nothing -> QUIC.resetStream strm H3MessageError
-        Just ht@(_, vt) -> do
-            let mMethod = getFieldValue tokenMethod vt
-                mScheme = getFieldValue tokenScheme vt
-                mAuthority = getFieldValue tokenAuthority vt
-                mPath = getFieldValue tokenPath vt
-            case (mMethod, mScheme, mAuthority, mPath) of
-                (Just "CONNECT", _, Just _, _) -> return ()
-                (Just _, Just _, Just _, Just _) -> return ()
-                _ -> QUIC.resetStream strm H3MessageError
-            -- fixme: Content-Length
-            refI <- newIORef IInit
-            refH <- newIORef Nothing
-            let readB = recvBody ctx src refI refH
-                req = Request $ InpObj ht Nothing readB refH
+        Just ht -> do
+            req <- mkRequest ctx strm src ht
             let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
             server req aux $ sendResponse ctx strm th
   where
@@ -92,6 +80,28 @@ processRequest ctx server strm = E.handleAny reset $ do
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
+
+mkRequest
+    :: Context
+    -> Stream
+    -> Source
+    -> (TokenHeaderList, ValueTable)
+    -> IO Request
+mkRequest ctx strm src ht@(_, vt) = do
+    let mMethod = getFieldValue tokenMethod vt
+        mScheme = getFieldValue tokenScheme vt
+        mAuthority = getFieldValue tokenAuthority vt
+        mPath = getFieldValue tokenPath vt
+    case (mMethod, mScheme, mAuthority, mPath) of
+        (Just "CONNECT", _, Just _, _) -> return ()
+        (Just _, Just _, Just _, Just _) -> return ()
+        _ -> QUIC.resetStream strm H3MessageError
+    -- fixme: Content-Length
+    refI <- newIORef IInit
+    refH <- newIORef Nothing
+    let readB = recvBody ctx src refI refH
+        req = Request $ InpObj ht Nothing readB refH
+    return req
 
 sendResponse
     :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
