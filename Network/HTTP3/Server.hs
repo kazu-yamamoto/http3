@@ -163,4 +163,4 @@ sendResponseIO ctx strm (Response outobj) = do
     th <- registerThread ctx -- fixme
     sendHeader ctx strm th $ outObjHeaders outobj
     sendBody ctx strm th outobj
-    QUIC.shutdownStream strm
+    QUIC.closeStream strm
