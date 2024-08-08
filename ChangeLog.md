@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.17
+
+* Providing ServerIO API
+
 ## 0.0.16
 
 * Using quic v0.2
