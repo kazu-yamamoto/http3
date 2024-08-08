@@ -13,14 +13,21 @@ module Network.HTTP3.Server (
     Hooks (..),
     defaultHooks,
     module Network.HTTP.Semantics.Server,
+
+    -- * Internal
+    runIO,
+    ServerIO (..),
 ) where
 
 import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Data.IORef
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
 import Network.HTTP.Semantics.Server.Internal
-import Network.QUIC (Connection, Stream)
+import Network.HTTP2.Server.Internal (ServerIO (..))
+import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
 import qualified UnliftIO.Exception as E
@@ -40,7 +47,33 @@ run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
     tid <- forkIO $ setupUnidirectional conn conf
     addThreadId ctx tid
-    readerServer ctx $ processRequest ctx server
+    readerServer ctx $ \strm ->
+        void $
+            forkFinally
+                (processRequest ctx server strm)
+                (\_ -> closeStream strm)
+  where
+    open = do
+        ref <- newIORef IInit
+        newContext conn conf (controlStream conn ref)
+    close = clearContext
+
+runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
+runIO conn conf action = E.bracket open close $ \ctx -> do
+    tid <- forkIO $ setupUnidirectional conn conf
+    info <- getConnectionInfo conn
+    addThreadId ctx tid
+    reqq <- newTQueueIO
+    let sio =
+            ServerIO
+                { sioMySockAddr = localSockAddr info
+                , sioPeerSockAddr = remoteSockAddr info
+                , sioReadRequest = atomically $ readTQueue reqq
+                , sioWriteResponse = sendResponseIO ctx
+                }
+        put strmreq = atomically $ writeTQueue reqq strmreq
+    io <- action sio
+    concurrently_ io (readerServer ctx $ processRequestIO ctx put)
   where
     open = do
         ref <- newIORef IInit
@@ -57,8 +90,7 @@ readerServer ctx action = loop
         | QUIC.isClientInitiatedUnidirectional sid = do
             tid <- forkIO $ unidirectional ctx strm
             addThreadId ctx tid
-        | QUIC.isClientInitiatedBidirectional sid =
-            void $ forkFinally (action strm) (\_ -> closeStream strm)
+        | QUIC.isClientInitiatedBidirectional sid = action strm
         | QUIC.isServerInitiatedUnidirectional sid = return () -- error
         | otherwise = return ()
       where
@@ -75,6 +107,21 @@ processRequest ctx server strm = E.handleAny reset $ do
             req <- mkRequest ctx strm src ht
             let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
             server req aux $ sendResponse ctx strm th
+  where
+    reset se
+        | Just (_ :: DecodeError) <- E.fromException se =
+            abort ctx QpackDecompressionFailed
+        | otherwise = QUIC.resetStream strm H3MessageError
+
+processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
+processRequestIO ctx put strm = E.handleAny reset $ do
+    src <- newSource strm
+    mvt <- recvHeader ctx src
+    case mvt of
+        Nothing -> QUIC.resetStream strm H3MessageError
+        Just ht -> do
+            req <- mkRequest ctx strm src ht
+            put (strm, req)
   where
     reset se
         | Just (_ :: DecodeError) <- E.fromException se =
@@ -109,3 +156,11 @@ sendResponse ctx strm th (Response outobj) _pp = do
     sendHeader ctx strm th $ outObjHeaders outobj
     sendBody ctx strm th outobj
     QUIC.shutdownStream strm
+
+sendResponseIO
+    :: Context -> Stream -> Response -> IO ()
+sendResponseIO ctx strm (Response outobj) = do
+    th <- registerThread ctx -- fixme
+    sendHeader ctx strm th $ outObjHeaders outobj
+    sendBody ctx strm th outobj
+    QUIC.closeStream strm
