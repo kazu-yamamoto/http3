@@ -44,8 +44,7 @@ test efile qfile = do
     withFile qfile ReadMode $ \h -> do
         tid <- forkIO $ decode dec h recv mvar
         runConduitRes
-            ( sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr)
-            )
+            (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
         takeMVar mvar
         killThread tid
 

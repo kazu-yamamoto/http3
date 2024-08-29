@@ -52,8 +52,7 @@ sendBody ctx strm th outobj = case outObjBody outobj of
             strm
             th
             tlrmkr
-            ( \iface -> outBodyUnmask iface $ strmbdy (outBodyPush iface) (outBodyFlush iface)
-            )
+            (\iface -> outBodyUnmask iface $ strmbdy (outBodyPush iface) (outBodyFlush iface))
     OutBodyStreamingIface strmbdy -> sendStreaming ctx strm th tlrmkr strmbdy
   where
     tlrmkr = outObjTrailers outobj
