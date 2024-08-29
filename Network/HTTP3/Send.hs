@@ -114,13 +114,16 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
                     , outBodyPush = write ref
                     , outBodyPushFinal = write ref -- fixme
                     , outBodyFlush = flush
+                    , outBodyCancel = cancel
                     }
         strmbdy iface
     tlrmkr <- readIORef ref
     Trailers trailers <- tlrmkr Nothing
     unless (null trailers) $ sendHeader ctx strm th trailers
   where
+    -- fixme: how to implement flush and cancel?
     flush = return ()
+    cancel _ = return ()
     write ref builder = do
         tlrmkr1 <- readIORef ref
         tlrmkr2 <- newByteStringAndSend strm th tlrmkr1 (B.runBuilder builder) >>= loop
