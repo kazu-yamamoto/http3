@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.18
+
+* Using http-semantics v0.2.1
+
 ## 0.0.17
 
 * Providing ServerIO API
