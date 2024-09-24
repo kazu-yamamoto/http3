@@ -107,14 +107,8 @@ sendResponse :: Config -> Stream -> Response -> [PushPromise] -> IO ()
 sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
     OutBodyNone -> return ()
     OutBodyFile (FileSpec path fileoff bytecount) -> do
-        (pread, sentinel') <- confPositionReadMaker conf path
-        let timmgr = confTimeoutManager conf
-        refresh <- case sentinel' of
-            Closer closer -> do
-                th <- T.register timmgr closer
-                return $ T.tickle th
-            Refresher refresher -> return refresher
-        let next = fillFileBodyGetNext pread fileoff bytecount refresh
+        (pread, sentinel) <- confPositionReadMaker conf path
+        let next = fillFileBodyGetNext pread fileoff bytecount sentinel
         sendNext strm next
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder

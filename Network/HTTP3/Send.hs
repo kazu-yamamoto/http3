@@ -37,11 +37,8 @@ sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO ()
 sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyNone -> return ()
     OutBodyFile (FileSpec path fileoff bytecount) -> do
-        (pread, sentinel') <- pReadMaker ctx path
-        refresh <- case sentinel' of
-            Closer closer -> timeoutClose ctx closer
-            Refresher refresher -> return refresher
-        let next = fillFileBodyGetNext pread fileoff bytecount refresh
+        (pread, sentinel) <- pReadMaker ctx path
+        let next = fillFileBodyGetNext pread fileoff bytecount sentinel
         sendNext ctx strm th next tlrmkr
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
