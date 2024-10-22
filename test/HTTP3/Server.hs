@@ -24,7 +24,7 @@ import Network.HTTP3.Server
 import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
 import Test.Hspec
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import HTTP3.Config
 

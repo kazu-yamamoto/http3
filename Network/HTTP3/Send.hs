@@ -16,7 +16,7 @@ import Network.HTTP.Semantics.IO
 import qualified Network.HTTP.Types as HT
 import Network.QUIC
 import qualified System.TimeManager as T
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.HTTP3.Context

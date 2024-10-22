@@ -16,7 +16,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import Network.QUIC
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import qualified Network.HQ.Client as HQ
 import Network.HTTP3.Client (

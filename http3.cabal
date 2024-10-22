@@ -90,8 +90,7 @@ library
         quic >= 0.2 && < 0.3,
         sockaddr,
         stm,
-        time-manager,
-        unliftio
+        time-manager
 
 executable h3-server
     main-is:            h3-server.hs
@@ -114,8 +113,7 @@ executable h3-server
         http3,
         quic,
         tls < 2.2,
-        tls-session-manager,
-        unliftio
+        tls-session-manager
 
     if flag(devel)
 
@@ -142,8 +140,7 @@ executable h3-client
         http3,
         quic,
         tls,
-        unix-time,
-        unliftio
+        unix-time
 
     if flag(devel)
 
@@ -164,8 +161,7 @@ executable qif
         conduit-extra,
         http3,
         quic,
-        stm,
-        unliftio
+        stm
 
     if flag(devel)
 
@@ -194,6 +190,7 @@ test-suite spec
         base >=4.9 && <5,
         QuickCheck,
         attoparsec,
+        async,
         base16-bytestring,
         bytestring,
         conduit,
@@ -208,5 +205,4 @@ test-suite spec
         network,
         quic,
         stm,
-        tls,
-        unliftio
+        tls

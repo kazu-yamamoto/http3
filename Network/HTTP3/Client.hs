@@ -25,7 +25,7 @@ import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.HTTP3.Config

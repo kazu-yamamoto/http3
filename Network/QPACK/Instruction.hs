@@ -32,7 +32,7 @@ import Network.HPACK.Internal (
     encodeS,
     entryHeaderName,
  )
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Table.Static

@@ -58,7 +58,7 @@ import Network.HPACK.Internal (
  )
 import Network.HTTP.Types
 import Network.QUIC.Internal (stdoutLogger)
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Error

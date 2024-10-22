@@ -30,7 +30,7 @@ import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.HTTP3.Config
@@ -97,7 +97,7 @@ readerServer ctx action = loop
         sid = QUIC.streamId strm
 
 processRequest :: Context -> Server -> Stream -> IO ()
-processRequest ctx server strm = E.handleAny reset $ do
+processRequest ctx server strm = E.handle reset $ do
     th <- registerThread ctx
     src <- newSource strm
     mvt <- recvHeader ctx src
@@ -109,12 +109,13 @@ processRequest ctx server strm = E.handleAny reset $ do
             server req aux $ sendResponse ctx strm th
   where
     reset se
+        | Just E.ThreadKilled <- E.fromException se = return ()
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
 
 processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
-processRequestIO ctx put strm = E.handleAny reset $ do
+processRequestIO ctx put strm = E.handle reset $ do
     src <- newSource strm
     mvt <- recvHeader ctx src
     case mvt of
@@ -124,6 +125,7 @@ processRequestIO ctx put strm = E.handleAny reset $ do
             put (strm, req)
   where
     reset se
+        | Just E.ThreadKilled <- E.fromException se = return ()
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError

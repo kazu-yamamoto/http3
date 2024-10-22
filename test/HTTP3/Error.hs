@@ -17,8 +17,8 @@ import Network.QUIC
 import Network.QUIC.Client
 import Network.QUIC.Internal hiding (timeout)
 import Test.Hspec
-import qualified UnliftIO.Exception as E
-import UnliftIO.Timeout
+import qualified Control.Exception as E
+import System.Timeout
 
 ----------------------------------------------------------------
 

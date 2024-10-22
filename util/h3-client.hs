@@ -18,7 +18,7 @@ import System.Environment
 import System.Exit
 import System.IO
 import Text.Printf
-import qualified UnliftIO.Timeout as T
+import qualified Control.Timeout as T
 
 import ClientX
 import Common

@@ -13,7 +13,7 @@ module Network.QPACK.Error (
 ) where
 
 import Data.Typeable
-import UnliftIO.Exception
+import Control.Exception
 
 import Network.QUIC
 

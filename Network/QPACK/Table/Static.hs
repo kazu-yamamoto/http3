@@ -10,7 +10,7 @@ import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
 import Network.HPACK.Internal (Entry, Index, Size, toEntry)
 import Network.HTTP.Types (Header)
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Network.QPACK.Error
 import Network.QPACK.Types
@@ -34,7 +34,7 @@ staticTableSize = length staticTableList
 toStaticEntry :: AbsoluteIndex -> Entry
 toStaticEntry (AbsoluteIndex sidx)
     | sidx < staticTableSize = staticTable `unsafeAt` sidx
-    | otherwise = E.impureThrow IllegalStaticIndex
+    | otherwise = E.throw IllegalStaticIndex
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry

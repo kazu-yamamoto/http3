@@ -18,7 +18,7 @@ import Network.HPACK.Internal (
     dummyEntry,
     maxNumbers,
  )
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Table.RevIndex

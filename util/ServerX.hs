@@ -17,7 +17,7 @@ import qualified Network.HQ.Server as HQ
 import Network.HTTP.Types
 import Network.HTTP2.Server hiding (run)
 import qualified Network.HTTP3.Server as H3
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Network.QUIC
 

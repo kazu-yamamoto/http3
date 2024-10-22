@@ -33,7 +33,7 @@ import Network.QUIC.Internal (connDebugLog, isClient, isServer)
 import Network.Socket (SockAddr)
 import System.Mem.Weak
 import qualified System.TimeManager as T
-import qualified UnliftIO.Exception as E
+import qualified Control.Exception as E
 
 import Network.HTTP3.Config
 import Network.HTTP3.Stream
@@ -58,8 +58,8 @@ newContext conn conf ctl = do
     (enc, handleDI) <- newQEncoder defaultQEncoderConfig
     (dec, handleEI) <- newQDecoder defaultQDecoderConfig
     info <- getConnectionInfo conn
-    let handleDI' recv = handleDI recv `E.catchAny` abortWith QpackDecoderStreamError
-        handleEI' recv = handleEI recv `E.catchAny` abortWith QpackEncoderStreamError
+    let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
+        handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
         sw = switch conn ctl handleEI' handleDI'
         preadM = confPositionReadMaker conf
         timmgr = confTimeoutManager conf
@@ -68,7 +68,9 @@ newContext conn conf ctl = do
         peersa = remoteSockAddr info
     Context conn enc dec sw preadM timmgr hooks mysa peersa <$> newIORef []
   where
-    abortWith aerr _se = abortConnection conn aerr ""
+    abortWith aerr se
+      | Just E.ThreadKilled <- E.fromException se = return ()
+      | otherwise = abortConnection conn aerr ""
 
 clearContext :: Context -> IO ()
 clearContext ctx = clearThreads ctx
