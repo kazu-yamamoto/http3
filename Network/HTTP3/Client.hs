@@ -18,6 +18,7 @@ module Network.HTTP3.Client (
 ) where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
 import Network.HTTP.Semantics.Client
@@ -25,7 +26,6 @@ import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
-import qualified Control.Exception as E
 
 import Imports
 import Network.HTTP3.Config

@@ -31,6 +31,7 @@ module Network.HQ.Client (
     getResponseBodyChunk,
 ) where
 
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HPACK
@@ -40,7 +41,6 @@ import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
-import qualified Control.Exception as E
 
 import Imports
 import qualified Network.HTTP3.Client as H3

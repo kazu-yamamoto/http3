@@ -6,6 +6,7 @@ module QPACK.QIFSpec where
 import Conduit hiding (yield)
 import Control.Concurrent
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
@@ -15,7 +16,6 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import System.IO
 import Test.Hspec
-import qualified Control.Exception as E
 
 import Network.QPACK
 

@@ -46,6 +46,7 @@ module Network.QPACK (
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Network.ByteOrder
@@ -58,7 +59,6 @@ import Network.HPACK.Internal (
  )
 import Network.HTTP.Types
 import Network.QUIC.Internal (stdoutLogger)
-import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Error
