@@ -22,6 +22,7 @@ module Network.HTTP3.Server (
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Data.IORef
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
@@ -30,7 +31,6 @@ import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
-import qualified Control.Exception as E
 
 import Imports
 import Network.HTTP3.Config

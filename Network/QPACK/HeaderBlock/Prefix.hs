@@ -10,9 +10,9 @@ module Network.QPACK.HeaderBlock.Prefix (
     decodeBase,
 ) where
 
+import qualified Control.Exception as E
 import Network.ByteOrder
 import Network.HPACK.Internal (decodeI, encodeI)
-import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Error

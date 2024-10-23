@@ -20,6 +20,7 @@ module Network.QPACK.Instruction (
     decodeDI,
 ) where
 
+import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
@@ -32,7 +33,6 @@ import Network.HPACK.Internal (
     encodeS,
     entryHeaderName,
  )
-import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Table.Static

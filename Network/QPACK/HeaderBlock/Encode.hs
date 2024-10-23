@@ -10,6 +10,7 @@ module Network.QPACK.HeaderBlock.Encode (
     CompressionAlgo (..),
 ) where
 
+import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
@@ -22,7 +23,6 @@ import Network.HPACK.Internal (
  )
 import Network.HTTP.Semantics
 import Network.HTTP.Types
-import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.HeaderBlock.Prefix

@@ -12,8 +12,8 @@ module Network.QPACK.Error (
     DecoderInstructionError (..),
 ) where
 
-import Data.Typeable
 import Control.Exception
+import Data.Typeable
 
 import Network.QUIC
 

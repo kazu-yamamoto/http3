@@ -6,8 +6,11 @@ module ServerX (
 )
 where
 
+-- crypton
+
+import qualified Control.Exception as E
 import Control.Monad
-import Crypto.Hash (Context, SHA1) -- crypton
+import Crypto.Hash (Context, SHA1)
 import qualified Crypto.Hash as CH
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -17,7 +20,6 @@ import qualified Network.HQ.Server as HQ
 import Network.HTTP.Types
 import Network.HTTP2.Server hiding (run)
 import qualified Network.HTTP3.Server as H3
-import qualified Control.Exception as E
 
 import Network.QUIC
 

@@ -25,6 +25,7 @@ module Network.HTTP3.Context (
 ) where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HTTP.Semantics.Client
@@ -33,7 +34,6 @@ import Network.QUIC.Internal (connDebugLog, isClient, isServer)
 import Network.Socket (SockAddr)
 import System.Mem.Weak
 import qualified System.TimeManager as T
-import qualified Control.Exception as E
 
 import Network.HTTP3.Config
 import Network.HTTP3.Stream
@@ -69,8 +69,8 @@ newContext conn conf ctl = do
     Context conn enc dec sw preadM timmgr hooks mysa peersa <$> newIORef []
   where
     abortWith aerr se
-      | Just E.ThreadKilled <- E.fromException se = return ()
-      | otherwise = abortConnection conn aerr ""
+        | Just E.ThreadKilled <- E.fromException se = return ()
+        | otherwise = abortConnection conn aerr ""
 
 clearContext :: Context -> IO ()
 clearContext ctx = clearThreads ctx

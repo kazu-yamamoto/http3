@@ -10,8 +10,11 @@ module HTTP3.Server (
 ) where
 
 import Control.Concurrent
+-- cryptonite
+
+import qualified Control.Exception as E
 import Control.Monad
-import Crypto.Hash (Context, SHA1) -- cryptonite
+import Crypto.Hash (Context, SHA1)
 import qualified Crypto.Hash as CH
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -24,7 +27,6 @@ import Network.HTTP3.Server
 import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
 import Test.Hspec
-import qualified Control.Exception as E
 
 import HTTP3.Config
 

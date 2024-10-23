@@ -6,6 +6,7 @@ module HTTP3.Error (
 ) where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import Data.ByteString ()
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -16,9 +17,8 @@ import Network.QPACK.Internal
 import Network.QUIC
 import Network.QUIC.Client
 import Network.QUIC.Internal hiding (timeout)
-import Test.Hspec
-import qualified Control.Exception as E
 import System.Timeout
+import Test.Hspec
 
 ----------------------------------------------------------------
 

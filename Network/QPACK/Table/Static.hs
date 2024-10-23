@@ -6,11 +6,11 @@ module Network.QPACK.Table.Static (
     staticTableList,
 ) where
 
+import qualified Control.Exception as E
 import Data.Array (Array, listArray)
 import Data.Array.Base (unsafeAt)
 import Network.HPACK.Internal (Entry, Index, Size, toEntry)
 import Network.HTTP.Types (Header)
-import qualified Control.Exception as E
 
 import Network.QPACK.Error
 import Network.QPACK.Types

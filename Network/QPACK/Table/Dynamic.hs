@@ -4,6 +4,7 @@
 module Network.QPACK.Table.Dynamic where
 
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.MArray (newArray)
 import Data.IORef
@@ -18,7 +19,6 @@ import Network.HPACK.Internal (
     dummyEntry,
     maxNumbers,
  )
-import qualified Control.Exception as E
 
 import Imports
 import Network.QPACK.Table.RevIndex

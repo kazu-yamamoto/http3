@@ -11,12 +11,12 @@ module ClientX (
 
 import Control.Concurrent
 import Control.Concurrent.Async
+import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import Network.QUIC
-import qualified Control.Exception as E
 
 import qualified Network.HQ.Client as HQ
 import Network.HTTP3.Client (
