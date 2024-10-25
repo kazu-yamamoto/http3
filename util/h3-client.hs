@@ -6,7 +6,6 @@ module Main where
 
 import Control.Concurrent
 import Control.Monad
-import qualified Control.Timeout as T
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.UnixTime
@@ -18,6 +17,7 @@ import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import System.IO
+import qualified System.Timeout as T
 import Text.Printf
 
 import ClientX
