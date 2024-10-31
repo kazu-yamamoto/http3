@@ -24,6 +24,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.IORef
+import GHC.Conc.Sync
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
 import Network.HTTP.Semantics.Server.Internal
@@ -46,6 +47,7 @@ import Network.QPACK.Internal
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
     tid <- forkIO $ setupUnidirectional conn conf
+    labelThread tid "H3 unidirectional setter"
     addThreadId ctx tid
     readerServer ctx $ \strm ->
         void $
@@ -61,6 +63,7 @@ run conn conf server = E.bracket open close $ \ctx -> do
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO conn conf action = E.bracket open close $ \ctx -> do
     tid <- forkIO $ setupUnidirectional conn conf
+    labelThread tid "H3 unidirectional setter"
     info <- getConnectionInfo conn
     addThreadId ctx tid
     reqq <- newTQueueIO
@@ -88,7 +91,10 @@ readerServer ctx action = loop
         loop
     process strm
         | QUIC.isClientInitiatedUnidirectional sid = do
-            tid <- forkIO $ unidirectional ctx strm
+            tid <- forkIO $ do
+                tid <- myThreadId
+                labelThread tid "H3 unidirectional handler"
+                unidirectional ctx strm
             addThreadId ctx tid
         | QUIC.isClientInitiatedBidirectional sid = action strm
         | QUIC.isServerInitiatedUnidirectional sid = return () -- error
@@ -98,6 +104,8 @@ readerServer ctx action = loop
 
 processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = E.handle reset $ do
+    tid <- myThreadId
+    labelThread tid "H3 processRequest"
     th <- registerThread ctx
     src <- newSource strm
     mvt <- recvHeader ctx src
