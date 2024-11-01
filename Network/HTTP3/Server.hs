@@ -46,6 +46,7 @@ import Network.QPACK.Internal
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
+    myThreadId >>= \t -> labelThread t "H3 run"
     tid <- forkIO $ setupUnidirectional conn conf
     labelThread tid "H3 unidirectional setter"
     addThreadId ctx tid

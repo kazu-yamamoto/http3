@@ -37,6 +37,7 @@ import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
+import GHC.Conc.Sync
 import Network.HPACK.Internal (toTokenHeaderTable)
 import Network.HTTP.Semantics.IO
 import Network.HTTP.Semantics.Server
@@ -61,8 +62,13 @@ run conn conf server = do
     forever $ do
         strm <- QUIC.acceptStream conn
         forkFinally
-            (processRequest conf mysa peersa server strm)
+            (labelMe "H3 processRequest" >> processRequest conf mysa peersa server strm)
             (\_ -> QUIC.closeStream strm)
+
+labelMe :: String -> IO ()
+labelMe label = do
+    tid <- myThreadId
+    labelThread tid label
 
 processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO ()
 processRequest conf mysa peersa server strm
