@@ -193,8 +193,8 @@ main = do
     args <- getArgs
     (opts@Options{..}, ips) <- clientOpts args
     (host, port, paths) <- case ips of
-        [] -> showUsageAndExit usage
-        _ : [] -> showUsageAndExit usage
+        [] -> showUsageAndExit "no args"
+        _ : [] -> showUsageAndExit "N of args must be 2 or larger"
         h : p : [] -> return (h, p, ["/"])
         h : p : ps -> return (h, p, C8.pack <$> ps)
     cmvar <- newEmptyMVar
