@@ -1,5 +1,11 @@
 # Revision history for http3
 
+## 0.0.19
+
+* Labeling threads.
+* Removing `unliftio`.
+* Using `http-semantics` v0.3.
+
 ## 0.0.18
 
 * Using http-semantics v0.2.1
