@@ -1,5 +1,10 @@
 # Revision history for http3
 
+## 0.0.20
+
+* Unregistering handle to remove ThreadId to prevent temporary
+  thread leak.
+
 ## 0.0.19
 
 * Labeling threads.
