@@ -107,15 +107,15 @@ processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = E.handle reset $ do
     tid <- myThreadId
     labelThread tid "H3 processRequest"
-    th <- registerThread ctx
-    src <- newSource strm
-    mvt <- recvHeader ctx src
-    case mvt of
-        Nothing -> QUIC.resetStream strm H3MessageError
-        Just ht -> do
-            req <- mkRequest ctx strm src ht
-            let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
-            server req aux $ sendResponse ctx strm th
+    E.bracket (registerThread ctx) T.cancel $ \th -> do
+        src <- newSource strm
+        mvt <- recvHeader ctx src
+        case mvt of
+            Nothing -> QUIC.resetStream strm H3MessageError
+            Just ht -> do
+                req <- mkRequest ctx strm src ht
+                let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
+                server req aux $ sendResponse ctx strm th
   where
     reset se
         | Just E.ThreadKilled <- E.fromException se = return ()
@@ -170,8 +170,8 @@ sendResponse ctx strm th (Response outobj) _pp = do
 
 sendResponseIO
     :: Context -> Stream -> Response -> IO ()
-sendResponseIO ctx strm (Response outobj) = do
-    th <- registerThread ctx -- fixme
-    sendHeader ctx strm th $ outObjHeaders outobj
-    sendBody ctx strm th outobj
-    QUIC.closeStream strm
+sendResponseIO ctx strm (Response outobj) =
+    E.bracket (registerThread ctx) T.cancel $ \th -> do
+        sendHeader ctx strm th $ outObjHeaders outobj
+        sendBody ctx strm th outobj
+        QUIC.closeStream strm
