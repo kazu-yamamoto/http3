@@ -12,7 +12,6 @@ module Network.HTTP3.Context (
     qpackEncode,
     qpackDecode,
     registerThread,
-    timeoutClose,
     newStream,
     closeStream,
     pReadMaker,
@@ -111,11 +110,6 @@ unidirectional Context{..} strm = do
 
 registerThread :: Context -> IO T.Handle
 registerThread Context{..} = T.registerKillThread ctxManager (return ())
-
-timeoutClose :: Context -> IO () -> IO (IO ())
-timeoutClose Context{..} closer = do
-    th <- T.register ctxManager closer
-    return $ T.tickle th
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
