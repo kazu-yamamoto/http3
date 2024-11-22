@@ -107,7 +107,7 @@ processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = E.handle reset $ do
     tid <- myThreadId
     labelThread tid "H3 processRequest"
-    E.bracket (registerThread ctx) T.cancel $ \th -> do
+    withHandle ctx $ \th -> do
         src <- newSource strm
         mvt <- recvHeader ctx src
         case mvt of
@@ -171,7 +171,7 @@ sendResponse ctx strm th (Response outobj) _pp = do
 sendResponseIO
     :: Context -> Stream -> Response -> IO ()
 sendResponseIO ctx strm (Response outobj) =
-    E.bracket (registerThread ctx) T.cancel $ \th -> do
+    withHandle ctx $ \th -> do
         sendHeader ctx strm th $ outObjHeaders outobj
         sendBody ctx strm th outobj
         QUIC.closeStream strm

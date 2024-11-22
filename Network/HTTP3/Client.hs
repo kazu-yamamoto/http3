@@ -26,7 +26,6 @@ import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
-import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Config
@@ -81,7 +80,7 @@ readerClient ctx = loop
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse =
-    E.bracket (registerThread ctx) T.cancel $ \th -> do
+    withHandle ctx $ \th -> do
         let hdr = outObjHeaders outobj
             hdr' =
                 (":scheme", scm)

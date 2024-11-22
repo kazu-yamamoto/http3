@@ -11,7 +11,7 @@ module Network.HTTP3.Context (
     accept,
     qpackEncode,
     qpackDecode,
-    registerThread,
+    withHandle,
     newStream,
     closeStream,
     pReadMaker,
@@ -108,8 +108,8 @@ unidirectional Context{..} strm = do
     let typ = toH3StreamType $ fromIntegral w8
     ctxUniSwitch typ (recvStream strm)
 
-registerThread :: Context -> IO T.Handle
-registerThread Context{..} = T.registerKillThread ctxManager (return ())
+withHandle :: Context -> (T.Handle -> IO a) -> IO a
+withHandle Context{..} = T.withHandle ctxManager (return ())
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
