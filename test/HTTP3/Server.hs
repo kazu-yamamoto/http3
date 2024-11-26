@@ -10,6 +10,7 @@ module HTTP3.Server (
 ) where
 
 import Control.Concurrent
+
 -- cryptonite
 
 import qualified Control.Exception as E
