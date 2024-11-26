@@ -72,15 +72,15 @@ labelMe label = do
 
 processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO ()
 processRequest conf mysa peersa server strm
-    | QUIC.isClientInitiatedBidirectional sid = do
-        th <- T.register (confTimeoutManager conf) (return ())
-        vt <- recvHeader strm mysa
-        src <- newSource strm
-        refH <- newIORef Nothing
-        let readB = readSource' src
-            req = Request $ InpObj vt Nothing readB refH
-            aux = Aux th mysa peersa
-        server req aux $ sendResponse conf strm
+    | QUIC.isClientInitiatedBidirectional sid =
+        T.withHandle (confTimeoutManager conf) (return ()) $ \th -> do
+            vt <- recvHeader strm mysa
+            src <- newSource strm
+            refH <- newIORef Nothing
+            let readB = readSource' src
+                req = Request $ InpObj vt Nothing readB refH
+                aux = Aux th mysa peersa
+            server req aux $ sendResponse conf strm
     | otherwise = return () -- fixme: should consume the data?
   where
     sid = QUIC.streamId strm
