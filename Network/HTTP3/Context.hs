@@ -15,18 +15,19 @@ module Network.HTTP3.Context (
     newStream,
     closeStream,
     pReadMaker,
-    addThreadId,
     abort,
     getHooks,
     Hooks (..), -- re-export
     getMySockAddr,
     getPeerSockAddr,
+    forkManaged,
 ) where
 
 import Control.Concurrent
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
+import GHC.Conc.Sync
 import Network.HTTP.Semantics.Client
 import Network.QUIC
 import Network.QUIC.Internal (connDebugLog, isClient, isServer)
@@ -130,8 +131,10 @@ newStream Context{..} = stream ctxConnection
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
 
-addThreadId :: Context -> ThreadId -> IO ()
-addThreadId Context{..} tid = do
+forkManaged :: Context -> String -> IO () -> IO ()
+forkManaged Context{..} label action = do
+    tid <- forkIO action
+    labelThread tid label
     wtid <- mkWeakThreadId tid
     atomicModifyIORef' ctxThreads $ \ts -> (wtid : ts, ())
 

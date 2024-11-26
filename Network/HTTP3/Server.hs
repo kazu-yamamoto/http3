@@ -46,10 +46,9 @@ import Network.QPACK.Internal
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = E.bracket open close $ \ctx -> do
-    myThreadId >>= \t -> labelThread t "H3 run"
-    tid <- forkIO $ setupUnidirectional conn conf
-    labelThread tid "H3 unidirectional setter"
-    addThreadId ctx tid
+    myThreadId >>= \t -> labelThread t "H3 server: run"
+    forkManaged ctx "H3 server: unidirectional setter" $
+        setupUnidirectional conn conf
     readerServer ctx $ \strm ->
         void $
             forkFinally
@@ -63,10 +62,9 @@ run conn conf server = E.bracket open close $ \ctx -> do
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO conn conf action = E.bracket open close $ \ctx -> do
-    tid <- forkIO $ setupUnidirectional conn conf
-    labelThread tid "H3 unidirectional setter"
+    forkManaged ctx "H3 server: unidirectional setter" $
+        setupUnidirectional conn conf
     info <- getConnectionInfo conn
-    addThreadId ctx tid
     reqq <- newTQueueIO
     let sio =
             ServerIO
@@ -91,12 +89,9 @@ readerServer ctx action = loop
         accept ctx >>= process
         loop
     process strm
-        | QUIC.isClientInitiatedUnidirectional sid = do
-            tid <- forkIO $ do
-                tid <- myThreadId
-                labelThread tid "H3 unidirectional handler"
+        | QUIC.isClientInitiatedUnidirectional sid =
+            forkManaged ctx "H3 server: unidirectional handler" $
                 unidirectional ctx strm
-            addThreadId ctx tid
         | QUIC.isClientInitiatedBidirectional sid = action strm
         | QUIC.isServerInitiatedUnidirectional sid = return () -- error
         | otherwise = return ()
@@ -106,7 +101,7 @@ readerServer ctx action = loop
 processRequest :: Context -> Server -> Stream -> IO ()
 processRequest ctx server strm = E.handle reset $ do
     tid <- myThreadId
-    labelThread tid "H3 processRequest"
+    labelThread tid "H3 server: processRequest"
     withHandle ctx $ \th -> do
         src <- newSource strm
         mvt <- recvHeader ctx src

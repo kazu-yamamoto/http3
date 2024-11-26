@@ -46,10 +46,9 @@ data ClientConfig = ClientConfig
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
 run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
-    tid0 <- forkIO $ setupUnidirectional conn conf
-    addThreadId ctx tid0
-    tid1 <- forkIO $ readerClient ctx
-    addThreadId ctx tid1
+    forkManaged ctx "H3 client: unidirectional setter" $
+        setupUnidirectional conn conf
+    forkManaged ctx "H3 client: readerClient" $ readerClient ctx
     client (sendRequest ctx scheme authority) aux
   where
     open = do
@@ -70,9 +69,9 @@ readerClient ctx = loop
     process strm
         | QUIC.isClientInitiatedUnidirectional sid = return () -- error
         | QUIC.isClientInitiatedBidirectional sid = return ()
-        | QUIC.isServerInitiatedUnidirectional sid = do
-            tid <- forkIO $ unidirectional ctx strm
-            addThreadId ctx tid
+        | QUIC.isServerInitiatedUnidirectional sid =
+            forkManaged ctx "H3 client: unidirectional handler" $
+                unidirectional ctx strm
         | otherwise = return () -- push?
       where
         sid = QUIC.streamId strm
@@ -88,10 +87,9 @@ sendRequest ctx scm auth (Request outobj) processResponse =
                     : hdr
         E.bracket (newStream ctx) closeStream $ \strm -> do
             sendHeader ctx strm th hdr'
-            tid <- forkIO $ do
+            forkManaged ctx "H3 client: sendRequest" $ do
                 sendBody ctx strm th outobj
                 QUIC.shutdownStream strm
-            addThreadId ctx tid
             src <- newSource strm
             mvt <- recvHeader ctx src
             case mvt of
