@@ -65,7 +65,20 @@ newContext conn conf ctl = do
         hooks = confHooks conf
         mysa = localSockAddr info
         peersa = remoteSockAddr info
-    Context conn enc dec sw preadM timmgr hooks mysa peersa <$> newIORef []
+    ref <- newIORef []
+    return $
+        Context
+            { ctxConnection = conn
+            , ctxQEncoder = enc
+            , ctxQDecoder = dec
+            , ctxUniSwitch = sw
+            , ctxPReadMaker = preadM
+            , ctxManager = timmgr
+            , ctxHooks = hooks
+            , ctxMySockAddr = mysa
+            , ctxPeerSockAddr = peersa
+            , ctxThreads = ref
+            }
   where
     abortWith aerr se
         | Just E.ThreadKilled <- E.fromException se = return ()
