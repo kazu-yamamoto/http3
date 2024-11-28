@@ -33,7 +33,6 @@ import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
 
-import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
@@ -50,10 +49,11 @@ run conn conf server = withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 server: unidirectional setter" $
         setupUnidirectional conn conf
     readerServer ctx $ \strm ->
-        void $
-            forkFinally
-                (processRequest ctx server strm)
-                (\_ -> closeStream strm)
+        forkManagedTimeoutFinally
+            ctx
+            "H3 server: processRequest"
+            (processRequest ctx server strm)
+            (closeStream strm)
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO conn conf action = withContext conn conf $ \ctx -> do
@@ -88,22 +88,24 @@ readerServer ctx action = loop
       where
         sid = QUIC.streamId strm
 
-processRequest :: Context -> Server -> Stream -> IO ()
-processRequest ctx server strm = E.handle reset $ do
-    tid <- myThreadId
-    labelThread tid "H3 server: processRequest"
-    withHandle ctx $ \th -> do
-        src <- newSource strm
-        mvt <- recvHeader ctx src
-        case mvt of
-            Nothing -> QUIC.resetStream strm H3MessageError
-            Just ht -> do
-                req <- mkRequest ctx strm src ht
-                let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
-                server req aux $ sendResponse ctx strm th
+processRequest
+    :: Context
+    -> Server
+    -> Stream
+    -> T.Handle
+    -> IO ()
+processRequest ctx server strm th = E.handle reset $ do
+    src <- newSource strm
+    mvt <- recvHeader ctx src
+    case mvt of
+        Nothing -> QUIC.resetStream strm H3MessageError
+        Just ht -> do
+            req <- mkRequest ctx strm src ht
+            let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
+            server req aux $ sendResponse ctx strm th
   where
     reset se
-        | Just E.ThreadKilled <- E.fromException se = return ()
+        | isAsyncException se = E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
@@ -119,7 +121,7 @@ processRequestIO ctx put strm = E.handle reset $ do
             put (strm, req)
   where
     reset se
-        | Just E.ThreadKilled <- E.fromException se = return ()
+        | isAsyncException se = E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError

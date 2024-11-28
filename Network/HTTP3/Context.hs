@@ -20,6 +20,9 @@ module Network.HTTP3.Context (
     getMySockAddr,
     getPeerSockAddr,
     forkManaged,
+    forkManagedTimeout,
+    forkManagedTimeoutFinally,
+    isAsyncException,
 ) where
 
 import qualified Control.Exception as E
@@ -82,9 +85,16 @@ newContext conn conf = do
             , ctxPeerSockAddr = peersa
             }
   where
+    abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
-        | Just (T.KilledByThreadManager _) <- E.fromException se = return ()
+        | isAsyncException se = E.throwIO se
         | otherwise = abortConnection conn aerr ""
+
+isAsyncException :: E.Exception e => e -> Bool
+isAsyncException e =
+    case E.fromException (E.toException e) of
+        Just (E.SomeAsyncException _) -> True
+        Nothing -> False
 
 switch
     :: Connection
@@ -131,6 +141,15 @@ pReadMaker = ctxPReadMaker
 
 forkManaged :: Context -> String -> IO () -> IO ()
 forkManaged Context{..} = T.forkManaged ctxThreadManager
+
+forkManagedTimeout :: Context -> String -> (T.Handle -> IO ()) -> IO ()
+forkManagedTimeout Context{..} =
+    T.forkManagedTimeout ctxThreadManager
+
+forkManagedTimeoutFinally
+    :: Context -> String -> (T.Handle -> IO ()) -> IO () -> IO ()
+forkManagedTimeoutFinally Context{..} =
+    T.forkManagedTimeoutFinally ctxThreadManager
 
 abort :: Context -> ApplicationProtocolError -> IO ()
 abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""

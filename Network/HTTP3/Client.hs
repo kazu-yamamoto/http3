@@ -76,11 +76,10 @@ sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse =
     E.bracket (newStream ctx) closeStream $ \strm -> do
-        forkManaged ctx "H3 client: sendRequest" $ do
-            withHandle ctx $ \th -> do
-                sendHeader ctx strm th hdr'
-                sendBody ctx strm th outobj
-                QUIC.shutdownStream strm
+        forkManagedTimeout ctx "H3 client: sendRequest" $ \th -> do
+            sendHeader ctx strm th hdr'
+            sendBody ctx strm th outobj
+            QUIC.shutdownStream strm
         src <- newSource strm
         mvt <- recvHeader ctx src
         case mvt of
