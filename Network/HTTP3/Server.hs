@@ -45,7 +45,7 @@ import Network.QPACK.Internal
 
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
-run conn conf server = E.bracket open close $ \ctx -> do
+run conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
     forkManaged ctx "H3 server: unidirectional setter" $
         setupUnidirectional conn conf
@@ -54,14 +54,9 @@ run conn conf server = E.bracket open close $ \ctx -> do
             forkFinally
                 (processRequest ctx server strm)
                 (\_ -> closeStream strm)
-  where
-    open = do
-        ref <- newIORef IInit
-        newContext conn conf (controlStream conn ref)
-    close = clearContext
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
-runIO conn conf action = E.bracket open close $ \ctx -> do
+runIO conn conf action = withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 server: unidirectional setter" $
         setupUnidirectional conn conf
     info <- getConnectionInfo conn
@@ -76,11 +71,6 @@ runIO conn conf action = E.bracket open close $ \ctx -> do
         put strmreq = atomically $ writeTQueue reqq strmreq
     io <- action sio
     concurrently_ io (readerServer ctx $ processRequestIO ctx put)
-  where
-    open = do
-        ref <- newIORef IInit
-        newContext conn conf (controlStream conn ref)
-    close = clearContext
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop

@@ -3,8 +3,7 @@
 
 module Network.HTTP3.Context (
     Context,
-    newContext,
-    clearContext,
+    withContext,
     unidirectional,
     isH3Server,
     isH3Client,
@@ -23,19 +22,18 @@ module Network.HTTP3.Context (
     forkManaged,
 ) where
 
-import Control.Concurrent
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
-import GHC.Conc.Sync
 import Network.HTTP.Semantics.Client
 import Network.QUIC
 import Network.QUIC.Internal (connDebugLog, isClient, isServer)
 import Network.Socket (SockAddr)
-import System.Mem.Weak
-import qualified System.TimeManager as T
+import qualified System.ThreadManager as T
 
 import Network.HTTP3.Config
+import Network.HTTP3.Control
+import Network.HTTP3.Frame
 import Network.HTTP3.Stream
 import Network.QPACK
 import Network.QPACK.Internal
@@ -46,15 +44,20 @@ data Context = Context
     , ctxQDecoder :: QDecoder
     , ctxUniSwitch :: H3StreamType -> InstructionHandler
     , ctxPReadMaker :: PositionReadMaker
-    , ctxManager :: T.Manager
+    , ctxThreadManager :: T.ThreadManager
     , ctxHooks :: Hooks
     , ctxMySockAddr :: SockAddr
     , ctxPeerSockAddr :: SockAddr
-    , ctxThreads :: IORef [Weak ThreadId]
     }
 
-newContext :: Connection -> Config -> InstructionHandler -> IO Context
-newContext conn conf ctl = do
+withContext :: Connection -> Config -> (Context -> IO a) -> IO a
+withContext conn conf action = do
+    ctx <- newContext conn conf
+    T.stopAfter (ctxThreadManager ctx) (action ctx) (\_ -> return ())
+
+newContext :: Connection -> Config -> IO Context
+newContext conn conf = do
+    ctl <- controlStream conn <$> newIORef IInit
     (enc, handleDI) <- newQEncoder defaultQEncoderConfig
     (dec, handleEI) <- newQDecoder defaultQDecoderConfig
     info <- getConnectionInfo conn
@@ -62,11 +65,10 @@ newContext conn conf ctl = do
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
         sw = switch conn ctl handleEI' handleDI'
         preadM = confPositionReadMaker conf
-        timmgr = confTimeoutManager conf
         hooks = confHooks conf
         mysa = localSockAddr info
         peersa = remoteSockAddr info
-    ref <- newIORef []
+    mgr <- T.newThreadManager $ confTimeoutManager conf
     return $
         Context
             { ctxConnection = conn
@@ -74,19 +76,15 @@ newContext conn conf ctl = do
             , ctxQDecoder = dec
             , ctxUniSwitch = sw
             , ctxPReadMaker = preadM
-            , ctxManager = timmgr
+            , ctxThreadManager = mgr
             , ctxHooks = hooks
             , ctxMySockAddr = mysa
             , ctxPeerSockAddr = peersa
-            , ctxThreads = ref
             }
   where
     abortWith aerr se
-        | Just E.ThreadKilled <- E.fromException se = return ()
+        | Just (T.KilledByThreadManager _) <- E.fromException se = return ()
         | otherwise = abortConnection conn aerr ""
-
-clearContext :: Context -> IO ()
-clearContext ctx = clearThreads ctx
 
 switch
     :: Connection
@@ -123,7 +121,7 @@ unidirectional Context{..} strm = do
     ctxUniSwitch typ (recvStream strm)
 
 withHandle :: Context -> (T.Handle -> IO a) -> IO a
-withHandle Context{..} = T.withHandle ctxManager (return ())
+withHandle Context{..} = T.withHandle ctxThreadManager (return ())
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
@@ -132,23 +130,7 @@ pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
 
 forkManaged :: Context -> String -> IO () -> IO ()
-forkManaged Context{..} label action = do
-    tid <- forkIO action
-    labelThread tid label
-    wtid <- mkWeakThreadId tid
-    atomicModifyIORef' ctxThreads $ \ts -> (wtid : ts, ())
-
-clearThreads :: Context -> IO ()
-clearThreads Context{..} = do
-    wtids <- readIORef ctxThreads
-    mapM_ kill wtids
-    writeIORef ctxThreads []
-  where
-    kill wtid = do
-        mtid <- deRefWeak wtid
-        case mtid of
-            Nothing -> return ()
-            Just tid -> killThread tid
+forkManaged Context{..} = T.forkManaged ctxThreadManager
 
 abort :: Context -> ApplicationProtocolError -> IO ()
 abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""

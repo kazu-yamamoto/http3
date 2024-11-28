@@ -45,16 +45,12 @@ data ClientConfig = ClientConfig
 
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
-run conn ClientConfig{..} conf client = E.bracket open close $ \ctx -> do
+run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 client: unidirectional setter" $
         setupUnidirectional conn conf
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
     client (sendRequest ctx scheme authority) aux
   where
-    open = do
-        ref <- newIORef IInit
-        newContext conn conf (controlStream conn ref)
-    close = clearContext
     aux =
         Aux
             { auxPossibleClientStreams = possibleMyStreams conn
@@ -79,28 +75,26 @@ readerClient ctx = loop
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse =
-    withHandle ctx $ \th -> do
-        let hdr = outObjHeaders outobj
-            hdr' =
-                (":scheme", scm)
-                    : (":authority", C8.pack auth)
-                    : hdr
-        E.bracket (newStream ctx) closeStream $ \strm -> do
-            sendHeader ctx strm th hdr'
-            forkManaged ctx "H3 client: sendRequest" $ do
+    E.bracket (newStream ctx) closeStream $ \strm -> do
+        forkManaged ctx "H3 client: sendRequest" $ do
+            withHandle ctx $ \th -> do
+                sendHeader ctx strm th hdr'
                 sendBody ctx strm th outobj
                 QUIC.shutdownStream strm
-            src <- newSource strm
-            mvt <- recvHeader ctx src
-            case mvt of
-                Nothing -> do
-                    QUIC.resetStream strm H3MessageError
-                    threadDelay 100000
-                    -- just for type inference
-                    E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
-                Just vt -> do
-                    refI <- newIORef IInit
-                    refH <- newIORef Nothing
-                    let readB = recvBody ctx src refI refH
-                        rsp = Response $ InpObj vt Nothing readB refH
-                    processResponse rsp
+        src <- newSource strm
+        mvt <- recvHeader ctx src
+        case mvt of
+            Nothing -> do
+                QUIC.resetStream strm H3MessageError
+                threadDelay 100000
+                -- just for type inference
+                E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
+            Just vt -> do
+                refI <- newIORef IInit
+                refH <- newIORef Nothing
+                let readB = recvBody ctx src refI refH
+                    rsp = Response $ InpObj vt Nothing readB refH
+                processResponse rsp
+  where
+    hdr = outObjHeaders outobj
+    hdr' = (":scheme", scm) : (":authority", C8.pack auth) : hdr
