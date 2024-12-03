@@ -33,6 +33,7 @@ import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified System.TimeManager as T
 
+import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Control
@@ -158,7 +159,7 @@ sendResponse ctx strm th (Response outobj) _pp = do
 sendResponseIO
     :: Context -> Stream -> Response -> IO ()
 sendResponseIO ctx strm (Response outobj) =
-    withHandle ctx $ \th -> do
+    void $ withHandle ctx $ \th -> do
         sendHeader ctx strm th $ outObjHeaders outobj
         sendBody ctx strm th outobj
         QUIC.closeStream strm

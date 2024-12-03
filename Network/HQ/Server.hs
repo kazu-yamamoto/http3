@@ -73,7 +73,7 @@ labelMe label = do
 processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO ()
 processRequest conf mysa peersa server strm
     | QUIC.isClientInitiatedBidirectional sid =
-        T.withHandle (confTimeoutManager conf) (return ()) $ \th -> do
+        void $ T.withHandle (confTimeoutManager conf) (return ()) $ \th -> do
             vt <- recvHeader strm mysa
             src <- newSource strm
             refH <- newIORef Nothing

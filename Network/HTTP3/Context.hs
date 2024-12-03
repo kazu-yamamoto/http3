@@ -88,7 +88,9 @@ newContext conn conf = do
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
         | isAsyncException se = E.throwIO se
-        | otherwise = abortConnection conn aerr ""
+        | otherwise = do
+            print se
+            abortConnection conn aerr ""
 
 isAsyncException :: E.Exception e => e -> Bool
 isAsyncException e =
@@ -130,7 +132,7 @@ unidirectional Context{..} strm = do
     let typ = toH3StreamType $ fromIntegral w8
     ctxUniSwitch typ (recvStream strm)
 
-withHandle :: Context -> (T.Handle -> IO a) -> IO a
+withHandle :: Context -> (T.Handle -> IO a) -> IO (Maybe a)
 withHandle Context{..} = T.withHandle ctxThreadManager (return ())
 
 newStream :: Context -> IO Stream

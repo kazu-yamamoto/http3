@@ -90,7 +90,7 @@ library
         quic >= 0.2 && < 0.3,
         sockaddr,
         stm,
-        time-manager >= 0.1.3 && < 0.2
+        time-manager >= 0.2 && < 0.3
 
 executable h3-server
     main-is:            h3-server.hs
