@@ -93,4 +93,6 @@ trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
     ctx' = CH.hashUpdate ctx bs
 
 firstTrailerValue :: TokenHeaderTable -> FieldValue
-firstTrailerValue = snd . Prelude.head . fst
+firstTrailerValue tbl = case fst tbl of
+    [] -> error "firstTrailerValue"
+    x : _ -> snd x

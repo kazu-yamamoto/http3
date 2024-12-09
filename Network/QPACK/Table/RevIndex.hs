@@ -77,7 +77,9 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
         lst =
             zipWith (\(k, v) i -> (k, (v, i))) staticTableList $
                 map (SIndex . AbsoluteIndex) [0 ..]
-        extract xs = (fst (head xs), map snd xs)
+        extract xs = (headFst xs, map snd xs)
+        headFst [] = error "headFst"
+        headFst (x : _) = fst x
 
 {-# INLINE lookupStaticRevIndex #-}
 lookupStaticRevIndex :: Int -> FieldValue -> RevResult
