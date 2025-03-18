@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module HTTP3.ErrorSpec where
 
 import Data.ByteString ()

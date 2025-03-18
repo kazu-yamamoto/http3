@@ -69,7 +69,7 @@ decode dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        if hdr' == []
+        if null hdr'
             then
                 putMVar mvar ()
             else do

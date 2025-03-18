@@ -183,9 +183,9 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
         x <- readTVar insertionPoint
         writeTVar insertionPoint (x + 1)
         return x
-    maxN <- atomically $ readTVar maxNumOfEntries
+    maxN <- readTVarIO maxNumOfEntries
     let i = insp `mod` maxN
-    table <- atomically $ readTVar circularTable
+    table <- readTVarIO circularTable
     atomically $ unsafeWrite table i ent
     let revtbl = getRevIndex dyntbl
     let ai = AbsoluteIndex insp
