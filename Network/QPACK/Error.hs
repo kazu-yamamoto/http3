@@ -13,7 +13,6 @@ module Network.QPACK.Error (
 ) where
 
 import Control.Exception
-import Data.Typeable
 
 import Network.QUIC
 
@@ -31,12 +30,12 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 data DecodeError
     = IllegalStaticIndex
     | IllegalInsertCount
-    deriving (Eq, Show, Typeable)
+    deriving (Eq, Show)
 
 data EncoderInstructionError = EncoderInstructionError
-    deriving (Eq, Show, Typeable)
+    deriving (Eq, Show)
 data DecoderInstructionError = DecoderInstructionError
-    deriving (Eq, Show, Typeable)
+    deriving (Eq, Show)
 
 instance Exception DecodeError
 instance Exception EncoderInstructionError
