@@ -77,20 +77,22 @@ library
     ghc-options:        -Wall
     build-depends:
         base >=4.9 && <5,
-        async,
         array,
+        async,
         bytestring,
         case-insensitive,
         containers,
         http-semantics >= 0.3 && <0.4,
         http-types,
         http2 >=5.3.4 && <5.4,
+        iproute >= 1.7 && < 1.8,
         network,
         network-byte-order,
         quic >= 0.2 && < 0.3,
         sockaddr,
         stm,
-        time-manager >= 0.2 && < 0.3
+        time-manager >= 0.2 && < 0.3,
+        utf8-string >=1.0 && <1.1
 
 executable h3-server
     main-is:            h3-server.hs

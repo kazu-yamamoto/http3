@@ -19,13 +19,15 @@ module Network.HTTP3.Client (
 
 import Control.Concurrent
 import qualified Control.Exception as E
-import qualified Data.ByteString.Char8 as C8
+import qualified Data.ByteString.UTF8 as UTF8
 import Data.IORef
+import Data.IP (IPv6)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import Network.QUIC.Internal (possibleMyStreams)
+import Text.Read (readMaybe)
 
 import Imports
 import Network.HTTP3.Config
@@ -96,4 +98,8 @@ sendRequest ctx scm auth (Request outobj) processResponse =
                 processResponse rsp
   where
     hdr = outObjHeaders outobj
-    hdr' = (":scheme", scm) : (":authority", C8.pack auth) : hdr
+    isIPv6 = isJust (readMaybe auth :: Maybe IPv6)
+    auth'
+        | isIPv6 = "[" <> UTF8.fromString auth <> "]"
+        | otherwise = UTF8.fromString auth
+    hdr' = (":scheme", scm) : (":authority", auth') : hdr
