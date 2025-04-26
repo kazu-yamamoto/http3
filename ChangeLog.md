@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.0.23
+
+* Enclosing IPv6 address in :authority
+
 ## 0.0.22
 
 * Using `ThreadManager` of `time-manager`.
