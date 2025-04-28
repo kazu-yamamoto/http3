@@ -80,7 +80,8 @@ sendRequest ctx scm auth (Request outobj) processResponse =
             sendBody ctx strm th outobj
             QUIC.shutdownStream strm
         src <- newSource strm
-        mvt <- recvHeader ctx src
+        let sid = QUIC.streamId strm
+        mvt <- recvHeader ctx sid src
         case mvt of
             Nothing -> do
                 QUIC.resetStream strm H3MessageError
@@ -90,7 +91,7 @@ sendRequest ctx scm auth (Request outobj) processResponse =
             Just vt -> do
                 refI <- newIORef IInit
                 refH <- newIORef Nothing
-                let readB = recvBody ctx src refI refH
+                let readB = recvBody ctx sid src refI refH
                     rsp = Response $ InpObj vt Nothing readB refH
                 processResponse rsp
   where

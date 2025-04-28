@@ -14,6 +14,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
+import Network.QUIC (StreamId)
 import System.IO
 import Test.Hspec
 
@@ -36,7 +37,7 @@ data Block = Block Int ByteString deriving (Show)
 
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
-    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig False
+    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig (\_ -> return ()) False
     q <- newTQueueIO
     let recv = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x
@@ -60,7 +61,7 @@ switch send insthdr (_, blk@(Block n bs))
     | otherwise = send blk
 
 decode
-    :: (ByteString -> IO [Header])
+    :: (StreamId -> ByteString -> IO [Header])
     -> Handle
     -> IO Block
     -> MVar ()
@@ -73,8 +74,8 @@ decode dec h recv mvar = loop
             then
                 putMVar mvar ()
             else do
-                Block _ bs <- recv
-                hdr <- dec bs
+                Block n bs <- recv
+                hdr <- dec n bs
                 hdr `shouldBe` hdr'
                 loop
 

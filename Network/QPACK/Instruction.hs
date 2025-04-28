@@ -33,6 +33,7 @@ import Network.HPACK.Internal (
     encodeS,
     entryHeaderName,
  )
+import Network.QUIC (StreamId)
 
 import Imports
 import Network.QPACK.Table.Static
@@ -159,8 +160,8 @@ decodeDuplicate rbuf w8 =
 ----------------------------------------------------------------
 
 data DecoderInstruction
-    = SectionAcknowledgement Int
-    | StreamCancellation Int
+    = SectionAcknowledgement StreamId
+    | StreamCancellation StreamId
     | InsertCountIncrement Int
     deriving (Eq, Show)
 

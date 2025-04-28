@@ -28,7 +28,7 @@ data CodeInfo
     = EncodeInfo
         RevIndex -- Reverse index
         (IORef InsertionPoint)
-    | DecodeInfo HuffmanDecoder
+    | DecodeInfo HuffmanDecoder (ByteString -> IO ())
 
 -- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable
@@ -41,6 +41,8 @@ data DynamicTable = DynamicTable
     , circularTable :: TVar Table
     , debugQPACK :: IORef Bool
     }
+
+-- knownReceivedCount :: TVar Int
 
 type Table = TArray Index Entry
 
@@ -84,12 +86,13 @@ newDynamicTableForDecoding
     -- ^ The dynamic table size
     -> Size
     -- ^ The size of temporary buffer for Huffman decoding
+    -> (ByteString -> IO ())
     -> IO DynamicTable
-newDynamicTableForDecoding maxsiz huftmpsiz = do
+newDynamicTableForDecoding maxsiz huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
     let decoder = decodeHLock tvar
-        info = DecodeInfo decoder
+        info = DecodeInfo decoder sendDI
     newDynamicTable maxsiz info
 
 decodeHLock
@@ -153,7 +156,12 @@ getRevIndex DynamicTable{..} = rev
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
-    DecodeInfo huf = codeInfo
+    DecodeInfo huf _ = codeInfo
+
+getSendDI :: DynamicTable -> (ByteString -> IO ())
+getSendDI DynamicTable{..} = sendDI
+  where
+    DecodeInfo _ sendDI = codeInfo
 
 ----------------------------------------------------------------
 

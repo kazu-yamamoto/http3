@@ -92,7 +92,7 @@ processRequest
     -> IO ()
 processRequest ctx server strm th = E.handle reset $ do
     src <- newSource strm
-    mvt <- recvHeader ctx src
+    mvt <- recvHeader ctx sid src
     case mvt of
         Nothing -> QUIC.resetStream strm H3MessageError
         Just ht -> do
@@ -100,6 +100,7 @@ processRequest ctx server strm th = E.handle reset $ do
             let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
             server req aux $ sendResponse ctx strm th
   where
+    sid = QUIC.streamId strm
     reset se
         | isAsyncException se = E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
@@ -109,13 +110,14 @@ processRequest ctx server strm th = E.handle reset $ do
 processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
 processRequestIO ctx put strm = E.handle reset $ do
     src <- newSource strm
-    mvt <- recvHeader ctx src
+    mvt <- recvHeader ctx sid src
     case mvt of
         Nothing -> QUIC.resetStream strm H3MessageError
         Just ht -> do
             req <- mkRequest ctx strm src ht
             put (strm, req)
   where
+    sid = QUIC.streamId strm
     reset se
         | isAsyncException se = E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
@@ -140,7 +142,8 @@ mkRequest ctx strm src ht@(_, vt) = do
     -- fixme: Content-Length
     refI <- newIORef IInit
     refH <- newIORef Nothing
-    let readB = recvBody ctx src refI refH
+    let sid = QUIC.streamId strm
+    let readB = recvBody ctx sid src refI refH
         req = Request $ InpObj ht Nothing readB refH
     return req
 
