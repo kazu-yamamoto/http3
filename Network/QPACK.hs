@@ -266,7 +266,7 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
         ent0 <- toIndexedEntry dyntbl idx
         let ent = toEntryToken (entryToken ent0) val
         insertEntryToDecoder ent dyntbl
-    handle (InsertWithoutNameReference t val) = atomically $ do
+    handle (InsertWithLiteralName t val) = atomically $ do
         let ent = toEntryToken t val
         insertEntryToDecoder ent dyntbl
     handle (Duplicate ri) = atomically $ do

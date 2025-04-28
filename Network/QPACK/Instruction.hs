@@ -45,7 +45,7 @@ type InsIndex = Either AbsoluteIndex InsRelativeIndex
 data EncoderInstruction
     = SetDynamicTableCapacity Int
     | InsertWithNameReference InsIndex FieldValue
-    | InsertWithoutNameReference Token FieldValue
+    | InsertWithLiteralName Token FieldValue
     | Duplicate InsRelativeIndex
     deriving (Eq)
 
@@ -59,8 +59,8 @@ instance Show EncoderInstruction where
             ++ "\""
     show (InsertWithNameReference (Right (InsRelativeIndex idx)) v) =
         "InsertWithNameReference (DynRel " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
-    show (InsertWithoutNameReference t v) =
-        "InsertWithoutNameReference \""
+    show (InsertWithLiteralName t v) =
+        "InsertWithLiteralName \""
             ++ BS8.unpack (foldedCase (tokenKey t))
             ++ "\" \""
             ++ BS8.unpack v
@@ -81,7 +81,7 @@ encodeEI wbuf huff (InsertWithNameReference hidx v) = do
             Right (InsRelativeIndex i) -> (set1, i)
     encodeI wbuf set 6 idx
     encodeS wbuf huff id set1 7 v
-encodeEI wbuf huff (InsertWithoutNameReference k v) = do
+encodeEI wbuf huff (InsertWithLiteralName k v) = do
     encodeS wbuf huff set01 set001 5 $ foldedCase $ tokenKey k
     encodeS wbuf huff id set1 7 v
 encodeEI wbuf _ (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 idx
@@ -124,7 +124,7 @@ decodeEI hufdec rbuf = do
         then decodeInsertWithNameReference rbuf w8 hufdec
         else
             if w8 `testBit` 6
-                then decodeInsertWithoutNameReference rbuf hufdec
+                then decodeInsertWithLiteralName rbuf hufdec
                 else
                     if w8 `testBit` 5
                         then decodeSetDynamicTableCapacity rbuf w8
@@ -140,13 +140,13 @@ decodeInsertWithNameReference rbuf w8 hufdec = do
     v <- decodeS (.&. 0b01111111) (`testBit` 7) 7 hufdec rbuf
     return $ InsertWithNameReference hidx v
 
-decodeInsertWithoutNameReference
+decodeInsertWithLiteralName
     :: ReadBuffer -> HuffmanDecoder -> IO EncoderInstruction
-decodeInsertWithoutNameReference rbuf hufdec = do
+decodeInsertWithLiteralName rbuf hufdec = do
     ff rbuf (-1)
     k <- decodeS (.&. 0b00011111) (`testBit` 5) 5 hufdec rbuf
     v <- decodeS (.&. 0b01111111) (`testBit` 7) 7 hufdec rbuf
-    return $ InsertWithoutNameReference (toToken k) v
+    return $ InsertWithLiteralName (toToken k) v
 
 decodeSetDynamicTableCapacity :: ReadBuffer -> Word8 -> IO EncoderInstruction
 decodeSetDynamicTableCapacity rbuf w8 =

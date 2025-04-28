@@ -14,7 +14,7 @@ spec = do
             let eis0 =
                     [ SetDynamicTableCapacity 4096
                     , InsertWithNameReference (Left 92) "Warp/4.3.2.1"
-                    , InsertWithoutNameReference tokenContentType "text/plain"
+                    , InsertWithLiteralName tokenContentType "text/plain"
                     , Duplicate 40
                     ]
             bs1 <- encodeEncoderInstructions eis0 True
