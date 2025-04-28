@@ -174,8 +174,7 @@ qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     let hb = prefix `B.append` hb0
                     return (hb, ins)
 
-decoderInstructionHandler
-    :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
+decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
 decoderInstructionHandler dyntbl recv = loop
   where
     loop = do
@@ -237,8 +236,7 @@ qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl r
 qpackDecoderS :: DynamicTable -> EncodedFieldSection -> IO [Header]
 qpackDecoderS dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
 
-encoderInstructionHandler
-    :: DynamicTable -> (Int -> IO EncodedEncoderInstruction) -> IO ()
+encoderInstructionHandler :: DynamicTable -> EncoderInstructionHandler
 encoderInstructionHandler dyntbl recv = loop
   where
     loop = do
@@ -247,7 +245,7 @@ encoderInstructionHandler dyntbl recv = loop
             encoderInstructionHandlerS dyntbl bs
             loop
 
-encoderInstructionHandlerS :: DynamicTable -> EncodedEncoderInstruction -> IO ()
+encoderInstructionHandlerS :: DynamicTable -> EncoderInstructionHandlerS
 encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
