@@ -60,6 +60,7 @@ withContext conn conf action = do
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
+    setupUnidirectional conn conf
     ctl <- controlStream conn <$> newIORef IInit
     (enc, handleDI) <- newQEncoder defaultQEncoderConfig
     (dec, handleEI) <- newQDecoder defaultQDecoderConfig

@@ -36,7 +36,6 @@ import qualified System.TimeManager as T
 import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
-import Network.HTTP3.Control
 import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
@@ -47,8 +46,6 @@ import Network.QPACK.Internal
 run :: Connection -> Config -> Server -> IO ()
 run conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
-    forkManaged ctx "H3 server: unidirectional setter" $
-        setupUnidirectional conn conf
     readerServer ctx $ \strm ->
         forkManagedTimeoutFinally
             ctx
@@ -58,8 +55,6 @@ run conn conf server = withContext conn conf $ \ctx -> do
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO conn conf action = withContext conn conf $ \ctx -> do
-    forkManaged ctx "H3 server: unidirectional setter" $
-        setupUnidirectional conn conf
     info <- getConnectionInfo conn
     reqq <- newTQueueIO
     let sio =
