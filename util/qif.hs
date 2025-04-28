@@ -50,7 +50,7 @@ dumpSwitch
     -> IO ()
 dumpSwitch dec insthdr (_, Block n bs)
     | n == 0 = do
-        putStrLn "---- Stream 0"
+        putStrLn "---- Encoder Stream"
         insthdr bs
     | otherwise = do
         putStrLn $ "---- Stream " ++ show n
