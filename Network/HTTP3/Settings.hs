@@ -7,7 +7,7 @@ import Network.QUIC.Internal
 
 type H3Settings = [(H3SettingsKey, Int)]
 
-newtype H3SettingsKey = H3SettingsKey Int deriving (Eq, Show)
+newtype H3SettingsKey = H3SettingsKey Int deriving (Eq)
 
 {- FOURMOLU_DISABLE -}
 pattern SettingsQpackMaxTableCapacity :: H3SettingsKey
@@ -18,6 +18,14 @@ pattern SettingsMaxFieldSectionSize    = H3SettingsKey 0x6
 
 pattern SettingsQpackBlockedStreams   :: H3SettingsKey
 pattern SettingsQpackBlockedStreams    = H3SettingsKey 0x7
+{- FOURMOLU_ENABLE -}
+
+{- FOURMOLU_DISABLE -}
+instance Show H3SettingsKey where
+  show SettingsQpackMaxTableCapacity = "SettingsQpackMaxTableCapacity"
+  show SettingsMaxFieldSectionSize   = "SettingsMaxFieldSectionSize"
+  show SettingsQpackBlockedStreams   = "SettingsQpackBlockedStreams"
+  show (H3SettingsKey n)             = "H3SettingsKey " ++ show n
 {- FOURMOLU_ENABLE -}
 
 encodeH3Settings :: H3Settings -> IO ByteString
