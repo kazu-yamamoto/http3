@@ -62,8 +62,8 @@ newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
     sendDI <- setupUnidirectional conn conf
     ctl <- controlStream conn <$> newIORef IInit
-    (enc, handleDI) <- newQEncoder defaultQEncoderConfig
-    (dec, handleEI) <- newQDecoder defaultQDecoderConfig sendDI
+    (enc, handleDI) <- newQEncoder $ confQEncoderConfig conf
+    (dec, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
