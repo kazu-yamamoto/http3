@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Network.HTTP3.Control (
     setupUnidirectional,
@@ -22,13 +23,13 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 
 setupUnidirectional
     :: Connection -> H3.Config -> IO (EncodedDecoderInstruction -> IO ())
-setupUnidirectional conn conf = do
+setupUnidirectional conn conf@H3.Config{..} = do
     settings <-
         encodeH3Settings
             [ (SettingsQpackBlockedStreams, 100)
-            , (SettingsQpackMaxTableCapacity, 4096)
+            , (SettingsQpackMaxTableCapacity, dcDynamicTableSize confQDecoderConfig)
             , (SettingsMaxFieldSectionSize, 32768)
-            ] -- fixme
+            ]
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC
     sC <- unidirectionalStream conn
