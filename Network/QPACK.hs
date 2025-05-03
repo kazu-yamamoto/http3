@@ -241,14 +241,16 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
 qpackDecoder
     :: DynamicTable -> StreamId -> EncodedFieldSection -> IO TokenHeaderTable
 qpackDecoder dyntbl sid bs = do
-    tbl <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
-    encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+    (tbl, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+    when needAck $
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
     return tbl
 
 qpackDecoderS :: DynamicTable -> StreamId -> EncodedFieldSection -> IO [Header]
 qpackDecoderS dyntbl sid bs = do
-    hs <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
-    encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+    (hs, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
+    when needAck $
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
     return hs
 
 encoderInstructionHandler :: DynamicTable -> EncoderInstructionHandler

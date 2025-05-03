@@ -24,21 +24,23 @@ import Network.QPACK.Types
 decodeTokenHeader
     :: DynamicTable
     -> ReadBuffer
-    -> IO TokenHeaderTable
+    -> IO (TokenHeaderTable, Bool)
 decodeTokenHeader dyntbl rbuf = do
-    (reqip, bp) <- decodePrefix rbuf dyntbl
+    (reqip, bp, needAck) <- decodePrefix rbuf dyntbl
     checkInsertionPoint dyntbl reqip
-    decodeSophisticated (toTokenHeader dyntbl bp) rbuf
+    tbl <- decodeSophisticated (toTokenHeader dyntbl bp) rbuf
+    return (tbl, needAck)
 
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
-    -> IO [Header]
+    -> IO ([Header], Bool)
 decodeTokenHeaderS dyntbl rbuf = do
-    (reqip, bp) <- decodePrefix rbuf dyntbl
+    (reqip, bp, needAck) <- decodePrefix rbuf dyntbl
     debug <- getDebugQPACK dyntbl
     unless debug $ checkInsertionPoint dyntbl reqip
-    decodeSimple (toTokenHeader dyntbl bp) rbuf
+    hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
+    return (hs, needAck)
 
 toTokenHeader
     :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader

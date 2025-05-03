@@ -95,7 +95,8 @@ encodePrefix wbuf dyntbl = do
     encodeI wbuf set 7 base
 
 -- | Decoding the prefix part of header block.
-decodePrefix :: ReadBuffer -> DynamicTable -> IO (InsertionPoint, BasePoint)
+decodePrefix
+    :: ReadBuffer -> DynamicTable -> IO (InsertionPoint, BasePoint, Bool)
 decodePrefix rbuf dyntbl = do
     maxEntries <- getMaxNumOfEntries dyntbl
     totalNumberOfInserts <- getInsertionPoint dyntbl
@@ -110,4 +111,5 @@ decodePrefix rbuf dyntbl = do
     qpackDebug dyntbl $
         putStrLn $
             "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
-    return (reqInsCnt, baseIndex)
+    let needAck = reqInsCnt /= 0
+    return (reqInsCnt, baseIndex, needAck)
