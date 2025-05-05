@@ -224,7 +224,7 @@ newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
     let dec = qpackDecoder dyntbl
-        handler = encoderInstructionHandler dyntbl
+        handler = encoderInstructionHandler dcDynamicTableSize dyntbl
     return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
@@ -238,7 +238,7 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
         newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
-        handler = encoderInstructionHandlerS dyntbl
+        handler = encoderInstructionHandlerS dcDynamicTableSize dyntbl
     return (dec, handler)
 
 qpackDecoder
@@ -257,19 +257,19 @@ qpackDecoderS dyntbl sid bs = do
     return hs
 
 -- Note: dyntbl for decoder
-encoderInstructionHandler :: DynamicTable -> EncoderInstructionHandler
-encoderInstructionHandler dyntbl recv = loop
+encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler
+encoderInstructionHandler deccap dyntbl recv = loop
   where
     loop = do
         bs <- recv 1024
         when (bs /= "") $ do
-            encoderInstructionHandlerS dyntbl bs
+            encoderInstructionHandlerS deccap dyntbl bs
             loop
 
 -- Note: dyntbl for decoder
-encoderInstructionHandlerS :: DynamicTable -> EncoderInstructionHandlerS
-encoderInstructionHandlerS _dyntbl "" = return ()
-encoderInstructionHandlerS dyntbl bs = do
+encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
+encoderInstructionHandlerS _ _dyntbl "" = return ()
+encoderInstructionHandlerS deccap dyntbl bs = do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
@@ -279,7 +279,7 @@ encoderInstructionHandlerS dyntbl bs = do
     hufdec = getHuffmanDecoder dyntbl
     -- XXX: creating dynamic table for decoder
     handle (SetDynamicTableCapacity n)
-        | n > 4096 = E.throwIO EncoderInstructionError -- FIXM: 4096
+        | n > deccap = E.throwIO EncoderInstructionError
         | otherwise = return () -- FIXME: set cap
     handle (InsertWithNameReference ii val) = do
         atomically $ do
