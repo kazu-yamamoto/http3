@@ -174,6 +174,7 @@ qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     let hb = prefix `B.append` hb0
                     return (hb, ins)
 
+-- Note: dyntbl for encoder
 decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
 decoderInstructionHandler dyntbl recv = loop
   where
@@ -186,6 +187,8 @@ decoderInstructionHandler dyntbl recv = loop
             qpackDebug dyntbl $ mapM_ print ins
             mapM_ handle ins
             loop
+    -- FIXME: updating dynamic table for encoder
+    -- XXX staring with no dynamic table
     handle (SectionAcknowledgement _n) = return ()
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
@@ -253,6 +256,7 @@ qpackDecoderS dyntbl sid bs = do
         encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
     return hs
 
+-- Note: dyntbl for decoder
 encoderInstructionHandler :: DynamicTable -> EncoderInstructionHandler
 encoderInstructionHandler dyntbl recv = loop
   where
@@ -262,6 +266,7 @@ encoderInstructionHandler dyntbl recv = loop
             encoderInstructionHandlerS dyntbl bs
             loop
 
+-- Note: dyntbl for decoder
 encoderInstructionHandlerS :: DynamicTable -> EncoderInstructionHandlerS
 encoderInstructionHandlerS _dyntbl "" = return ()
 encoderInstructionHandlerS dyntbl bs = do
@@ -272,8 +277,9 @@ encoderInstructionHandlerS dyntbl bs = do
     mapM_ handle ins
   where
     hufdec = getHuffmanDecoder dyntbl
+    -- XXX: creating dynamic table for decoder
     handle (SetDynamicTableCapacity n)
-        | n > 4096 = E.throwIO EncoderInstructionError
+        | n > 4096 = E.throwIO EncoderInstructionError -- FIXM: 4096
         | otherwise = return () -- FIXME: set cap
     handle (InsertWithNameReference ii val) = do
         atomically $ do

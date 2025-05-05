@@ -102,8 +102,11 @@ checkSettings conn payload = do
         | otherwise = do
             let flags' = flags `setBit` i
             case k of
+                -- FIXME: XXX creating dynamic table for encoder
+                -- and send SetDynamicTableCapacity
                 SettingsQpackMaxTableCapacity -> loop flags' ss
                 SettingsMaxFieldSectionSize -> loop flags' ss
+                -- FIXME: modifying IORef (what about no dynamic table yet)
                 SettingsQpackBlockedStreams -> loop flags' ss
                 _
                     -- HTTP/2 settings
