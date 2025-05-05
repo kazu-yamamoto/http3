@@ -52,4 +52,4 @@ chooseALPN _ver protos = return $ case mh3idx of
     mhqidx = "hq" `L.elemIndex` protos
 
 testH3ClientConfig :: H3.ClientConfig
-testH3ClientConfig = H3.ClientConfig "https" "127.0.0.1"
+testH3ClientConfig = H3.defaultClientConfig{H3.authority = "127.0.0.1"}

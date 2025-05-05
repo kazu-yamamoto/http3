@@ -7,13 +7,22 @@ module Network.HTTP3.Client (
     -- * Runner
     run,
 
-    -- * Runner arguments
-    ClientConfig (..),
+    -- * Client configration
+    ClientConfig,
+    defaultClientConfig,
+    scheme,
+    authority,
+
+    -- * Common configuration
     Config (..),
     allocSimpleConfig,
     freeSimpleConfig,
+    defaultQEncoderConfig,
+    defaultQDecoderConfig,
     Hooks (..),
     defaultHooks,
+
+    -- * HTTP semantics
     module Network.HTTP.Semantics.Client,
 ) where
 
@@ -36,6 +45,7 @@ import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
+import Network.QPACK
 
 -- | Configuration for HTTP\/3 or HQ client. For HQ, 'authority' is
 --   not used and an server's IP address is used in 'Request'.
@@ -43,6 +53,13 @@ data ClientConfig = ClientConfig
     { scheme :: Scheme
     , authority :: Authority
     }
+
+defaultClientConfig :: ClientConfig
+defaultClientConfig =
+    ClientConfig
+        { scheme = "https"
+        , authority = "localhost"
+        }
 
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
