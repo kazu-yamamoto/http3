@@ -234,7 +234,7 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} n = do
-    updateDynamicTable dyntbl n -- FIXME: checking n
+    updateDynamicTable dyntbl n
     writeIORef capaReady True
 
 setTableStreamsBlocked :: DynamicTable -> Int -> IO ()

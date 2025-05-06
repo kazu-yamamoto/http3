@@ -203,7 +203,6 @@ decoderInstructionHandler dyntbl recv = loop
             mapM_ handle ins
             loop
     -- FIXME: updating dynamic table for encoder
-    -- XXX staring with no dynamic table
     handle (SectionAcknowledgement _n) = return ()
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
