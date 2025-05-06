@@ -74,30 +74,26 @@ checkInsertionPoint DynamicTable{..} reqip = atomically $ do
 
 -- | Creating 'DynamicTable' for encoding.
 newDynamicTableForEncoding
-    :: Size
-    -- ^ The dynamic table size
-    -> (ByteString -> IO ())
+    :: (ByteString -> IO ())
     -> IO DynamicTable
-newDynamicTableForEncoding maxsiz sendEI = do
+newDynamicTableForEncoding sendEI = do
     rev <- newRevIndex
     ref <- newIORef 0
     let info = EncodeInfo rev ref sendEI
-    newDynamicTable maxsiz info
+    newDynamicTable info
 
 -- | Creating 'DynamicTable' for decoding.
 newDynamicTableForDecoding
     :: Size
-    -- ^ The dynamic table size
-    -> Size
     -- ^ The size of temporary buffer for Huffman decoding
     -> (ByteString -> IO ())
     -> IO DynamicTable
-newDynamicTableForDecoding maxsiz huftmpsiz sendDI = do
+newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
     let decoder = decodeHLock tvar
         info = DecodeInfo decoder sendDI
-    newDynamicTable maxsiz info
+    newDynamicTable info
 
 decodeHLock
     :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
@@ -116,19 +112,26 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
                 return x
     unlock x = atomically $ writeTVar tvar $ Just x
 
-newDynamicTable :: Size -> CodeInfo -> IO DynamicTable
-newDynamicTable maxsiz info = do
-    tbl <- atomically $ newArray (0, end) dummyEntry
+newDynamicTable :: CodeInfo -> IO DynamicTable
+newDynamicTable info = do
+    tbl <- atomically $ newArray (0, 0) dummyEntry
     DynamicTable info
         <$> newIORef 0 -- droppingPoint
         <*> newIORef 0 -- drainingPoint
         <*> newTVarIO 0 -- insertionPoint
         <*> newIORef 0 -- basePoint
-        <*> newTVarIO maxN -- maxNumOfEntries
-        <*> newTVarIO tbl -- maxDynamicTableSize
+        <*> newTVarIO 0 -- maxNumOfEntries
+        <*> newTVarIO tbl -- circularTable
         <*> newIORef False -- debugQPACK
         <*> newIORef False -- capaReady
         <*> newIORef 0 -- blockedStreams
+
+updateDynamicTable :: DynamicTable -> Size -> IO ()
+updateDynamicTable DynamicTable{..} maxsiz = do
+    tbl <- atomically $ newArray (0, end) dummyEntry
+    atomically $ do
+        writeTVar maxNumOfEntries maxN
+        writeTVar circularTable tbl
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -230,8 +233,8 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 ----------------------------------------------------------------
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
-setTableCapacity DynamicTable{..} _ = do
-    -- FIXME: re-creating dynamic table
+setTableCapacity dyntbl@DynamicTable{..} n = do
+    updateDynamicTable dyntbl n -- FIXME: checking n
     writeIORef capaReady True
 
 setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
