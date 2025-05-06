@@ -121,15 +121,18 @@ defaultQEncoderConfig =
         }
 
 -- | Creating a new QPACK encoder.
-newQEncoder :: QEncoderConfig -> IO (QEncoder, DecoderInstructionHandler)
-newQEncoder QEncoderConfig{..} = do
+newQEncoder
+    :: QEncoderConfig
+    -> (EncodedEncoderInstruction -> IO ())
+    -> IO (QEncoder, DecoderInstructionHandler)
+newQEncoder QEncoderConfig{..} sendEI = do
     let bufsiz1 = ecHeaderBlockBufferSize
         bufsiz2 = ecPrefixBufferSize
         bufsiz3 = ecInstructionBufferSize
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
     gcbuf3 <- mallocPlainForeignPtrBytes bufsiz3
-    dyntbl <- newDynamicTableForEncoding ecDynamicTableSize
+    dyntbl <- newDynamicTableForEncoding ecDynamicTableSize sendEI
     lock <- newMVar ()
     let enc =
             qpackEncoder
