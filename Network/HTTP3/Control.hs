@@ -109,6 +109,7 @@ checkSettings conn tblop payload = do
                 SettingsQpackMaxTableCapacity -> do
                     setCapacity tblop v
                     loop flags' ss
+                -- FIXME
                 SettingsMaxFieldSectionSize -> loop flags' ss
                 SettingsQpackBlockedStreams -> do
                     setBlockedStreams tblop v
