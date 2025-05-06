@@ -60,9 +60,9 @@ withContext conn conf action = do
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
-    sendDI <- setupUnidirectional conn conf
+    (sendEI, sendDI) <- setupUnidirectional conn conf
     ctl <- controlStream conn <$> newIORef IInit
-    (enc, handleDI) <- newQEncoder $ confQEncoderConfig conf
+    (enc, handleDI) <- newQEncoder (confQEncoderConfig conf) sendEI
     (dec, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError

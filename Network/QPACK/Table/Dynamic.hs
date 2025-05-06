@@ -28,7 +28,8 @@ data CodeInfo
     = EncodeInfo
         RevIndex -- Reverse index
         (IORef InsertionPoint)
-    | DecodeInfo HuffmanDecoder (ByteString -> IO ())
+        (ByteString -> IO ()) -- sendEI
+    | DecodeInfo HuffmanDecoder (ByteString -> IO ()) -- sendDI
 
 -- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable
@@ -73,11 +74,12 @@ checkInsertionPoint DynamicTable{..} reqip = atomically $ do
 newDynamicTableForEncoding
     :: Size
     -- ^ The dynamic table size
+    -> (ByteString -> IO ())
     -> IO DynamicTable
-newDynamicTableForEncoding maxsiz = do
+newDynamicTableForEncoding maxsiz sendEI = do
     rev <- newRevIndex
     ref <- newIORef 0
-    let info = EncodeInfo rev ref
+    let info = EncodeInfo rev ref sendEI
     newDynamicTable maxsiz info
 
 -- | Creating 'DynamicTable' for decoding.
@@ -151,12 +153,17 @@ getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 getRevIndex :: DynamicTable -> RevIndex
 getRevIndex DynamicTable{..} = rev
   where
-    EncodeInfo rev _ = codeInfo
+    EncodeInfo rev _ _ = codeInfo
 
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
     DecodeInfo huf _ = codeInfo
+
+getSendEI :: DynamicTable -> (ByteString -> IO ())
+getSendEI DynamicTable{..} = sendEI
+  where
+    EncodeInfo _ _ sendEI = codeInfo
 
 getSendDI :: DynamicTable -> (ByteString -> IO ())
 getSendDI DynamicTable{..} = sendDI
@@ -168,12 +175,12 @@ getSendDI DynamicTable{..} = sendDI
 clearLargestReference :: DynamicTable -> IO ()
 clearLargestReference DynamicTable{..} = writeIORef ref 0
   where
-    EncodeInfo _ ref = codeInfo
+    EncodeInfo _ ref _ = codeInfo
 
 getLargestReference :: DynamicTable -> IO InsertionPoint
 getLargestReference DynamicTable{..} = readIORef ref
   where
-    EncodeInfo _ ref = codeInfo
+    EncodeInfo _ ref _ = codeInfo
 
 updateLargestReference :: DynamicTable -> AbsoluteIndex -> IO ()
 updateLargestReference DynamicTable{..} (AbsoluteIndex idx) = do
@@ -181,7 +188,7 @@ updateLargestReference DynamicTable{..} (AbsoluteIndex idx) = do
     oidx <- readIORef ref
     when (nidx > oidx) $ writeIORef ref nidx
   where
-    EncodeInfo _ ref = codeInfo
+    EncodeInfo _ ref _ = codeInfo
 
 ----------------------------------------------------------------
 
