@@ -111,20 +111,22 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
                 return x
     unlock x = atomically $ writeTVar tvar $ Just x
 
+{- FOURMOLU_DISABLE -}
 newDynamicTable :: CodeInfo -> IO DynamicTable
 newDynamicTable info = do
     tbl <- atomically $ newArray (0, 0) dummyEntry
     DynamicTable info
-        <$> newIORef 0 -- droppingPoint
-        <*> newIORef 0 -- drainingPoint
-        <*> newTVarIO 0 -- insertionPoint
-        <*> newIORef 0 -- basePoint
-        <*> newTVarIO 0 -- maxNumOfEntries
-        <*> newTVarIO tbl -- circularTable
+        <$> newIORef 0     -- droppingPoint
+        <*> newIORef 0     -- drainingPoint
+        <*> newTVarIO 0    -- insertionPoint
+        <*> newIORef 0     -- basePoint
+        <*> newTVarIO 0    -- maxNumOfEntries
+        <*> newTVarIO tbl  -- circularTable
         <*> newIORef False -- debugQPACK
         <*> newIORef False -- capaReady
-        <*> newIORef 0 -- blockedStreams
-        <*> newTVarIO 0 -- knownReceivedCount
+        <*> newIORef 0     -- blockedStreams
+        <*> newTVarIO 0    -- knownReceivedCount
+{- FOURMOLU_ENABLE -}
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
 updateDynamicTable DynamicTable{..} maxsiz = do
