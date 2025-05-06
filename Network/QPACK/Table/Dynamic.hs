@@ -241,3 +241,7 @@ setTableCapacity dyntbl@DynamicTable{..} n = do
 
 setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
 setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
+
+setKnownReceivedCount :: DynamicTable -> Int -> IO ()
+setKnownReceivedCount DynamicTable{..} n =
+    atomically $ modifyTVar' knownReceivedCount (+ n)

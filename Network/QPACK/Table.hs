@@ -34,6 +34,7 @@ module Network.QPACK.Table (
     qpackDebug,
     setTableCapacity,
     setTableStreamsBlocked,
+    setKnownReceivedCount,
 ) where
 
 import Control.Concurrent.STM

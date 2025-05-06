@@ -207,7 +207,7 @@ decoderInstructionHandler dyntbl recv = loop
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
-        | otherwise = return () -- FIXME: Known Received Count
+        | otherwise = setKnownReceivedCount dyntbl n
 
 ----------------------------------------------------------------
 
