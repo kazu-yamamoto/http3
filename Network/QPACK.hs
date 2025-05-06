@@ -272,18 +272,18 @@ qpackDecoderS dyntbl sid bs = do
 
 -- Note: dyntbl for decoder
 encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler
-encoderInstructionHandler deccap dyntbl recv = loop
+encoderInstructionHandler decCapLim dyntbl recv = loop
   where
     loop = do
         bs <- recv 1024
         when (bs /= "") $ do
-            encoderInstructionHandlerS deccap dyntbl bs
+            encoderInstructionHandlerS decCapLim dyntbl bs
             loop
 
 -- Note: dyntbl for decoder
 encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
 encoderInstructionHandlerS _ _dyntbl "" = return ()
-encoderInstructionHandlerS deccap dyntbl bs = do
+encoderInstructionHandlerS decCapLim dyntbl bs = do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
@@ -292,7 +292,7 @@ encoderInstructionHandlerS deccap dyntbl bs = do
   where
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n)
-        | n > deccap = E.throwIO EncoderInstructionError
+        | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = setTableCapacity dyntbl n
     handle (InsertWithNameReference ii val) = do
         atomically $ do
