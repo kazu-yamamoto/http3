@@ -42,6 +42,7 @@ data DynamicTable = DynamicTable
     , circularTable :: TVar Table
     , debugQPACK :: IORef Bool
     , capaReady :: IORef Bool
+    , blockedStreams :: IORef Int
     }
 
 -- knownReceivedCount :: TVar Int
@@ -127,6 +128,7 @@ newDynamicTable maxsiz info = do
         <*> newTVarIO tbl -- maxDynamicTableSize
         <*> newIORef False -- debugQPACK
         <*> newIORef False -- capaReady
+        <*> newIORef 0 -- blockedStreams
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -227,7 +229,10 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
-setCapabilityForDecoder :: DynamicTable -> IO ()
-setCapabilityForDecoder DynamicTable{..} = do
+setTableCapacity :: DynamicTable -> Int -> IO ()
+setTableCapacity DynamicTable{..} _ = do
     -- FIXME: re-creating dynamic table
     writeIORef capaReady True
+
+setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
+setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n

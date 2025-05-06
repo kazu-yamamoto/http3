@@ -51,8 +51,10 @@ setupUnidirectional conn conf@H3.Config{..} = do
     stD = mkType QPACKDecoderStream
     hooks = H3.confHooks conf
 
-controlStream :: Connection -> IORef IFrame -> InstructionHandler
-controlStream conn ref recv = loop0
+-- DynamicTable for Encoder
+controlStream
+    :: Connection -> TableOperation -> IORef IFrame -> InstructionHandler
+controlStream conn tblop ref recv = loop0
   where
     loop0 = do
         bs <- recv 1024
@@ -73,7 +75,7 @@ controlStream conn ref recv = loop0
         case parseH3Frame st0 bs of
             IDone typ payload leftover -> do
                 case typ of
-                    H3FrameSettings -> checkSettings conn payload
+                    H3FrameSettings -> checkSettings conn tblop payload
                     _ -> abortConnection conn H3MissingSettings ""
                 st1 <- parse leftover IInit
                 return (True, st1)
@@ -93,23 +95,24 @@ controlStream conn ref recv = loop0
                 parse leftover IInit
             st1 -> return st1
 
-checkSettings :: Connection -> ByteString -> IO ()
-checkSettings conn payload = do
+checkSettings :: Connection -> TableOperation -> ByteString -> IO ()
+checkSettings conn tblop payload = do
     h3settings <- decodeH3Settings payload
     loop (0 :: Int) h3settings
   where
     loop _ [] = return ()
-    loop flags ((k@(H3SettingsKey i), _v) : ss)
+    loop flags ((k@(H3SettingsKey i), v) : ss)
         | flags `testBit` i = abortConnection conn H3SettingsError ""
         | otherwise = do
             let flags' = flags `setBit` i
             case k of
-                -- FIXME: XXX creating dynamic table for encoder
-                -- and send SetDynamicTableCapacity
-                SettingsQpackMaxTableCapacity -> loop flags' ss
+                SettingsQpackMaxTableCapacity -> do
+                    setCapacity tblop v
+                    loop flags' ss
                 SettingsMaxFieldSectionSize -> loop flags' ss
-                -- FIXME: modifying IORef (what about no dynamic table yet)
-                SettingsQpackBlockedStreams -> loop flags' ss
+                SettingsQpackBlockedStreams -> do
+                    setBlockedStreams tblop v
+                    loop flags' ss
                 _
                     -- HTTP/2 settings
                     | i <= 0x6 -> abortConnection conn H3SettingsError ""
