@@ -32,7 +32,8 @@ module Network.QPACK.Table (
     setDebugQPACK,
     getDebugQPACK,
     qpackDebug,
-    setCapabilityForDecoder,
+    setTableCapacity,
+    setTableStreamsBlocked,
 ) where
 
 import Control.Concurrent.STM

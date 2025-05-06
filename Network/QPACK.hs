@@ -8,6 +8,7 @@ module Network.QPACK (
     defaultQEncoderConfig,
     QEncoder,
     newQEncoder,
+    TableOperation (..),
 
     -- * Decoder
     QDecoderConfig (..),
@@ -93,6 +94,11 @@ type DecoderInstructionHandler = (Int -> IO EncodedDecoderInstruction) -> IO ()
 -- | A type to integrating handlers.
 type InstructionHandler = (Int -> IO ByteString) -> IO ()
 
+data TableOperation = TableOperation
+    { setCapacity :: Int -> IO ()
+    , setBlockedStreams :: Int -> IO ()
+    }
+
 ----------------------------------------------------------------
 
 -- | Configuration for QPACK encoder.
@@ -123,7 +129,7 @@ defaultQEncoderConfig =
 newQEncoder
     :: QEncoderConfig
     -> (EncodedEncoderInstruction -> IO ())
-    -> IO (QEncoder, DecoderInstructionHandler)
+    -> IO (QEncoder, DecoderInstructionHandler, TableOperation)
 newQEncoder QEncoderConfig{..} sendEI = do
     let bufsiz1 = ecHeaderBlockBufferSize
         bufsiz2 = ecPrefixBufferSize
@@ -145,7 +151,12 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 dyntbl
                 lock
         handler = decoderInstructionHandler dyntbl
-    return (enc, handler)
+        ctl =
+            TableOperation
+                { setCapacity = setTableCapacity dyntbl
+                , setBlockedStreams = setTableStreamsBlocked dyntbl
+                }
+    return (enc, handler, ctl)
 
 qpackEncoder
     :: EncodeStrategy
@@ -282,7 +293,7 @@ encoderInstructionHandlerS deccap dyntbl bs = do
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n)
         | n > deccap = E.throwIO EncoderInstructionError
-        | otherwise = setCapabilityForDecoder dyntbl
+        | otherwise = setTableCapacity dyntbl n
     handle (InsertWithNameReference ii val) = do
         atomically $ do
             idx <- case ii of
