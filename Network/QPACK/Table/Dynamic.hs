@@ -41,6 +41,7 @@ data DynamicTable = DynamicTable
     , maxNumOfEntries :: TVar Int
     , circularTable :: TVar Table
     , debugQPACK :: IORef Bool
+    , capaReady :: IORef Bool
     }
 
 -- knownReceivedCount :: TVar Int
@@ -125,6 +126,7 @@ newDynamicTable maxsiz info = do
         <*> newTVarIO maxN -- maxNumOfEntries
         <*> newTVarIO tbl -- maxDynamicTableSize
         <*> newIORef False -- debugQPACK
+        <*> newIORef False -- capaReady
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -222,3 +224,10 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
     let i = idx `mod` maxN
     table <- readTVar circularTable
     unsafeRead table i
+
+----------------------------------------------------------------
+
+setCapabilityForDecoder :: DynamicTable -> IO ()
+setCapabilityForDecoder DynamicTable{..} = do
+    -- FIXME: re-creating dynamic table
+    writeIORef capaReady True
