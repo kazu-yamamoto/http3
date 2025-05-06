@@ -70,8 +70,7 @@ import Network.QPACK.Types
 ----------------------------------------------------------------
 
 -- | QPACK encoder.
-type QEncoder =
-    TokenHeaderList -> IO (EncodedFieldSection, EncodedEncoderInstruction)
+type QEncoder = TokenHeaderList -> IO EncodedFieldSection
 
 -- | QPACK decoder.
 type QDecoder = StreamId -> EncodedFieldSection -> IO TokenHeaderTable
@@ -159,7 +158,7 @@ qpackEncoder
     -> DynamicTable
     -> MVar ()
     -> TokenHeaderList
-    -> IO (EncodedFieldSection, EncodedEncoderInstruction)
+    -> IO EncodedFieldSection
 qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
@@ -172,10 +171,11 @@ qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
                     hb0 <- toByteString wbuf1
                     ins <- toByteString wbuf3
+                    when (ins /= "") $ getSendEI dyntbl ins
                     encodePrefix wbuf2 dyntbl
                     prefix <- toByteString wbuf2
                     let hb = prefix `B.append` hb0
-                    return (hb, ins)
+                    return hb
 
 -- Note: dyntbl for encoder
 decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
