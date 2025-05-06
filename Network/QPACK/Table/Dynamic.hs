@@ -43,9 +43,8 @@ data DynamicTable = DynamicTable
     , debugQPACK :: IORef Bool
     , capaReady :: IORef Bool
     , blockedStreams :: IORef Int
+    , knownReceivedCount :: TVar Int
     }
-
--- knownReceivedCount :: TVar Int
 
 type Table = TArray Index Entry
 
@@ -125,6 +124,7 @@ newDynamicTable info = do
         <*> newIORef False -- debugQPACK
         <*> newIORef False -- capaReady
         <*> newIORef 0 -- blockedStreams
+        <*> newTVarIO 0 -- knownReceivedCount
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
 updateDynamicTable DynamicTable{..} maxsiz = do
