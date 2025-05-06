@@ -280,10 +280,9 @@ encoderInstructionHandlerS deccap dyntbl bs = do
     mapM_ handle ins
   where
     hufdec = getHuffmanDecoder dyntbl
-    -- XXX: creating dynamic table for decoder
     handle (SetDynamicTableCapacity n)
         | n > deccap = E.throwIO EncoderInstructionError
-        | otherwise = return () -- FIXME: set cap
+        | otherwise = setCapabilityForDecoder dyntbl
     handle (InsertWithNameReference ii val) = do
         atomically $ do
             idx <- case ii of
