@@ -19,6 +19,7 @@ import System.Environment
 import System.IO
 
 import Network.QPACK
+import Network.QPACK.Internal
 
 data Block = Block Int ByteString deriving (Show)
 
@@ -41,6 +42,8 @@ dump size efile = do
             defaultQDecoderConfig{dcDynamicTableSize = size}
             (\_ -> return ())
             True
+    bs <- encodeEncoderInstructions [SetDynamicTableCapacity size] False
+    insthdr bs
     runConduitRes
         ( sourceFile efile
             .| conduitParser block
@@ -70,6 +73,8 @@ test size efile qfile = do
             defaultQDecoderConfig{dcDynamicTableSize = size}
             (\_ -> return ())
             False
+    ins <- encodeEncoderInstructions [SetDynamicTableCapacity size] False
+    insthdr' ins
     q <- newTQueueIO
     let recv = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x

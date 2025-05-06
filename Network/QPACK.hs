@@ -137,7 +137,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
     gcbuf3 <- mallocPlainForeignPtrBytes bufsiz3
-    dyntbl <- newDynamicTableForEncoding ecDynamicTableSize sendEI
+    dyntbl <- newDynamicTableForEncoding sendEI
     lock <- newMVar ()
     let enc =
             qpackEncoder
@@ -236,7 +236,7 @@ newQDecoder
     -> IO (QDecoder, EncoderInstructionHandler)
 newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
-        newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
+        newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dcDynamicTableSize dyntbl
     return (dec, handler)
@@ -249,7 +249,7 @@ newQDecoderS
     -> IO (QDecoderS, EncoderInstructionHandlerS)
 newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
-        newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
+        newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dcDynamicTableSize dyntbl
