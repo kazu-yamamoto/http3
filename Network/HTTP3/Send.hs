@@ -26,7 +26,7 @@ sendHeader :: Context -> Stream -> T.Handle -> HT.ResponseHeaders -> IO ()
 sendHeader ctx strm th hdrs = do
     -- fixme: fixHeaders
     (ths, _) <- toTokenHeaderTable hdrs
-    hdr <- qpackEncode ctx ths -- FIXME: send 2nd ret value as EI
+    hdr <- qpackEncode ctx ths
     let frames = [H3Frame H3FrameHeaders hdr]
         frames' = onHeadersFrameCreated (getHooks ctx) frames
         bss = encodeH3Frames frames'
