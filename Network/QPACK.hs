@@ -279,7 +279,7 @@ encoderInstructionHandler decCapLim dyntbl recv = loop
         when (bs /= "") $ do
             encoderInstructionHandlerS decCapLim dyntbl bs
             loop
-
+{- FOURMOLU_DISABLE -}
 -- Note: dyntbl for decoder
 encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
 encoderInstructionHandlerS _ _dyntbl "" = return ()
@@ -304,16 +304,17 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             ent0 <- toIndexedEntry dyntbl idx
             let ent = toEntryToken (entryToken ent0) val
             insertEntryToDecoder ent dyntbl
-        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (InsertWithLiteralName t val) = do
         atomically $ do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
-        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+       -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (Duplicate ri) = do
         atomically $ do
             ip <- getInsertionPointSTM dyntbl
             let idx = DIndex $ fromInsRelativeIndex ri ip
             ent <- toIndexedEntry dyntbl idx
             insertEntryToDecoder ent dyntbl
-        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+{- FOURMOLU_ENABLE -}
