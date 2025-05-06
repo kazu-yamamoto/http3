@@ -153,7 +153,8 @@ newQEncoder QEncoderConfig{..} sendEI = do
         handler = decoderInstructionHandler dyntbl
         ctl =
             TableOperation
-                { setCapacity = setTableCapacity dyntbl
+                { setCapacity = \n -> do
+                    setTableCapacity dyntbl (min ecDynamicTableSize n)
                 , setBlockedStreams = setTableStreamsBlocked dyntbl
                 }
     return (enc, handler, ctl)
