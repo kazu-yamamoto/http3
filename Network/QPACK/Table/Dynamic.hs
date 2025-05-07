@@ -243,6 +243,9 @@ setTableCapacity dyntbl@DynamicTable{..} n = do
     updateDynamicTable dyntbl n
     writeIORef capaReady True
 
+isTableReady :: DynamicTable -> IO Bool
+isTableReady DynamicTable{..} = readIORef capaReady
+
 setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
 setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
 
