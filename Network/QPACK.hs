@@ -147,7 +147,10 @@ newQEncoder QEncoderConfig{..} sendEI = do
         ctl =
             TableOperation
                 { setCapacity = \n -> do
-                    setTableCapacity dyntbl (min ecDynamicTableSize n)
+                    let tableSize = min ecDynamicTableSize n
+                    setTableCapacity dyntbl tableSize
+                    ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
+                    getSendEI dyntbl ins
                 , setBlockedStreams = setTableStreamsBlocked dyntbl
                 }
     return (enc, handler, ctl)
