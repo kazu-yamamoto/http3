@@ -27,7 +27,7 @@ import Network.QPACK.Types
 data CodeInfo
     = EncodeInfo
         RevIndex -- Reverse index
-        (IORef InsertionPoint)
+        (IORef RequiredInsertCount)
         (ByteString -> IO ()) -- sendEI
     | DecodeInfo HuffmanDecoder (ByteString -> IO ()) -- sendDI
 
@@ -64,9 +64,9 @@ getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint
 getInsertionPointSTM :: DynamicTable -> STM InsertionPoint
 getInsertionPointSTM DynamicTable{..} = readTVar insertionPoint
 
-checkInsertionPoint :: DynamicTable -> InsertionPoint -> IO ()
-checkInsertionPoint DynamicTable{..} reqip = atomically $ do
-    ip <- readTVar insertionPoint
+checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
+checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    InsertionPoint ip <- readTVar insertionPoint
     check (reqip <= ip)
 
 ----------------------------------------------------------------
@@ -181,21 +181,25 @@ getSendDI DynamicTable{..} = sendDI
 
 ----------------------------------------------------------------
 
-clearLargestReference :: DynamicTable -> IO ()
-clearLargestReference DynamicTable{..} = writeIORef ref 0
+clearRequiredInsertCount :: DynamicTable -> IO ()
+clearRequiredInsertCount DynamicTable{..} = writeIORef ref 0
   where
     EncodeInfo _ ref _ = codeInfo
 
-getLargestReference :: DynamicTable -> IO InsertionPoint
-getLargestReference DynamicTable{..} = readIORef ref
+getRequiredInsertCount :: DynamicTable -> IO RequiredInsertCount
+getRequiredInsertCount DynamicTable{..} = readIORef ref
   where
     EncodeInfo _ ref _ = codeInfo
 
-updateLargestReference :: DynamicTable -> AbsoluteIndex -> IO ()
-updateLargestReference DynamicTable{..} (AbsoluteIndex idx) = do
-    let nidx = InsertionPoint idx
-    oidx <- readIORef ref
-    when (nidx > oidx) $ writeIORef ref nidx
+absoluteIndexToRequiredInsertCount :: AbsoluteIndex -> RequiredInsertCount
+absoluteIndexToRequiredInsertCount (AbsoluteIndex idx) =
+    RequiredInsertCount (idx + 1)
+
+updateRequiredInsertCount :: DynamicTable -> AbsoluteIndex -> IO ()
+updateRequiredInsertCount DynamicTable{..} aidx = do
+    let newric = absoluteIndexToRequiredInsertCount aidx
+    oldric <- readIORef ref
+    when (newric > oldric) $ writeIORef ref newric
   where
     EncodeInfo _ ref _ = codeInfo
 

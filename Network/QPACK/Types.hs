@@ -9,8 +9,14 @@ newtype AbsoluteIndex = AbsoluteIndex Int deriving (Eq, Ord, Show, Num)
 newtype InsRelativeIndex = InsRelativeIndex Int deriving (Eq, Ord, Show, Num)
 newtype HBRelativeIndex = HBRelativeIndex Int deriving (Eq, Ord, Show, Num)
 newtype PostBaseIndex = PostBaseIndex Int deriving (Eq, Ord, Show, Num)
-newtype InsertionPoint = InsertionPoint Int deriving (Eq, Ord, Show, Num)
 newtype BasePoint = BasePoint Int deriving (Eq, Ord, Show, Num)
+
+-- Point to insert an entry next
+newtype InsertionPoint = InsertionPoint Int deriving (Eq, Ord, Show, Num)
+
+-- Counter of how many entries must be inserted
+newtype RequiredInsertCount = RequiredInsertCount Int
+    deriving (Eq, Ord, Show, Num)
 
 data HIndex
     = SIndex AbsoluteIndex
