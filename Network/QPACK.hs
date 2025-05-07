@@ -29,10 +29,6 @@ module Network.QPACK (
     InstructionHandler,
     Size,
 
-    -- * Strategy
-    EncodeStrategy (..),
-    CompressionAlgo (..),
-
     -- * Re-exports
     TokenHeaderTable,
     TokenHeaderList,
@@ -107,14 +103,13 @@ data QEncoderConfig = QEncoderConfig
     , ecHeaderBlockBufferSize :: Size
     , ecPrefixBufferSize :: Size
     , ecInstructionBufferSize :: Size
-    , encStrategy :: EncodeStrategy
     }
     deriving (Show)
 
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
--- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecPrefixBufferSize = 128, ecInstructionBufferSize = 4096, encStrategy = EncodeStrategy {compressionAlgo = Static, useHuffman = True}}
+-- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecPrefixBufferSize = 128, ecInstructionBufferSize = 4096}
 defaultQEncoderConfig :: QEncoderConfig
 defaultQEncoderConfig =
     QEncoderConfig
@@ -122,7 +117,6 @@ defaultQEncoderConfig =
         , ecHeaderBlockBufferSize = 4096
         , ecPrefixBufferSize = 128
         , ecInstructionBufferSize = 4096
-        , encStrategy = EncodeStrategy Static True
         }
 
 -- | Creating a new QPACK encoder.
@@ -141,7 +135,6 @@ newQEncoder QEncoderConfig{..} sendEI = do
     lock <- newMVar ()
     let enc =
             qpackEncoder
-                encStrategy
                 gcbuf1
                 bufsiz1
                 gcbuf2
@@ -160,8 +153,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
     return (enc, handler, ctl)
 
 qpackEncoder
-    :: EncodeStrategy
-    -> GCBuffer
+    :: GCBuffer
     -> Int
     -> GCBuffer
     -> Int
@@ -171,7 +163,7 @@ qpackEncoder
     -> MVar ()
     -> TokenHeaderList
     -> IO EncodedFieldSection
-qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
+qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 ->
@@ -179,7 +171,7 @@ qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     wbuf1 <- newWriteBuffer buf1 bufsiz1
                     wbuf2 <- newWriteBuffer buf2 bufsiz2
                     wbuf3 <- newWriteBuffer buf3 bufsiz3
-                    thl <- encodeTokenHeader wbuf1 wbuf3 stgy dyntbl ts -- fixme: leftover
+                    thl <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts -- fixme: leftover
                     when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
                     hb0 <- toByteString wbuf1
                     ins <- toByteString wbuf3

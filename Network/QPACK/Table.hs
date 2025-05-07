@@ -33,6 +33,7 @@ module Network.QPACK.Table (
     getDebugQPACK,
     qpackDebug,
     setTableCapacity,
+    isTableReady,
     setTableStreamsBlocked,
     setKnownReceivedCount,
 ) where

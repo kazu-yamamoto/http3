@@ -6,8 +6,6 @@ module Network.QPACK.HeaderBlock.Encode (
     encodeTokenHeader,
     EncodedFieldSection,
     EncodedEncoderInstruction,
-    EncodeStrategy (..),
-    CompressionAlgo (..),
 ) where
 
 import qualified Control.Exception as E
@@ -15,8 +13,6 @@ import qualified Data.ByteString as B
 import Data.IORef
 import Network.ByteOrder
 import Network.HPACK.Internal (
-    CompressionAlgo (..),
-    EncodeStrategy (..),
     encodeI,
     encodeS,
     toEntryToken,
@@ -41,14 +37,13 @@ type EncodedEncoderInstruction = B.ByteString
 --   2048, 32, and 2048 bytes-buffers are
 --   temporally allocated for header block, prefix and encoder instructions.
 encodeHeader
-    :: EncodeStrategy
-    -> DynamicTable
+    :: DynamicTable
     -> [Header]
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
-encodeHeader stgy dyntbl hs = do
+encodeHeader dyntbl hs = do
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
         withWriteBuffer 2048 $ \wbuf2 -> do
-            hs1 <- encodeTokenHeader wbuf1 wbuf2 stgy dyntbl ts
+            hs1 <- encodeTokenHeader wbuf1 wbuf2 dyntbl ts
             unless (null hs1) $ E.throwIO BufferOverrun
     prefix <- withWriteBuffer 32 $ \wbuf -> encodePrefix wbuf dyntbl
     let hb = prefix `B.append` hb0
@@ -62,22 +57,22 @@ encodeTokenHeader
     -- ^ Workspace for the body of header block
     -> WriteBuffer
     -- ^ Workspace for encoder instructions
-    -> EncodeStrategy
     -> DynamicTable
     -> TokenHeaderList
     -> IO TokenHeaderList
     -- ^ Leftover
-encodeTokenHeader wbuf1 wbuf2 EncodeStrategy{..} dyntbl ts0 = do
+encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     clearWriteBuffer wbuf1
     clearWriteBuffer wbuf2
     setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
     ref <- newIORef ts0
-    case compressionAlgo of
-        Static ->
-            encodeStatic wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0 `E.catch` \BufferOverrun -> return ()
-        _ ->
-            encodeLinear wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0 `E.catch` \BufferOverrun -> return ()
+    ready <- isTableReady dyntbl
+    if ready
+        then
+            encodeLinear wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return ()
+        else
+            encodeStatic wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return ()
     ts <- readIORef ref
     unless (null ts) $ do
         goBack wbuf1
