@@ -165,7 +165,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
     (idx, set) <- case hi of
         SIndex (AbsoluteIndex i) -> return (i, set11)
         DIndex ai -> do
-            updateLargestReference dyntbl ai
+            updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set10)
@@ -189,7 +189,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hi val huff = do
     (idx, set) <- case hi of
         SIndex (AbsoluteIndex i) -> return (i, set0101)
         DIndex ai -> do
-            updateLargestReference dyntbl ai
+            updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set0100)

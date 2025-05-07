@@ -26,8 +26,8 @@ decodeTokenHeader
     -> ReadBuffer
     -> IO (TokenHeaderTable, Bool)
 decodeTokenHeader dyntbl rbuf = do
-    (reqip, bp, needAck) <- decodePrefix rbuf dyntbl
-    checkInsertionPoint dyntbl reqip
+    (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
+    checkRequiredInsertCount dyntbl reqInsertCount
     tbl <- decodeSophisticated (toTokenHeader dyntbl bp) rbuf
     return (tbl, needAck)
 
@@ -36,9 +36,9 @@ decodeTokenHeaderS
     -> ReadBuffer
     -> IO ([Header], Bool)
 decodeTokenHeaderS dyntbl rbuf = do
-    (reqip, bp, needAck) <- decodePrefix rbuf dyntbl
+    (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
     debug <- getDebugQPACK dyntbl
-    unless debug $ checkInsertionPoint dyntbl reqip
+    unless debug $ checkRequiredInsertCount dyntbl reqInsertCount
     hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
     return (hs, needAck)
 

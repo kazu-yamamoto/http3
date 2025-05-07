@@ -10,9 +10,9 @@ module Network.QPACK.Table (
     getBasePoint,
     getInsertionPoint,
     getInsertionPointSTM,
-    checkInsertionPoint,
-    getLargestReference,
-    updateLargestReference,
+    checkRequiredInsertCount,
+    getRequiredInsertCount,
+    updateRequiredInsertCount,
 
     -- * Entry
     insertEntryToEncoder,
