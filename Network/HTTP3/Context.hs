@@ -61,31 +61,21 @@ withContext conn conf action = do
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
     (sendEI, sendDI) <- setupUnidirectional conn conf
-    (enc, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
+    (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
-    (dec, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
+    (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     ctl <- controlStream conn dyntblE <$> newIORef IInit
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
-        sw = switch conn ctl handleEI' handleDI'
-        preadM = confPositionReadMaker conf
-        hooks = confHooks conf
-        mysa = localSockAddr info
-        peersa = remoteSockAddr info
-    mgr <- T.newThreadManager $ confTimeoutManager conf
-    return $
-        Context
-            { ctxConnection = conn
-            , ctxQEncoder = enc
-            , ctxQDecoder = dec
-            , ctxUniSwitch = sw
-            , ctxPReadMaker = preadM
-            , ctxThreadManager = mgr
-            , ctxHooks = hooks
-            , ctxMySockAddr = mysa
-            , ctxPeerSockAddr = peersa
-            }
+        ctxUniSwitch = switch conn ctl handleEI' handleDI'
+        ctxPReadMaker = confPositionReadMaker conf
+        ctxHooks = confHooks conf
+        ctxMySockAddr = localSockAddr info
+        ctxPeerSockAddr = remoteSockAddr info
+    ctxThreadManager <- T.newThreadManager $ confTimeoutManager conf
+    let ctxConnection = conn
+    return Context{..}
   where
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
