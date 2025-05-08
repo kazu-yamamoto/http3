@@ -31,7 +31,7 @@ data Section = Section RequiredInsertCount [AbsoluteIndex]
 {- FOURMOLU_DISABLE -}
 data CodeInfo
     = EncodeInfo
-        { revIndex :: RevIndex -- Reverse index
+        { revIndex            :: RevIndex -- Reverse index
         , requiredInsertCount :: IORef RequiredInsertCount
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
@@ -85,32 +85,25 @@ checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomical
 
 ----------------------------------------------------------------
 
+{- FOURMOLU_DISABLE -}
 -- | Creating 'DynamicTable' for encoding.
 newDynamicTableForEncoding
     :: (ByteString -> IO ())
     -> IO DynamicTable
 newDynamicTableForEncoding sendEI = do
-    rev <- newRevIndex
-    ref0 <- newIORef 0
-    ref1 <- newIORef 0
-    ref2 <- newIORef 0
-    ref3 <- newIORef 0
-    tvar0 <- newTVarIO 0
     arr <- newArray (0, 0) 0
-    ref4 <- newIORef arr
-    ref5 <- newIORef IntMap.empty
-    let info =
-            EncodeInfo
-                { revIndex = rev
-                , requiredInsertCount = ref0
-                , droppingPoint = ref1
-                , drainingPoint = ref2
-                , blockedStreams = ref3
-                , knownReceivedCount = tvar0
-                , referenceCounters = ref4
-                , sections = ref5
-                }
+    info <- do
+        revIndex            <- newRevIndex
+        requiredInsertCount <- newIORef 0
+        droppingPoint       <- newIORef 0
+        drainingPoint       <- newIORef 0
+        blockedStreams      <- newIORef 0
+        knownReceivedCount  <- newTVarIO 0
+        referenceCounters   <- newIORef arr
+        sections            <- newIORef IntMap.empty
+        return EncodeInfo{..}
     newDynamicTable info sendEI
+{- FOURMOLU_ENABLE -}
 
 -- | Creating 'DynamicTable' for decoding.
 newDynamicTableForDecoding
@@ -145,23 +138,15 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
 newDynamicTable info send = do
     tbl <- atomically $ newArray (0, 0) dummyEntry
-    tvar0 <- newTVarIO 0
-    tvar1 <- newTVarIO 0
-    tvar2 <- newTVarIO tbl
-    ref0 <- newIORef 0
-    ref1 <- newIORef False
-    ref2 <- newIORef False
-    return
-        DynamicTable
-            { codeInfo = info
-            , insertionPoint = tvar0
-            , maxNumOfEntries = tvar1
-            , circularTable = tvar2
-            , basePoint = ref0
-            , debugQPACK = ref1
-            , capaReady = ref2
-            , sendIns = send
-            }
+    let codeInfo = info
+    insertionPoint <- newTVarIO 0
+    maxNumOfEntries <- newTVarIO 0
+    circularTable <- newTVarIO tbl
+    basePoint <- newIORef 0
+    debugQPACK <- newIORef False
+    capaReady <- newIORef False
+    let sendIns = send
+    return DynamicTable{..}
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
 updateDynamicTable DynamicTable{..} maxsiz = do
