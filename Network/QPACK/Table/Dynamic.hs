@@ -28,8 +28,7 @@ data CodeInfo
     = EncodeInfo
         RevIndex -- Reverse index
         (IORef RequiredInsertCount)
-        (ByteString -> IO ()) -- sendEI
-    | DecodeInfo HuffmanDecoder (ByteString -> IO ()) -- sendDI
+    | DecodeInfo HuffmanDecoder
 
 -- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable
@@ -44,6 +43,7 @@ data DynamicTable = DynamicTable
     , capaReady :: IORef Bool
     , blockedStreams :: IORef Int
     , knownReceivedCount :: TVar Int
+    , sendIns :: ByteString -> IO ()
     }
 
 type Table = TArray Index Entry
@@ -78,8 +78,8 @@ newDynamicTableForEncoding
 newDynamicTableForEncoding sendEI = do
     rev <- newRevIndex
     ref <- newIORef 0
-    let info = EncodeInfo rev ref sendEI
-    newDynamicTable info
+    let info = EncodeInfo rev ref
+    newDynamicTable info sendEI
 
 -- | Creating 'DynamicTable' for decoding.
 newDynamicTableForDecoding
@@ -91,8 +91,8 @@ newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
     let decoder = decodeHLock tvar
-        info = DecodeInfo decoder sendDI
-    newDynamicTable info
+        info = DecodeInfo decoder
+    newDynamicTable info sendDI
 
 decodeHLock
     :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
@@ -112,8 +112,8 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
     unlock x = atomically $ writeTVar tvar $ Just x
 
 {- FOURMOLU_DISABLE -}
-newDynamicTable :: CodeInfo -> IO DynamicTable
-newDynamicTable info = do
+newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
+newDynamicTable info send = do
     tbl <- atomically $ newArray (0, 0) dummyEntry
     DynamicTable info
         <$> newIORef 0     -- droppingPoint
@@ -126,6 +126,7 @@ newDynamicTable info = do
         <*> newIORef False -- capaReady
         <*> newIORef 0     -- blockedStreams
         <*> newTVarIO 0    -- knownReceivedCount
+        <*> pure send      -- sendIns
 {- FOURMOLU_ENABLE -}
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
@@ -162,34 +163,24 @@ getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 getRevIndex :: DynamicTable -> RevIndex
 getRevIndex DynamicTable{..} = rev
   where
-    EncodeInfo rev _ _ = codeInfo
+    EncodeInfo rev _ = codeInfo
 
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
-    DecodeInfo huf _ = codeInfo
-
-getSendEI :: DynamicTable -> (ByteString -> IO ())
-getSendEI DynamicTable{..} = sendEI
-  where
-    EncodeInfo _ _ sendEI = codeInfo
-
-getSendDI :: DynamicTable -> (ByteString -> IO ())
-getSendDI DynamicTable{..} = sendDI
-  where
-    DecodeInfo _ sendDI = codeInfo
+    DecodeInfo huf = codeInfo
 
 ----------------------------------------------------------------
 
 clearRequiredInsertCount :: DynamicTable -> IO ()
 clearRequiredInsertCount DynamicTable{..} = writeIORef ref 0
   where
-    EncodeInfo _ ref _ = codeInfo
+    EncodeInfo _ ref = codeInfo
 
 getRequiredInsertCount :: DynamicTable -> IO RequiredInsertCount
 getRequiredInsertCount DynamicTable{..} = readIORef ref
   where
-    EncodeInfo _ ref _ = codeInfo
+    EncodeInfo _ ref = codeInfo
 
 absoluteIndexToRequiredInsertCount :: AbsoluteIndex -> RequiredInsertCount
 absoluteIndexToRequiredInsertCount (AbsoluteIndex idx) =
@@ -201,7 +192,7 @@ updateRequiredInsertCount DynamicTable{..} aidx = do
     oldric <- readIORef ref
     when (newric > oldric) $ writeIORef ref newric
   where
-    EncodeInfo _ ref _ = codeInfo
+    EncodeInfo _ ref = codeInfo
 
 ----------------------------------------------------------------
 
