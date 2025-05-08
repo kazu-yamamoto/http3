@@ -24,28 +24,32 @@ import Imports
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
 
+{- FOURMOLU_DISABLE -}
 data CodeInfo
     = EncodeInfo
         { revIndex :: RevIndex -- Reverse index
         , requiredInsertCount :: IORef RequiredInsertCount
-        , droppingPoint :: IORef AbsoluteIndex
-        , drainingPoint :: IORef AbsoluteIndex
-        , blockedStreams :: IORef Int
-        , knownReceivedCount :: TVar Int
+        , droppingPoint       :: IORef AbsoluteIndex
+        , drainingPoint       :: IORef AbsoluteIndex
+        , blockedStreams      :: IORef Int
+        , knownReceivedCount  :: TVar Int
         }
     | DecodeInfo HuffmanDecoder
+{- FOURMOLU_ENABLE -}
 
 -- | Dynamic table for QPACK.
+{- FOURMOLU_DISABLE -}
 data DynamicTable = DynamicTable
-    { codeInfo :: CodeInfo
-    , insertionPoint :: TVar InsertionPoint
-    , basePoint :: IORef BasePoint
+    { codeInfo        :: CodeInfo
+    , insertionPoint  :: TVar InsertionPoint
     , maxNumOfEntries :: TVar Int
-    , circularTable :: TVar Table
-    , debugQPACK :: IORef Bool
-    , capaReady :: IORef Bool
-    , sendIns :: ByteString -> IO ()
+    , circularTable   :: TVar Table
+    , basePoint       :: IORef BasePoint
+    , debugQPACK      :: IORef Bool
+    , capaReady       :: IORef Bool
+    , sendIns         :: ByteString -> IO ()
     }
+{- FOURMOLU_ENABLE -}
 
 type Table = TArray Index Entry
 
@@ -127,19 +131,26 @@ decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
                 return x
     unlock x = atomically $ writeTVar tvar $ Just x
 
-{- FOURMOLU_DISABLE -}
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
 newDynamicTable info send = do
     tbl <- atomically $ newArray (0, 0) dummyEntry
-    DynamicTable info
-        <$> newTVarIO 0    -- insertionPoint
-        <*> newIORef 0     -- basePoint
-        <*> newTVarIO 0    -- maxNumOfEntries
-        <*> newTVarIO tbl  -- circularTable
-        <*> newIORef False -- debugQPACK
-        <*> newIORef False -- capaReady
-        <*> pure send      -- sendIns
-{- FOURMOLU_ENABLE -}
+    tvar0 <- newTVarIO 0
+    tvar1 <- newTVarIO 0
+    tvar2 <- newTVarIO tbl
+    ref0 <- newIORef 0
+    ref1 <- newIORef False
+    ref2 <- newIORef False
+    return
+        DynamicTable
+            { codeInfo = info
+            , insertionPoint = tvar0
+            , maxNumOfEntries = tvar1
+            , circularTable = tvar2
+            , basePoint = ref0
+            , debugQPACK = ref1
+            , capaReady = ref2
+            , sendIns = send
+            }
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
 updateDynamicTable DynamicTable{..} maxsiz = do
