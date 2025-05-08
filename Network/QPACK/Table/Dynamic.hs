@@ -6,8 +6,12 @@ module Network.QPACK.Table.Dynamic where
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
+import Data.Array.IO (IOArray)
 import Data.Array.MArray (newArray)
 import Data.IORef
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import Imports
 import Network.ByteOrder
 import Network.HPACK.Internal (
     Entry,
@@ -19,10 +23,10 @@ import Network.HPACK.Internal (
     dummyEntry,
     maxNumbers,
  )
-
-import Imports
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
+
+data Section = Section RequiredInsertCount [AbsoluteIndex]
 
 {- FOURMOLU_DISABLE -}
 data CodeInfo
@@ -33,6 +37,8 @@ data CodeInfo
         , drainingPoint       :: IORef AbsoluteIndex
         , blockedStreams      :: IORef Int
         , knownReceivedCount  :: TVar Int
+        , referenceCounters   :: IORef (IOArray Index Int)
+        , sections            :: IORef (IntMap Section)
         }
     | DecodeInfo HuffmanDecoder
 {- FOURMOLU_ENABLE -}
@@ -90,6 +96,9 @@ newDynamicTableForEncoding sendEI = do
     ref2 <- newIORef 0
     ref3 <- newIORef 0
     tvar0 <- newTVarIO 0
+    arr <- newArray (0, 0) 0
+    ref4 <- newIORef arr
+    ref5 <- newIORef IntMap.empty
     let info =
             EncodeInfo
                 { revIndex = rev
@@ -98,6 +107,8 @@ newDynamicTableForEncoding sendEI = do
                 , drainingPoint = ref2
                 , blockedStreams = ref3
                 , knownReceivedCount = tvar0
+                , referenceCounters = ref4
+                , sections = ref5
                 }
     newDynamicTable info sendEI
 
@@ -158,6 +169,11 @@ updateDynamicTable DynamicTable{..} maxsiz = do
     atomically $ do
         writeTVar maxNumOfEntries maxN
         writeTVar circularTable tbl
+    case codeInfo of
+        EncodeInfo{..} -> do
+            arr <- newArray (0, end) 0
+            writeIORef referenceCounters arr
+        _ -> return ()
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
