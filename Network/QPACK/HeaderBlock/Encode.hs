@@ -101,8 +101,8 @@ encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                 -- 4.5.4.  Literal Field Line With Name Reference
                 encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
             N -> do
-                -- 4.5.6.  Literal Field Line Without Name Reference
-                encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
         save wbuf1
         writeIORef ref ts
         loop ts
@@ -145,10 +145,11 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                     let ins = InsertWithLiteralName t val
                     encodeEI wbuf2 True ins
                     dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
+                    -- 4.5.3.  Indexed Field Line with Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                 | otherwise -> do
-                    -- 4.5.6.  Literal Field Line Without Name Reference
-                    encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
+                    -- 4.5.6.  Literal Field Line with Literal Name
+                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
         save wbuf1
         save wbuf2
         writeIORef ref ts
@@ -194,10 +195,10 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hi val huff = do
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 -- not implemented
 
--- 4.5.6.  Literal Field Line Without Name Reference
-encodeLiteralFieldLineWithoutNameReference
+-- 4.5.6.  Literal Field Line with Literal Name
+encodeLiteralFieldLineWithLiteralName
     :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
-encodeLiteralFieldLineWithoutNameReference wbuf token val huff = do
+encodeLiteralFieldLineWithLiteralName wbuf token val huff = do
     let key = tokenFoldedKey token
     encodeS wbuf huff set0010 set00001 3 key
     encodeS wbuf huff id set1 7 val
