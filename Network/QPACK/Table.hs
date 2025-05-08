@@ -13,6 +13,7 @@ module Network.QPACK.Table (
     checkRequiredInsertCount,
     getRequiredInsertCount,
     updateRequiredInsertCount,
+    sendIns,
 
     -- * Entry
     insertEntryToEncoder,
@@ -27,8 +28,6 @@ module Network.QPACK.Table (
 
     -- * Misc
     getHuffmanDecoder,
-    getSendEI,
-    getSendDI,
     setDebugQPACK,
     getDebugQPACK,
     qpackDebug,

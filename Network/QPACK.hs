@@ -150,7 +150,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
                     let tableSize = min ecDynamicTableSize n
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
-                    getSendEI dyntbl ins
+                    sendIns dyntbl ins
                 , setBlockedStreams = setTableStreamsBlocked dyntbl
                 }
     return (enc, handler, ctl)
@@ -178,7 +178,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
                     hb0 <- toByteString wbuf1
                     ins <- toByteString wbuf3
-                    when (ins /= "") $ getSendEI dyntbl ins
+                    when (ins /= "") $ sendIns dyntbl ins
                     encodePrefix wbuf2 dyntbl
                     prefix <- toByteString wbuf2
                     let hb = prefix `B.append` hb0
@@ -255,14 +255,14 @@ qpackDecoder
 qpackDecoder dyntbl sid bs = do
     (tbl, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
     when needAck $
-        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
     return tbl
 
 qpackDecoderS :: DynamicTable -> StreamId -> EncodedFieldSection -> IO [Header]
 qpackDecoderS dyntbl sid bs = do
     (hs, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
     when needAck $
-        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
     return hs
 
 -- Note: dyntbl for decoder
