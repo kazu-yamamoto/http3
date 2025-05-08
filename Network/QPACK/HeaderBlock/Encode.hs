@@ -175,7 +175,7 @@ encodeIndexedFieldLineWithPostBaseIndex
     -> IO ()
 encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
     bp <- getBasePoint dyntbl
-    let HBRelativeIndex idx = toHBRelativeIndex ai bp
+    let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
 
 -- 4.5.4.  Literal Field Line With Name Reference
