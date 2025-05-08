@@ -174,6 +174,7 @@ encodeIndexedFieldLineWithPostBaseIndex
     -> AbsoluteIndex -- in Dynamic table
     -> IO ()
 encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
+    updateRequiredInsertCount dyntbl ai
     bp <- getBasePoint dyntbl
     let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
