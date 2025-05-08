@@ -28,22 +28,22 @@ data CodeInfo
     = EncodeInfo
         { revIndex :: RevIndex -- Reverse index
         , requiredInsertCount :: IORef RequiredInsertCount
+        , droppingPoint :: IORef AbsoluteIndex
+        , drainingPoint :: IORef AbsoluteIndex
+        , blockedStreams :: IORef Int
+        , knownReceivedCount :: TVar Int
         }
     | DecodeInfo HuffmanDecoder
 
 -- | Dynamic table for QPACK.
 data DynamicTable = DynamicTable
     { codeInfo :: CodeInfo
-    , droppingPoint :: IORef AbsoluteIndex
-    , drainingPoint :: IORef AbsoluteIndex
     , insertionPoint :: TVar InsertionPoint
     , basePoint :: IORef BasePoint
     , maxNumOfEntries :: TVar Int
     , circularTable :: TVar Table
     , debugQPACK :: IORef Bool
     , capaReady :: IORef Bool
-    , blockedStreams :: IORef Int
-    , knownReceivedCount :: TVar Int
     , sendIns :: ByteString -> IO ()
     }
 
@@ -78,11 +78,19 @@ newDynamicTableForEncoding
     -> IO DynamicTable
 newDynamicTableForEncoding sendEI = do
     rev <- newRevIndex
-    ref <- newIORef 0
+    ref0 <- newIORef 0
+    ref1 <- newIORef 0
+    ref2 <- newIORef 0
+    ref3 <- newIORef 0
+    tvar0 <- newTVarIO 0
     let info =
             EncodeInfo
                 { revIndex = rev
-                , requiredInsertCount = ref
+                , requiredInsertCount = ref0
+                , droppingPoint = ref1
+                , drainingPoint = ref2
+                , blockedStreams = ref3
+                , knownReceivedCount = tvar0
                 }
     newDynamicTable info sendEI
 
@@ -121,16 +129,12 @@ newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
 newDynamicTable info send = do
     tbl <- atomically $ newArray (0, 0) dummyEntry
     DynamicTable info
-        <$> newIORef 0     -- droppingPoint
-        <*> newIORef 0     -- drainingPoint
-        <*> newTVarIO 0    -- insertionPoint
+        <$> newTVarIO 0    -- insertionPoint
         <*> newIORef 0     -- basePoint
         <*> newTVarIO 0    -- maxNumOfEntries
         <*> newTVarIO tbl  -- circularTable
         <*> newIORef False -- debugQPACK
         <*> newIORef False -- capaReady
-        <*> newIORef 0     -- blockedStreams
-        <*> newTVarIO 0    -- knownReceivedCount
         <*> pure send      -- sendIns
 {- FOURMOLU_ENABLE -}
 
@@ -244,7 +248,11 @@ isTableReady DynamicTable{..} = readIORef capaReady
 
 setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
 setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
+  where
+    EncodeInfo{..} = codeInfo
 
 setKnownReceivedCount :: DynamicTable -> Int -> IO ()
 setKnownReceivedCount DynamicTable{..} n =
     atomically $ modifyTVar' knownReceivedCount (+ n)
+  where
+    EncodeInfo{..} = codeInfo
