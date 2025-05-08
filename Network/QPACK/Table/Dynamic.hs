@@ -68,6 +68,9 @@ getInsertionPointSTM DynamicTable{..} = readTVar insertionPoint
 checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
 checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
     InsertionPoint ip <- readTVar insertionPoint
+    -- RequiredInsertCount is index + 1
+    -- InsertionPoin is index + 1
+    -- So, equal is necessary.
     check (reqip <= ip)
 
 ----------------------------------------------------------------
