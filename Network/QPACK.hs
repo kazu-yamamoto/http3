@@ -290,6 +290,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = setTableCapacity dyntbl n
     handle (InsertWithNameReference ii val) = do
+        -- XXX Checking ready
         atomically $ do
             idx <- case ii of
                 Left ai -> return $ SIndex ai
@@ -301,6 +302,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             insertEntryToDecoder ent dyntbl
         -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (InsertWithLiteralName t val) = do
+        -- XXX Checking ready
         atomically $ do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
