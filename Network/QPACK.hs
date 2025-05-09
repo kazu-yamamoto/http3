@@ -175,7 +175,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock sid ts =
                     wbuf1 <- newWriteBuffer buf1 bufsiz1
                     wbuf2 <- newWriteBuffer buf2 bufsiz2
                     wbuf3 <- newWriteBuffer buf3 bufsiz3
-                    thl <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts -- fixme: leftover
+                    (dais, thl) <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts -- fixme: leftover
                     when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
                     hb0 <- toByteString wbuf1
                     ins <- toByteString wbuf3
@@ -184,7 +184,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock sid ts =
                     prefix <- toByteString wbuf2
                     let hb = prefix `B.append` hb0
                     reqInsCnt <- getRequiredInsertCount dyntbl
-                    insertSection dyntbl sid $ Section reqInsCnt []
+                    insertSection dyntbl sid $ Section reqInsCnt dais
                     return hb
 
 -- Note: dyntbl for encoder
@@ -205,9 +205,9 @@ decoderInstructionHandler dyntbl recv = loop
         msec <- getAndDelSection dyntbl sid
         case msec of
             Nothing -> undefined -- XXX error
-            Just (Section reqInsCnt _) -> do
-                -- XXX decrease references
+            Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
+                mapM_ (decreaseReference dyntbl) ais
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
