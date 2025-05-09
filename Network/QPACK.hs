@@ -67,7 +67,7 @@ import Network.QPACK.Types
 ----------------------------------------------------------------
 
 -- | QPACK encoder.
-type QEncoder = TokenHeaderList -> IO EncodedFieldSection
+type QEncoder = StreamId -> TokenHeaderList -> IO EncodedFieldSection
 
 -- | QPACK decoder.
 type QDecoder = StreamId -> EncodedFieldSection -> IO TokenHeaderTable
@@ -164,9 +164,10 @@ qpackEncoder
     -> Int
     -> DynamicTable
     -> MVar ()
+    -> StreamId
     -> TokenHeaderList
     -> IO EncodedFieldSection
-qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
+qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 ->
@@ -182,6 +183,8 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     encodePrefix wbuf2 dyntbl
                     prefix <- toByteString wbuf2
                     let hb = prefix `B.append` hb0
+                    reqInsCnt <- getRequiredInsertCount dyntbl
+                    insertSection dyntbl sid $ Section reqInsCnt []
                     return hb
 
 -- Note: dyntbl for encoder
@@ -198,11 +201,17 @@ decoderInstructionHandler dyntbl recv = loop
             mapM_ handle ins
             loop
     -- FIXME: updating dynamic table for encoder
-    handle (SectionAcknowledgement _n) = return ()
+    handle (SectionAcknowledgement sid) = do
+        msec <- getAndDelSection dyntbl sid
+        case msec of
+            Nothing -> undefined -- XXX error
+            Just (Section reqInsCnt _) -> do
+                -- XXX decrease references
+                updateKnownReceivedCount dyntbl reqInsCnt
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
-        | otherwise = setKnownReceivedCount dyntbl n
+        | otherwise = incrementKnownReceivedCount dyntbl n
 
 ----------------------------------------------------------------
 

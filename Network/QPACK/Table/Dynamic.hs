@@ -9,8 +9,8 @@ import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.IO (IOArray)
 import Data.Array.MArray (newArray)
 import Data.IORef
-import Data.IntMap (IntMap)
-import qualified Data.IntMap as IntMap
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Imports
 import Network.ByteOrder
 import Network.HPACK.Internal (
@@ -23,8 +23,10 @@ import Network.HPACK.Internal (
     dummyEntry,
     maxNumbers,
  )
+
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
+import Network.QUIC (StreamId)
 
 data Section = Section RequiredInsertCount [AbsoluteIndex]
 
@@ -253,6 +255,25 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
+insertSection :: DynamicTable -> StreamId -> Section -> IO ()
+insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
+  where
+    ins m =
+        let m' = IntMap.insert sid section m
+         in (m', ())
+    EncodeInfo{..} = codeInfo
+
+getAndDelSection :: DynamicTable -> StreamId -> IO (Maybe Section)
+getAndDelSection DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
+  where
+    getAndDel m =
+        let (msec, m') = IntMap.updateLookupWithKey f sid m
+         in (m', msec)
+    f _ _ = Nothing -- delete the entry if found
+    EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} n = do
     updateDynamicTable dyntbl n
@@ -266,8 +287,17 @@ setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
   where
     EncodeInfo{..} = codeInfo
 
-setKnownReceivedCount :: DynamicTable -> Int -> IO ()
-setKnownReceivedCount DynamicTable{..} n =
+incrementKnownReceivedCount :: DynamicTable -> Int -> IO ()
+incrementKnownReceivedCount DynamicTable{..} n =
     atomically $ modifyTVar' knownReceivedCount (+ n)
+  where
+    EncodeInfo{..} = codeInfo
+
+updateKnownReceivedCount :: DynamicTable -> RequiredInsertCount -> IO ()
+updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
+    atomically $ modifyTVar' knownReceivedCount $ \krc ->
+        if reqInsCnt > krc
+            then reqInsCnt
+            else krc
   where
     EncodeInfo{..} = codeInfo
