@@ -34,7 +34,11 @@ module Network.QPACK.Table (
     setTableCapacity,
     isTableReady,
     setTableStreamsBlocked,
-    setKnownReceivedCount,
+    incrementKnownReceivedCount,
+    updateKnownReceivedCount,
+    insertSection,
+    getAndDelSection,
+    Section (..),
 ) where
 
 import Control.Concurrent.STM
