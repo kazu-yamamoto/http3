@@ -39,6 +39,8 @@ module Network.QPACK.Table (
     insertSection,
     getAndDelSection,
     Section (..),
+    increaseReference,
+    decreaseReference,
 ) where
 
 import Control.Concurrent.STM

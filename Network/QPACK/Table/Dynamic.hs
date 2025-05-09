@@ -7,7 +7,7 @@ import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.IO (IOArray)
-import Data.Array.MArray (newArray)
+import Data.Array.MArray (modifyArray', newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -270,6 +270,21 @@ getAndDelSection DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
         let (msec, m') = IntMap.updateLookupWithKey f sid m
          in (m', msec)
     f _ _ = Nothing -- delete the entry if found
+    EncodeInfo{..} = codeInfo
+
+increaseReference :: DynamicTable -> AbsoluteIndex -> IO ()
+increaseReference = modifyReference (+ 1)
+
+decreaseReference :: DynamicTable -> AbsoluteIndex -> IO ()
+decreaseReference = modifyReference (subtract 1)
+
+modifyReference :: (Int -> Int) -> DynamicTable -> AbsoluteIndex -> IO ()
+modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
+    maxN <- readTVarIO maxNumOfEntries
+    let i = idx `mod` maxN
+    arr <- readIORef referenceCounters
+    modifyArray' arr i func
+  where
     EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------

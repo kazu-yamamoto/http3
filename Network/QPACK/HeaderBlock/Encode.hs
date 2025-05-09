@@ -59,7 +59,7 @@ encodeTokenHeader
     -- ^ Workspace for encoder instructions
     -> DynamicTable
     -> TokenHeaderList
-    -> IO TokenHeaderList
+    -> IO ([AbsoluteIndex], TokenHeaderList)
     -- ^ Leftover
 encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     clearWriteBuffer wbuf1
@@ -68,16 +68,17 @@ encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     let revidx = getRevIndex dyntbl
     ref <- newIORef ts0
     ready <- isTableReady dyntbl
-    if ready
-        then
-            encodeLinear wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return ()
-        else
-            encodeStatic wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return ()
+    dais <-
+        if ready
+            then
+                encodeLinear wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return []
+            else
+                encodeStatic wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return []
     ts <- readIORef ref
     unless (null ts) $ do
         goBack wbuf1
         goBack wbuf2
-    return ts
+    return (dais, ts)
 
 encodeStatic
     :: WriteBuffer
@@ -87,10 +88,10 @@ encodeStatic
     -> Bool
     -> IORef TokenHeaderList
     -> TokenHeaderList
-    -> IO ()
+    -> IO [AbsoluteIndex]
 encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
   where
-    loop [] = return ()
+    loop [] = return []
     loop ((t, val) : ts) = do
         rr <- lookupRevIndex t val revidx
         case rr of
@@ -115,16 +116,21 @@ encodeLinear
     -> Bool
     -> IORef TokenHeaderList
     -> TokenHeaderList
-    -> IO ()
-encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
+    -> IO [AbsoluteIndex]
+encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0 []
   where
-    loop [] = return ()
-    loop ((t, val) : ts) = do
+    loop [] dais = return dais
+    loop ((t, val) : ts) dais = do
         rr <- lookupRevIndex t val revidx
-        case rr of
+        dais' <- case rr of
             KV hi -> do
                 -- 4.5.2.  Indexed Field Line
                 encodeIndexedFieldLine wbuf1 dyntbl hi
+                case hi of
+                    SIndex _ -> return dais
+                    DIndex dai -> do
+                        increaseReference dyntbl dai
+                        return $ dai : dais
             K hi
                 | shouldBeIndexed t -> do
                     insidx <- case hi of
@@ -137,9 +143,16 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                     dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
                     -- 4.5.3.  Indexed Field Line With Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                    increaseReference dyntbl dai
+                    return $ dai : dais
                 | otherwise -> do
                     -- 4.5.4.  Literal Field Line With Name Reference
                     encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                    case hi of
+                        SIndex _ -> return dais
+                        DIndex dai -> do
+                            increaseReference dyntbl dai
+                            return $ dai : dais
             N
                 | shouldBeIndexed t -> do
                     let ins = InsertWithLiteralName t val
@@ -147,13 +160,16 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                     dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
                     -- 4.5.3.  Indexed Field Line with Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                    increaseReference dyntbl dai
+                    return $ dai : dais
                 | otherwise -> do
                     -- 4.5.6.  Literal Field Line with Literal Name
                     encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                    return dais
         save wbuf1
         save wbuf2
         writeIORef ref ts
-        loop ts
+        loop ts dais'
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
