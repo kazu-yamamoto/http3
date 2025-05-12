@@ -21,6 +21,7 @@ import Network.HPACK.Internal (
     Size,
     decH,
     dummyEntry,
+    entrySize,
     maxNumbers,
  )
 
@@ -55,6 +56,8 @@ data DynamicTable = DynamicTable
     , basePoint       :: IORef BasePoint
     , debugQPACK      :: IORef Bool
     , capaReady       :: IORef Bool
+    , tableSize       :: TVar Size
+    , maxTableSize    :: IORef Size
     , sendIns         :: ByteString -> IO ()
     }
 {- FOURMOLU_ENABLE -}
@@ -147,11 +150,14 @@ newDynamicTable info send = do
     basePoint <- newIORef 0
     debugQPACK <- newIORef False
     capaReady <- newIORef False
+    tableSize <- newTVarIO 0
+    maxTableSize <- newIORef 0
     let sendIns = send
     return DynamicTable{..}
 
 updateDynamicTable :: DynamicTable -> Size -> IO ()
 updateDynamicTable DynamicTable{..} maxsiz = do
+    writeIORef maxTableSize maxsiz
     tbl <- atomically $ newArray (0, end) dummyEntry
     atomically $ do
         writeTVar maxNumOfEntries maxN
@@ -235,6 +241,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     let revtbl = getRevIndex dyntbl
     let ai = AbsoluteIndex insp
     insertRevIndex ent (DIndex ai) revtbl
+    atomically $ modifyTVar' tableSize (+ entrySize ent)
     return ai
 
 insertEntryToDecoder :: Entry -> DynamicTable -> STM ()
@@ -245,6 +252,8 @@ insertEntryToDecoder ent DynamicTable{..} = do
     let i = insp `mod` maxN
     table <- readTVar circularTable
     unsafeWrite table i ent
+    -- FIXME: checking size
+    modifyTVar' tableSize (+ entrySize ent)
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
