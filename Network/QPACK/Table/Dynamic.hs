@@ -264,6 +264,14 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
+canInsertEntry :: DynamicTable -> Entry -> IO Bool
+canInsertEntry DynamicTable{..} ent = do
+    siz <- readTVarIO tableSize
+    maxsiz <- readIORef maxTableSize
+    return (siz + entrySize ent <= maxsiz)
+
+----------------------------------------------------------------
+
 insertSection :: DynamicTable -> StreamId -> Section -> IO ()
 insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
   where
