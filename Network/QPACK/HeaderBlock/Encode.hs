@@ -36,6 +36,7 @@ type EncodedEncoderInstruction = B.ByteString
 --   Header block with prefix and instructions are returned.
 --   2048, 32, and 2048 bytes-buffers are
 --   temporally allocated for header block, prefix and encoder instructions.
+--   If headers are too large, 'BufferOverrun' is thrown.
 encodeHeader
     :: DynamicTable
     -> [Header]
