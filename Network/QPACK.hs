@@ -44,7 +44,9 @@ module Network.QPACK (
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import qualified Data.ByteString as BS
 import Data.CaseInsensitive
+import qualified Data.CaseInsensitive as CI
 import Network.ByteOrder
 import Network.HPACK.Internal (
     GCBuffer,
@@ -150,6 +152,31 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 }
     return (enc, handler, ctl)
 
+tokenHeaderSize :: TokenHeader -> Int
+tokenHeaderSize (t, v) = BS.length (CI.original (tokenKey t)) + BS.length v + 8 -- adhoc overhead
+
+split :: Int -> TokenHeaderList -> (TokenHeaderList, TokenHeaderList)
+split lim ts = split' 0 ts
+  where
+    split' _ [] = ([], [])
+    split' s (x : xs)
+        | siz > lim = E.throw BufferOverrun
+        | s' < lim = ([x], xs)
+        | otherwise =
+            let (ys, zs) = split' s' xs
+             in (x : ys, zs)
+      where
+        siz = tokenHeaderSize x
+        s' = s + siz
+
+splitThrough :: Int -> TokenHeaderList -> [TokenHeaderList]
+splitThrough lim ts0 = loop ts0 id
+  where
+    loop [] builder = builder []
+    loop ts builder = loop ts2 (builder . (ts1 :))
+      where
+        (ts1, ts2) = split lim ts
+
 qpackEncoder
     :: GCBuffer
     -> Int
@@ -164,11 +191,13 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
-                (hb, dais) <- qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl ts
+                let tss = splitThrough bufsiz1 ts
+                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl) tss
+                let (hbs, daiss) = unzip his
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
-                let section = prefix <> hb
+                let section = BS.concat (prefix : hbs)
                 reqInsCnt <- getRequiredInsertCount dyntbl
-                insertSection dyntbl sid $ Section reqInsCnt dais
+                insertSection dyntbl sid $ Section reqInsCnt $ concat daiss
                 return section
 
 qpackEncodeHeader
