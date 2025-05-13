@@ -40,6 +40,7 @@ encodeRequiredInsertCount maxEntries (RequiredInsertCount reqInsertCount) =
 decodeRequiredInsertCount
     :: Int -> InsertionPoint -> Int -> RequiredInsertCount
 decodeRequiredInsertCount _ _ 0 = 0
+decodeRequiredInsertCount 0 _ n = RequiredInsertCount (n - 1)
 decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encodedInsertCount
     | encodedInsertCount > fullRange = E.throw IllegalInsertCount
     | reqInsertCount > maxValue && reqInsertCount <= fullRange =
