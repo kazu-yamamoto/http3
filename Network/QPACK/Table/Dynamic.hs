@@ -155,22 +155,6 @@ newDynamicTable info send = do
     let sendIns = send
     return DynamicTable{..}
 
-updateDynamicTable :: DynamicTable -> Size -> IO ()
-updateDynamicTable DynamicTable{..} maxsiz = do
-    writeIORef maxTableSize maxsiz
-    tbl <- atomically $ newArray (0, end) dummyEntry
-    atomically $ do
-        writeTVar maxNumOfEntries maxN
-        writeTVar circularTable tbl
-    case codeInfo of
-        EncodeInfo{..} -> do
-            arr <- newArray (0, end) 0
-            writeIORef referenceCounters arr
-        _ -> return ()
-  where
-    maxN = maxNumbers maxsiz
-    end = maxN - 1
-
 ----------------------------------------------------------------
 
 setDebugQPACK :: DynamicTable -> IO ()
@@ -307,9 +291,21 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
 ----------------------------------------------------------------
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
-setTableCapacity dyntbl@DynamicTable{..} n = do
-    updateDynamicTable dyntbl n
+setTableCapacity DynamicTable{..} maxsiz = do
+    writeIORef maxTableSize maxsiz
+    tbl <- atomically $ newArray (0, end) dummyEntry
+    atomically $ do
+        writeTVar maxNumOfEntries maxN
+        writeTVar circularTable tbl
+    case codeInfo of
+        EncodeInfo{..} -> do
+            arr <- newArray (0, end) 0
+            writeIORef referenceCounters arr
+        _ -> return ()
     writeIORef capaReady True
+  where
+    maxN = maxNumbers maxsiz
+    end = maxN - 1
 
 isTableReady :: DynamicTable -> IO Bool
 isTableReady DynamicTable{..} = readIORef capaReady
