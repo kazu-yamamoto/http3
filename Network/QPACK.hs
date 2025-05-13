@@ -175,8 +175,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock sid ts =
                     wbuf1 <- newWriteBuffer buf1 bufsiz1
                     wbuf2 <- newWriteBuffer buf2 bufsiz2
                     wbuf3 <- newWriteBuffer buf3 bufsiz3
-                    (dais, thl) <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts -- fixme: leftover
-                    when (thl /= []) $ stdoutLogger "qpackEncoder: leftover"
+                    dais <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts
                     hb0 <- toByteString wbuf1
                     ins <- toByteString wbuf3
                     when (ins /= "") $ sendIns dyntbl ins

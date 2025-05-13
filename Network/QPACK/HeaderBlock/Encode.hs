@@ -10,7 +10,6 @@ module Network.QPACK.HeaderBlock.Encode (
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
-import Data.IORef
 import Network.ByteOrder
 import Network.HPACK.Internal (
     encodeI,
@@ -53,6 +52,8 @@ encodeHeader dyntbl hs = do
     ts = map (\(k, v) -> let t = toToken (foldedCase k) in (t, v)) hs
 
 -- | Converting 'TokenHeaderList' to the QPACK format.
+--  'TokenHeaderList' must be smaller than or equal to workspaces.
+--  Otherwise, 'BufferOverrun' is thrown.
 encodeTokenHeader
     :: WriteBuffer
     -- ^ Workspace for the body of header block
@@ -60,26 +61,16 @@ encodeTokenHeader
     -- ^ Workspace for encoder instructions
     -> DynamicTable
     -> TokenHeaderList
-    -> IO ([AbsoluteIndex], TokenHeaderList)
-    -- ^ Leftover
+    -> IO [AbsoluteIndex]
 encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     clearWriteBuffer wbuf1
     clearWriteBuffer wbuf2
     setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
-    ref <- newIORef ts0
     ready <- isTableReady dyntbl
-    dais <-
-        if ready
-            then
-                encodeLinear wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return []
-            else
-                encodeStatic wbuf1 wbuf2 dyntbl revidx True ref ts0 `E.catch` \BufferOverrun -> return []
-    ts <- readIORef ref
-    unless (null ts) $ do
-        goBack wbuf1
-        goBack wbuf2
-    return (dais, ts)
+    if ready
+        then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0
+        else encodeStatic wbuf1 wbuf2 dyntbl revidx True ts0
 
 encodeStatic
     :: WriteBuffer
@@ -87,13 +78,13 @@ encodeStatic
     -> DynamicTable
     -> RevIndex
     -> Bool
-    -> IORef TokenHeaderList
     -> TokenHeaderList
     -> IO [AbsoluteIndex]
-encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
+encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ts0 = do
+    mapM_ enc ts0
+    return []
   where
-    loop [] = return []
-    loop ((t, val) : ts) = do
+    enc (t, val) = do
         rr <- lookupRevIndex t val revidx
         case rr of
             KV hi -> do
@@ -105,9 +96,6 @@ encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
             N -> do
                 -- 4.5.6.  Literal Field Line with Literal Name
                 encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-        save wbuf1
-        writeIORef ref ts
-        loop ts
 
 encodeLinear
     :: WriteBuffer
@@ -115,23 +103,22 @@ encodeLinear
     -> DynamicTable
     -> RevIndex
     -> Bool
-    -> IORef TokenHeaderList
     -> TokenHeaderList
     -> IO [AbsoluteIndex]
-encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0 []
+encodeLinear wbuf1 wbuf2 dyntbl revidx huff ts0 =
+    catMaybes <$> mapM enc ts0
   where
-    loop [] dais = return dais
-    loop ((t, val) : ts) dais = do
+    enc (t, val) = do
         rr <- lookupRevIndex t val revidx
-        dais' <- case rr of
+        case rr of
             KV hi -> do
                 -- 4.5.2.  Indexed Field Line
                 encodeIndexedFieldLine wbuf1 dyntbl hi
                 case hi of
-                    SIndex _ -> return dais
+                    SIndex _ -> return Nothing
                     DIndex dai -> do
                         increaseReference dyntbl dai
-                        return $ dai : dais
+                        return $ Just dai
             K hi
                 | shouldBeIndexed t -> do
                     insidx <- case hi of
@@ -145,15 +132,15 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0 []
                     -- 4.5.3.  Indexed Field Line With Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                     increaseReference dyntbl dai
-                    return $ dai : dais
+                    return $ Just dai
                 | otherwise -> do
                     -- 4.5.4.  Literal Field Line With Name Reference
                     encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
                     case hi of
-                        SIndex _ -> return dais
+                        SIndex _ -> return Nothing
                         DIndex dai -> do
                             increaseReference dyntbl dai
-                            return $ dai : dais
+                            return $ Just dai
             N
                 | shouldBeIndexed t -> do
                     let ins = InsertWithLiteralName t val
@@ -162,15 +149,11 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0 []
                     -- 4.5.3.  Indexed Field Line with Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                     increaseReference dyntbl dai
-                    return $ dai : dais
+                    return $ Just dai
                 | otherwise -> do
                     -- 4.5.6.  Literal Field Line with Literal Name
                     encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                    return dais
-        save wbuf1
-        save wbuf2
-        writeIORef ref ts
-        loop ts dais'
+                    return Nothing
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
