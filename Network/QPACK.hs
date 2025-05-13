@@ -44,7 +44,6 @@ module Network.QPACK (
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
-import qualified Data.ByteString as B
 import Data.CaseInsensitive
 import Network.ByteOrder
 import Network.HPACK.Internal (
@@ -127,10 +126,8 @@ newQEncoder
 newQEncoder QEncoderConfig{..} sendEI = do
     let bufsiz1 = ecHeaderBlockBufferSize
         bufsiz2 = ecPrefixBufferSize
-        bufsiz3 = ecInstructionBufferSize
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
-    gcbuf3 <- mallocPlainForeignPtrBytes bufsiz3
     dyntbl <- newDynamicTableForEncoding sendEI
     lock <- newMVar ()
     let enc =
@@ -139,8 +136,6 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 bufsiz1
                 gcbuf2
                 bufsiz2
-                gcbuf3
-                bufsiz3
                 dyntbl
                 lock
         handler = decoderInstructionHandler dyntbl
@@ -160,31 +155,44 @@ qpackEncoder
     -> Int
     -> GCBuffer
     -> Int
-    -> GCBuffer
-    -> Int
     -> DynamicTable
     -> MVar ()
     -> StreamId
     -> TokenHeaderList
     -> IO EncodedFieldSection
-qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock sid ts =
+qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
-            withForeignPtr gcbuf2 $ \buf2 ->
-                withForeignPtr gcbuf3 $ \buf3 -> do
-                    wbuf1 <- newWriteBuffer buf1 bufsiz1
-                    wbuf2 <- newWriteBuffer buf2 bufsiz2
-                    wbuf3 <- newWriteBuffer buf3 bufsiz3
-                    dais <- encodeTokenHeader wbuf1 wbuf3 dyntbl ts
-                    hb0 <- toByteString wbuf1
-                    ins <- toByteString wbuf3
-                    when (ins /= "") $ sendIns dyntbl ins
-                    encodePrefix wbuf2 dyntbl
-                    prefix <- toByteString wbuf2
-                    let hb = prefix `B.append` hb0
-                    reqInsCnt <- getRequiredInsertCount dyntbl
-                    insertSection dyntbl sid $ Section reqInsCnt dais
-                    return hb
+            withForeignPtr gcbuf2 $ \buf2 -> do
+                (hb, dais) <- qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl ts
+                prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
+                let section = prefix <> hb
+                reqInsCnt <- getRequiredInsertCount dyntbl
+                insertSection dyntbl sid $ Section reqInsCnt dais
+                return section
+
+qpackEncodeHeader
+    :: Buffer
+    -> BufferSize
+    -> Buffer
+    -> BufferSize
+    -> DynamicTable
+    -> TokenHeaderList
+    -> IO (ByteString, [AbsoluteIndex])
+qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl ts = do
+    wbuf1 <- newWriteBuffer buf1 bufsiz1
+    wbuf2 <- newWriteBuffer buf2 bufsiz2
+    dais <- encodeTokenHeader wbuf1 wbuf2 dyntbl ts
+    hb <- toByteString wbuf1
+    ins <- toByteString wbuf2
+    when (ins /= "") $ sendIns dyntbl ins
+    return (hb, dais)
+
+qpackEncodePrefix :: Buffer -> BufferSize -> DynamicTable -> IO ByteString
+qpackEncodePrefix buf1 bufsiz1 dyntbl = do
+    wbuf1 <- newWriteBuffer buf1 bufsiz1
+    encodePrefix wbuf1 dyntbl
+    toByteString wbuf1
 
 -- Note: dyntbl for encoder
 decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
