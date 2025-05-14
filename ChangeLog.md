@@ -1,5 +1,10 @@
 # Revision history for http3
 
+## 0.0.24
+
+* Supporting SSLKEYLOGFILE in h3-server and h3-client.
+* Sending SectionAcknowledgement only when reqInsCnt /= 0.
+
 ## 0.0.23
 
 * Enclosing IPv6 address in :authority
