@@ -209,5 +209,3 @@ deleteRevIndex (RevIndex dyn oth) (Entry _ t v)
 {-# INLINE deleteRevIndexList #-}
 deleteRevIndexList :: [Entry] -> RevIndex -> IO ()
 deleteRevIndexList es rev = mapM_ (deleteRevIndex rev) es
-
--- isStaticToken
