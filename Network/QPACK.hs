@@ -58,7 +58,7 @@ import Network.HPACK.Internal (
     toTokenHeaderTable,
  )
 import Network.HTTP.Types
-import Network.QUIC.Internal (stdoutLogger)
+import Network.QUIC.Internal (StreamId, stdoutLogger)
 
 import Imports
 import Network.QPACK.Error
@@ -74,10 +74,10 @@ type QEncoder =
     TokenHeaderList -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 
 -- | QPACK decoder.
-type QDecoder = EncodedFieldSection -> IO TokenHeaderTable
+type QDecoder = StreamId -> EncodedFieldSection -> IO TokenHeaderTable
 
 -- | QPACK simple decoder.
-type QDecoderS = EncodedFieldSection -> IO [Header]
+type QDecoderS = StreamId -> EncodedFieldSection -> IO [Header]
 
 -- | Encoder instruction handler.
 type EncoderInstructionHandler = (Int -> IO EncodedEncoderInstruction) -> IO ()
@@ -174,8 +174,7 @@ qpackEncoder stgy gcbuf1 bufsiz1 gcbuf2 bufsiz2 gcbuf3 bufsiz3 dyntbl lock ts =
                     let hb = prefix `B.append` hb0
                     return (hb, ins)
 
-decoderInstructionHandler
-    :: DynamicTable -> (Int -> IO EncodedDecoderInstruction) -> IO ()
+decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
 decoderInstructionHandler dyntbl recv = loop
   where
     loop = do
@@ -191,7 +190,7 @@ decoderInstructionHandler dyntbl recv = loop
     handle (StreamCancellation _n) = return ()
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
-        | otherwise = return ()
+        | otherwise = return () -- FIXME: Known Received Count
 
 ----------------------------------------------------------------
 
@@ -214,31 +213,47 @@ defaultQDecoderConfig =
         }
 
 -- | Creating a new QPACK decoder.
-newQDecoder :: QDecoderConfig -> IO (QDecoder, EncoderInstructionHandler)
-newQDecoder QDecoderConfig{..} = do
-    dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
+newQDecoder
+    :: QDecoderConfig
+    -> (EncodedDecoderInstruction -> IO ())
+    -> IO (QDecoder, EncoderInstructionHandler)
+newQDecoder QDecoderConfig{..} sendDI = do
+    dyntbl <-
+        newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dyntbl
     return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
 newQDecoderS
-    :: QDecoderConfig -> Bool -> IO (QDecoderS, EncoderInstructionHandlerS)
-newQDecoderS QDecoderConfig{..} debug = do
-    dyntbl <- newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize
+    :: QDecoderConfig
+    -> (EncodedDecoderInstruction -> IO ())
+    -> Bool
+    -> IO (QDecoderS, EncoderInstructionHandlerS)
+newQDecoderS QDecoderConfig{..} sendDI debug = do
+    dyntbl <-
+        newDynamicTableForDecoding dcDynamicTableSize dcHuffmanBufferSize sendDI
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dyntbl
     return (dec, handler)
 
-qpackDecoder :: DynamicTable -> EncodedFieldSection -> IO TokenHeaderTable
-qpackDecoder dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+qpackDecoder
+    :: DynamicTable -> StreamId -> EncodedFieldSection -> IO TokenHeaderTable
+qpackDecoder dyntbl sid bs = do
+    (tbl, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+    when needAck $
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+    return tbl
 
-qpackDecoderS :: DynamicTable -> EncodedFieldSection -> IO [Header]
-qpackDecoderS dyntbl bs = withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
+qpackDecoderS :: DynamicTable -> StreamId -> EncodedFieldSection -> IO [Header]
+qpackDecoderS dyntbl sid bs = do
+    (hs, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
+    when needAck $
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= getSendDI dyntbl
+    return hs
 
-encoderInstructionHandler
-    :: DynamicTable -> (Int -> IO EncodedEncoderInstruction) -> IO ()
+encoderInstructionHandler :: DynamicTable -> EncoderInstructionHandler
 encoderInstructionHandler dyntbl recv = loop
   where
     loop = do
@@ -247,8 +262,9 @@ encoderInstructionHandler dyntbl recv = loop
             encoderInstructionHandlerS dyntbl bs
             loop
 
-encoderInstructionHandlerS :: DynamicTable -> EncodedEncoderInstruction -> IO ()
-encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
+encoderInstructionHandlerS :: DynamicTable -> EncoderInstructionHandlerS
+encoderInstructionHandlerS _dyntbl "" = return ()
+encoderInstructionHandlerS dyntbl bs = do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
@@ -258,21 +274,27 @@ encoderInstructionHandlerS dyntbl bs = when (bs /= "") $ do
     hufdec = getHuffmanDecoder dyntbl
     handle (SetDynamicTableCapacity n)
         | n > 4096 = E.throwIO EncoderInstructionError
-        | otherwise = return ()
-    handle (InsertWithNameReference ii val) = atomically $ do
-        idx <- case ii of
-            Left ai -> return $ SIndex ai
-            Right ri -> do
-                ip <- getInsertionPointSTM dyntbl
-                return $ DIndex $ fromInsRelativeIndex ri ip
-        ent0 <- toIndexedEntry dyntbl idx
-        let ent = toEntryToken (entryToken ent0) val
-        insertEntryToDecoder ent dyntbl
-    handle (InsertWithoutNameReference t val) = atomically $ do
-        let ent = toEntryToken t val
-        insertEntryToDecoder ent dyntbl
-    handle (Duplicate ri) = atomically $ do
-        ip <- getInsertionPointSTM dyntbl
-        let idx = DIndex $ fromInsRelativeIndex ri ip
-        ent <- toIndexedEntry dyntbl idx
-        insertEntryToDecoder ent dyntbl
+        | otherwise = return () -- FIXME: set cap
+    handle (InsertWithNameReference ii val) = do
+        atomically $ do
+            idx <- case ii of
+                Left ai -> return $ SIndex ai
+                Right ri -> do
+                    ip <- getInsertionPointSTM dyntbl
+                    return $ DIndex $ fromInsRelativeIndex ri ip
+            ent0 <- toIndexedEntry dyntbl idx
+            let ent = toEntryToken (entryToken ent0) val
+            insertEntryToDecoder ent dyntbl
+        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+    handle (InsertWithLiteralName t val) = do
+        atomically $ do
+            let ent = toEntryToken t val
+            insertEntryToDecoder ent dyntbl
+        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+    handle (Duplicate ri) = do
+        atomically $ do
+            ip <- getInsertionPointSTM dyntbl
+            let idx = DIndex $ fromInsRelativeIndex ri ip
+            ent <- toIndexedEntry dyntbl idx
+            insertEntryToDecoder ent dyntbl
+        encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl

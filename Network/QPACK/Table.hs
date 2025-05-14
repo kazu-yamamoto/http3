@@ -27,6 +27,7 @@ module Network.QPACK.Table (
 
     -- * Misc
     getHuffmanDecoder,
+    getSendDI,
     setDebugQPACK,
     getDebugQPACK,
     qpackDebug,

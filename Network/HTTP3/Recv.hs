@@ -45,8 +45,8 @@ pushbackSource :: Source -> ByteString -> IO ()
 pushbackSource _ "" = return ()
 pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
 
-recvHeader :: Context -> Source -> IO (Maybe TokenHeaderTable)
-recvHeader ctx src = loop IInit
+recvHeader :: Context -> StreamId -> Source -> IO (Maybe TokenHeaderTable)
+recvHeader ctx sid src = loop IInit
   where
     loop st = do
         bs <- readSource src
@@ -56,7 +56,7 @@ recvHeader ctx src = loop IInit
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         pushbackSource src leftover
-                        Just <$> qpackDecode ctx payload
+                        Just <$> qpackDecode ctx sid payload
                     | typ == H3FrameData -> do
                         abort ctx H3FrameUnexpected
                         loop IInit -- dummy
@@ -70,11 +70,12 @@ recvHeader ctx src = loop IInit
 
 recvBody
     :: Context
+    -> StreamId
     -> Source
     -> IORef IFrame
     -> IORef (Maybe TokenHeaderTable)
     -> IO (ByteString, Bool)
-recvBody ctx src refI refH = do
+recvBody ctx sid src refI refH = do
     st <- readIORef refI
     loop st
   where
@@ -95,7 +96,7 @@ recvBody ctx src refI refH = do
                     | typ == H3FrameHeaders -> do
                         writeIORef refI IInit
                         -- pushbackSource src leftover -- fixme
-                        hdr <- qpackDecode ctx payload
+                        hdr <- qpackDecode ctx sid payload
                         writeIORef refH $ Just hdr
                         return ("", True)
                     | typ == H3FrameData -> do

@@ -32,7 +32,6 @@ import Text.Read (readMaybe)
 import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
-import Network.HTTP3.Control
 import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
@@ -48,8 +47,6 @@ data ClientConfig = ClientConfig
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
 run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
-    forkManaged ctx "H3 client: unidirectional setter" $
-        setupUnidirectional conn conf
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
     client (sendRequest ctx scheme authority) aux
   where
@@ -83,7 +80,8 @@ sendRequest ctx scm auth (Request outobj) processResponse =
             sendBody ctx strm th outobj
             QUIC.shutdownStream strm
         src <- newSource strm
-        mvt <- recvHeader ctx src
+        let sid = QUIC.streamId strm
+        mvt <- recvHeader ctx sid src
         case mvt of
             Nothing -> do
                 QUIC.resetStream strm H3MessageError
@@ -93,7 +91,7 @@ sendRequest ctx scm auth (Request outobj) processResponse =
             Just vt -> do
                 refI <- newIORef IInit
                 refH <- newIORef Nothing
-                let readB = recvBody ctx src refI refH
+                let readB = recvBody ctx sid src refI refH
                     rsp = Response $ InpObj vt Nothing readB refH
                 processResponse rsp
   where

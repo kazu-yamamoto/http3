@@ -20,7 +20,8 @@ import Network.QPACK
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
 
-setupUnidirectional :: Connection -> H3.Config -> IO ()
+setupUnidirectional
+    :: Connection -> H3.Config -> IO (EncodedDecoderInstruction -> IO ())
 setupUnidirectional conn conf = do
     settings <-
         encodeH3Settings
@@ -40,6 +41,7 @@ setupUnidirectional conn conf = do
     H3.onControlStreamCreated hooks sC
     H3.onEncoderStreamCreated hooks sE
     H3.onDecoderStreamCreated hooks sD
+    return $ sendStream sD
   where
     stC = mkType H3ControlStreams
     stE = mkType QPACKEncoderStream

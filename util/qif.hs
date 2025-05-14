@@ -14,6 +14,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
+import Network.QUIC (StreamId)
 import System.Environment
 import System.IO
 
@@ -36,7 +37,10 @@ main = do
 dump :: Int -> FilePath -> IO ()
 dump size efile = do
     (dec, insthdr) <-
-        newQDecoderS defaultQDecoderConfig{dcDynamicTableSize = size} True
+        newQDecoderS
+            defaultQDecoderConfig{dcDynamicTableSize = size}
+            (\_ -> return ())
+            True
     runConduitRes
         ( sourceFile efile
             .| conduitParser block
@@ -44,17 +48,17 @@ dump size efile = do
         )
 
 dumpSwitch
-    :: (ByteString -> IO [Header])
+    :: (StreamId -> ByteString -> IO [Header])
     -> EncoderInstructionHandlerS
     -> (a, Block)
     -> IO ()
 dumpSwitch dec insthdr (_, Block n bs)
     | n == 0 = do
-        putStrLn "---- Stream 0"
+        putStrLn "---- Encoder Stream"
         insthdr bs
     | otherwise = do
         putStrLn $ "---- Stream " ++ show n
-        _ <- dec bs
+        _ <- dec n bs
         return ()
 
 ----------------------------------------------------------------
@@ -62,7 +66,10 @@ dumpSwitch dec insthdr (_, Block n bs)
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
     (dec, insthdr') <-
-        newQDecoderS defaultQDecoderConfig{dcDynamicTableSize = size} False
+        newQDecoderS
+            defaultQDecoderConfig{dcDynamicTableSize = size}
+            (\_ -> return ())
+            False
     q <- newTQueueIO
     let recv = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x
@@ -100,7 +107,7 @@ decode dec h recv mvar = loop
             then putMVar mvar ()
             else do
                 Block n bs <- recv
-                hdr <- dec bs
+                hdr <- dec n bs
                 if hdr == hdr'
                     then loop
                     else do

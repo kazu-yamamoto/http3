@@ -147,7 +147,7 @@ encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
                     encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
             N
                 | shouldBeIndexed t -> do
-                    let ins = InsertWithoutNameReference t val
+                    let ins = InsertWithLiteralName t val
                     encodeEI wbuf2 True ins
                     dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
