@@ -9,6 +9,7 @@ module Network.QPACK.Table.RevIndex (
     lookupRevIndex,
     lookupRevIndex',
     insertRevIndex,
+    deleteRevIndex,
     deleteRevIndexList,
 ) where
 

@@ -236,7 +236,7 @@ insertEntryToDecoder ent DynamicTable{..} = do
     let i = insp `mod` maxN
     table <- readTVar circularTable
     unsafeWrite table i ent
-    -- FIXME: checking size
+    -- FIXME: checking size, no dropping signal from encoder
     modifyTVar' tableSize (+ entrySize ent)
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
@@ -327,5 +327,48 @@ updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
         if reqInsCnt > krc
             then reqInsCnt
             else krc
+  where
+    EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+tryDrop :: DynamicTable -> Int -> IO ()
+tryDrop DynamicTable{..} requiredSize = loop requiredSize
+  where
+    EncodeInfo{..} = codeInfo
+    loop n | n <= 0 = return ()
+    loop n = do
+        maxN <- readTVarIO maxNumOfEntries
+        AbsoluteIndex ai <- readIORef droppingPoint
+        let i = ai `mod` maxN
+        refs <- readIORef referenceCounters
+        refN <- unsafeRead refs i
+        when (refN == 0) $ do
+            table <- readTVarIO circularTable
+            ent <- unsafeRead table i
+            unsafeWrite table i dummyEntry
+            let siz = entrySize ent
+            atomically $ modifyTVar' tableSize $ subtract siz
+            modifyIORef' droppingPoint (subtract 1)
+            deleteRevIndex revIndex ent
+            loop (n - siz)
+
+duplicate :: DynamicTable -> HIndex -> IO AbsoluteIndex
+duplicate _ (SIndex _) = error "duplicate"
+duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
+    maxN <- readTVarIO maxNumOfEntries
+    let i = ai `mod` maxN
+    table <- readTVarIO circularTable
+    ent <- unsafeRead table i
+    deleteRevIndex revIndex ent
+    insertEntryToEncoder ent dyntbl
+  where
+    EncodeInfo{..} = codeInfo
+
+isDraining :: DynamicTable -> HIndex -> IO Bool
+isDraining _ (SIndex _) = return False
+isDraining DynamicTable{..} (DIndex ai) = do
+    di <- readIORef drainingPoint
+    return (ai <= di)
   where
     EncodeInfo{..} = codeInfo
