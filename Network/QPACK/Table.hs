@@ -45,6 +45,8 @@ module Network.QPACK.Table (
     tryDrop,
     isDraining,
     duplicate,
+    adjustDrainingPoint,
+    clearRequiredInsertCount,
 ) where
 
 import Control.Concurrent.STM
