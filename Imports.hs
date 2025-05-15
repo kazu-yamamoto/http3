@@ -16,6 +16,8 @@ module Imports (
     module Data.CaseInsensitive,
     withForeignPtr,
     mallocPlainForeignPtrBytes,
+    safePrint,
+    safePutStrLn,
 ) where
 
 import Control.Applicative
@@ -35,3 +37,16 @@ import GHC.ForeignPtr (mallocPlainForeignPtrBytes)
 import Network.HTTP.Semantics
 import Network.HTTP.Types
 import Numeric
+
+import Control.Concurrent
+import System.IO.Unsafe (unsafePerformIO)
+
+{-# NOINLINE stdoutLock #-}
+stdoutLock :: MVar ()
+stdoutLock = unsafePerformIO $ newMVar ()
+
+safePrint :: Show a => a -> IO ()
+safePrint msg = withMVar stdoutLock $ \_ -> print msg
+
+safePutStrLn :: String -> IO ()
+safePutStrLn msg = withMVar stdoutLock $ \_ -> putStrLn msg
