@@ -117,13 +117,13 @@ insertDynamicRevIndex
     :: Token -> FieldValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev `unsafeAt` quicIx (tokenIx t)
 
 {-# INLINE deleteDynamicRevIndex #-}
 deleteDynamicRevIndex :: Token -> FieldValue -> DynamicRevIndex -> IO ()
 deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev `unsafeAt` quicIx (tokenIx t)
 
 ----------------------------------------------------------------
 

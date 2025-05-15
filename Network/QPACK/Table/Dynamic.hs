@@ -349,7 +349,7 @@ tryDrop DynamicTable{..} requiredSize = loop requiredSize
             unsafeWrite table i dummyEntry
             let siz = entrySize ent
             atomically $ modifyTVar' tableSize $ subtract siz
-            modifyIORef' droppingPoint (subtract 1)
+            modifyIORef' droppingPoint (+ 1)
             deleteRevIndex revIndex ent
             loop (n - siz)
 
@@ -370,5 +370,16 @@ isDraining _ (SIndex _) = return False
 isDraining DynamicTable{..} (DIndex ai) = do
     di <- readIORef drainingPoint
     return (ai <= di)
+  where
+    EncodeInfo{..} = codeInfo
+
+adjustDrainingPoint :: DynamicTable -> IO ()
+adjustDrainingPoint DynamicTable{..} = do
+    InsertionPoint beg <- readTVarIO insertionPoint
+    AbsoluteIndex end <- readIORef droppingPoint
+    let num = beg - end
+        space = max 2 (num .>>. 4)
+        end' = beg - num + space
+    writeIORef drainingPoint $ AbsoluteIndex end'
   where
     EncodeInfo{..} = codeInfo

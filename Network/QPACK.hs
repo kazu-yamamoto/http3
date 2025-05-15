@@ -102,7 +102,6 @@ data TableOperation = TableOperation
 data QEncoderConfig = QEncoderConfig
     { ecDynamicTableSize :: Size
     , ecHeaderBlockBufferSize :: Size
-    , ecPrefixBufferSize :: Size
     , ecInstructionBufferSize :: Size
     }
     deriving (Show)
@@ -110,13 +109,12 @@ data QEncoderConfig = QEncoderConfig
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
--- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecPrefixBufferSize = 128, ecInstructionBufferSize = 4096}
+-- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
 defaultQEncoderConfig :: QEncoderConfig
 defaultQEncoderConfig =
     QEncoderConfig
         { ecDynamicTableSize = 4096
         , ecHeaderBlockBufferSize = 4096
-        , ecPrefixBufferSize = 128
         , ecInstructionBufferSize = 4096
         }
 
@@ -127,7 +125,7 @@ newQEncoder
     -> IO (QEncoder, DecoderInstructionHandler, TableOperation)
 newQEncoder QEncoderConfig{..} sendEI = do
     let bufsiz1 = ecHeaderBlockBufferSize
-        bufsiz2 = ecPrefixBufferSize
+        bufsiz2 = ecInstructionBufferSize
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
     dyntbl <- newDynamicTableForEncoding sendEI
@@ -159,12 +157,12 @@ split :: Int -> TokenHeaderList -> (TokenHeaderList, TokenHeaderList)
 split lim ts = split' 0 ts
   where
     split' _ [] = ([], [])
-    split' s (x : xs)
+    split' s xxs@(x : xs)
         | siz > lim = E.throw BufferOverrun
-        | s' < lim = ([x], xs)
-        | otherwise =
+        | s' < lim =
             let (ys, zs) = split' s' xs
              in (x : ys, zs)
+        | otherwise = ([], xxs)
       where
         siz = tokenHeaderSize x
         s' = s + siz
@@ -191,6 +189,8 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
+                setBasePointToInsersionPoint dyntbl
+                clearRequiredInsertCount dyntbl
                 let tss = splitThrough bufsiz1 ts
                 his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl) tss
                 let (hbs, daiss) = unzip his
