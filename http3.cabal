@@ -137,6 +137,7 @@ executable h3-client
         async,
         base16-bytestring,
         bytestring,
+        case-insensitive,
         filepath,
         http-types,
         http3,

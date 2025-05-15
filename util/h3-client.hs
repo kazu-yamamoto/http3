@@ -1,16 +1,21 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import Control.Monad
+import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import Data.CaseInsensitive (mk)
 import Data.UnixTime
 import Data.Word
 import Foreign.C.Types
+import Network.HTTP.Types (Header)
 import qualified Network.HTTP3.Client as H3
 import Network.TLS.QUIC
 import System.Console.GetOpt
@@ -24,7 +29,7 @@ import ClientX
 import Common
 import Network.QUIC
 import Network.QUIC.Client
-import Network.QUIC.Internal hiding (RTT0)
+import Network.QUIC.Internal hiding (Header, RTT0)
 
 data Options = Options
     { optDebugLog :: Bool
@@ -44,6 +49,7 @@ data Options = Options
     , optPacketSize :: Maybe Int
     , optPerformance :: Word64
     , optNumOfReqs :: Int
+    , optTestQpack :: Maybe FilePath
     }
     deriving (Show)
 
@@ -67,6 +73,7 @@ defaultOptions =
         , optPacketSize = Nothing
         , optPerformance = 0
         , optNumOfReqs = 1
+        , optTestQpack = Nothing
         }
 
 usage :: String
@@ -174,6 +181,11 @@ options =
         ["number-of-requests"]
         (ReqArg (\n o -> o{optNumOfReqs = read n}) "<n>")
         "specify the number of requests"
+    , Option
+        ['p']
+        ["test-qpack"]
+        (ReqArg (\file o -> o{optTestQpack = Just file}) "<file>")
+        "testing QPACK with a qif file"
     ]
 
 showUsageAndExit :: String -> IO a
@@ -250,7 +262,9 @@ main = do
                         Nothing -> return False
                         _ -> return True
                 }
-    runClient cc opts aux paths
+    case optTestQpack of
+        Nothing -> runClient cc opts aux paths
+        Just file -> runTestQPACK cc file
 
 runClient :: ClientConfig -> Options -> Aux -> [H3.Path] -> IO ()
 runClient cc opts@Options{..} aux@Aux{..} paths = do
@@ -437,3 +451,44 @@ console aux paths client conn = do
             _ -> do
                 putStrLn "No such command"
                 loop
+
+runTestQPACK :: ClientConfig -> FilePath -> IO ()
+runTestQPACK cc file = withFile file ReadMode $ \hdl -> do
+    E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+        run cc $ \conn -> H3.run conn dummyCC conf $ client hdl
+  where
+    dummyCC = H3.defaultClientConfig
+    client hdl sendRequest _aux = loop
+      where
+        loop = do
+            hs <- headerlist hdl
+            if null hs
+                then return ()
+                else do
+                    _ <- forkIO $ do
+                        let req = H3.requestBuilder "GET" "/dummypath" hs mempty
+                        sendRequest req $ \_rsp -> return ()
+                    loop
+
+headerlist :: Handle -> IO [Header]
+headerlist h = loop id
+  where
+    loop b = do
+        ml <- line h
+        case ml of
+            Nothing -> return $ b []
+            Just l
+                | l == "" -> return $ b []
+                | otherwise -> do
+                    let (k, v0) = C8.break (== '\t') l
+                        v = C8.drop 1 v0
+                    loop (b . ((mk k, v) :))
+
+line :: Handle -> IO (Maybe ByteString)
+line h = do
+    el <- E.try $ C8.hGetLine h
+    case el of
+        Left (_ :: E.IOException) -> return Nothing
+        Right l
+            | C8.take 1 l == "#" -> line h
+            | otherwise -> return $ Just l
