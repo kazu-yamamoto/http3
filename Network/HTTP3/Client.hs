@@ -123,4 +123,7 @@ sendRequest ctx scm auth (Request outobj) processResponse =
     auth'
         | isIPv6 = "[" <> UTF8.fromString auth <> "]"
         | otherwise = UTF8.fromString auth
-    hdr' = (":scheme", scm) : (":authority", auth') : hdr
+    hdr' = addIfNotExist (":scheme", scm) $ addIfNotExist (":authority", auth') hdr
+    addIfNotExist keyVal@(key, _) hs = case find (\(k, _) -> k == key) hs of
+        Nothing -> keyVal : hs
+        Just _ -> hs
