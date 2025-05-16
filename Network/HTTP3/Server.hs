@@ -8,6 +8,7 @@ module Network.HTTP3.Server (
 
     -- * Common configration
     Config (..),
+    defaultConfig,
     allocSimpleConfig,
     freeSimpleConfig,
     defaultQEncoderConfig,
