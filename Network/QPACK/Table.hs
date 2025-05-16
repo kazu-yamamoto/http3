@@ -47,6 +47,7 @@ module Network.QPACK.Table (
     duplicate,
     adjustDrainingPoint,
     clearRequiredInsertCount,
+    getLruCache,
 ) where
 
 import Control.Concurrent.STM

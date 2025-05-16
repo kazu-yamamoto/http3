@@ -86,6 +86,7 @@ encodePrefix wbuf dyntbl = do
     maxEntries <- getMaxNumOfEntries dyntbl
     baseIndex <- getBasePoint dyntbl
     reqInsCnt <- getRequiredInsertCount dyntbl
+    qpackDebug dyntbl $ print reqInsCnt
     -- Required Insert Count
     let ric = encodeRequiredInsertCount maxEntries reqInsCnt
     encodeI wbuf set0 8 ric

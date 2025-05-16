@@ -65,6 +65,8 @@ import Network.QPACK.Instruction
 import Network.QPACK.Table
 import Network.QPACK.Types
 
+import Network.QPACK.Table.Dynamic
+
 ----------------------------------------------------------------
 
 -- | QPACK encoder.
@@ -189,6 +191,8 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
+                siz <- readTVarIO (tableSize dyntbl)
+                putStrLn $ "Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough bufsiz1 ts

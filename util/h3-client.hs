@@ -12,6 +12,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.CaseInsensitive (mk)
+import Data.List (sort)
 import Data.UnixTime
 import Data.Word
 import Foreign.C.Types
@@ -454,21 +455,60 @@ console aux paths client conn = do
 
 runTestQPACK :: ClientConfig -> FilePath -> IO ()
 runTestQPACK cc file = withFile file ReadMode $ \hdl -> do
-    E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+    E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf' -> do
+        let conf =
+                conf'
+                    { H3.confQEncoderConfig = H3.defaultQEncoderConfig{H3.ecDynamicTableSize = 256}
+                    , H3.confQDecoderConfig = H3.defaultQDecoderConfig{H3.dcDynamicTableSize = 256}
+                    }
         run cc $ \conn -> H3.run conn dummyCC conf $ client hdl
   where
     dummyCC = H3.defaultClientConfig
-    client hdl sendRequest _aux = loop
+    client hdl sendRequest _aux = do
+        ms <- loop 0 id
+        mapM_ takeMVar ms
       where
-        loop = do
+        loop n build = do
             hs <- headerlist hdl
             if null hs
-                then return ()
+                then return $ build []
                 else do
+                    var <- newEmptyMVar
                     _ <- forkIO $ do
                         let req = H3.requestBuilder "GET" "/dummypath" hs mempty
-                        sendRequest req $ \_rsp -> return ()
-                    loop
+                        sendRequest req $ checkHeader hs
+                        putMVar var ()
+                    when ((n :: Int) `mod` 50 == 0) $ threadDelay 100000
+                    loop (n + 1) (build . (var :))
+    checkHeader hs rsp = do
+        bs <- getBody
+        let hs0 = map keyValue $ split bs
+            hs0' = sort $ filter (\(k, _) -> k == "cookie:") hs0
+            hs' = sort $ filter (\(k, _) -> k == "cookie:") hs
+        if hs0' == hs'
+            then putStrLn "OK"
+            else do
+                putStrLn $ "expect: " ++ show hs'
+                putStrLn $ "actual: " ++ show hs0'
+                exitFailure
+      where
+        getBody = BS.concat <$> loop id
+        loop build = do
+            bs <- H3.getResponseBodyChunk rsp
+            if bs == ""
+                then return $ build []
+                else loop (build . (bs :))
+        split ls0 = go ls0 id
+          where
+            go "" build = build []
+            go ls build = go ls'' (build . (l :))
+              where
+                (l, ls') = C8.break (== '\n') ls
+                ls'' = C8.drop 1 ls'
+        keyValue kv = (mk k, v)
+          where
+            (k, v') = C8.break (== ' ') kv
+            v = C8.drop 1 v'
 
 headerlist :: Handle -> IO [Header]
 headerlist h = loop id

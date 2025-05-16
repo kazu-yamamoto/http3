@@ -13,6 +13,7 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Imports
 import Network.ByteOrder
+import Network.Control
 import Network.HPACK.Internal (
     Entry,
     GCBuffer,
@@ -42,6 +43,7 @@ data CodeInfo
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
+        , lruCache            :: LRUCacheRef FieldName FieldValue
         }
     | DecodeInfo HuffmanDecoder
 {- FOURMOLU_ENABLE -}
@@ -106,6 +108,7 @@ newDynamicTableForEncoding sendEI = do
         knownReceivedCount  <- newTVarIO 0
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
+        lruCache            <- newLRUCacheRef 100 -- fixme
         return EncodeInfo{..}
     newDynamicTable info sendEI
 {- FOURMOLU_ENABLE -}
@@ -185,6 +188,11 @@ getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
     DecodeInfo huf = codeInfo
+
+getLruCache :: DynamicTable -> LRUCacheRef FieldName FieldValue
+getLruCache DynamicTable{..} = lruCache
+  where
+    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
@@ -346,6 +354,7 @@ tryDrop DynamicTable{..} requiredSize = loop requiredSize
         when (refN == 0) $ do
             table <- readTVarIO circularTable
             ent <- unsafeRead table i
+            putStrLn $ "DROPPED: " ++ show ent
             unsafeWrite table i dummyEntry
             let siz = entrySize ent
             atomically $ modifyTVar' tableSize $ subtract siz

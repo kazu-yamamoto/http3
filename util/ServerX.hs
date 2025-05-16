@@ -16,9 +16,11 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as C8
+import Data.Maybe (fromJust)
 import qualified Network.HQ.Server as HQ
+import Network.HTTP.Semantics
+import Network.HTTP.Semantics.Server
 import Network.HTTP.Types
-import Network.HTTP2.Server hiding (run)
 import qualified Network.HTTP3.Server as H3
 
 import Network.QUIC
@@ -31,13 +33,19 @@ serverH3 = serverX H3.run
 
 serverX
     :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()
-serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+serverX run conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf' -> do
+    let conf =
+            conf'
+                { H3.confQEncoderConfig = H3.defaultQEncoderConfig{H3.ecDynamicTableSize = 256}
+                , H3.confQDecoderConfig = H3.defaultQDecoderConfig{H3.dcDynamicTableSize = 256}
+                }
     run conn conf server
 
 server :: Server
 server req _aux sendResponse = case requestMethod req of
     Just "GET"
-        | requestPath req == Just "/" -> sendResponse responseHello []
+        --        | requestPath req == Just "/" -> sendResponse responseHello []
+        | otherwise -> sendResponse (responseSection req) []
     Just "POST" -> sendResponse (responseEcho req) []
     _ -> sendResponse response404 []
 
@@ -81,3 +89,18 @@ trailersMaker ctx Nothing = return $ Trailers [("X-SHA1", sha1)]
 trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
   where
     ctx' = CH.hashUpdate ctx bs
+
+responseSection :: Request -> Response
+responseSection req = responseBuilder ok200 header body
+  where
+    header =
+        [ ("Content-Type", "text/plain")
+        , ("Server", "HaskellQuic/0.0.0")
+        ]
+    (thl, vt) = requestHeaders req
+    pseudos = [tokenAuthority, tokenMethod, tokenPath, tokenScheme]
+    pthl = map (\t -> (t, fromJust (getFieldValue t vt))) pseudos
+    body =
+        foldr1 (<>) $
+            map (\(k, v) -> byteString (k <> " " <> v <> "\n")) $
+                map (\(k, v) -> (tokenFoldedKey k, v)) (pthl ++ thl)
