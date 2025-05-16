@@ -11,7 +11,12 @@ module Network.HTTP3.Server (
     allocSimpleConfig,
     freeSimpleConfig,
     defaultQEncoderConfig,
+    ecDynamicTableSize,
+    ecHeaderBlockBufferSize,
+    ecInstructionBufferSize,
     defaultQDecoderConfig,
+    dcDynamicTableSize,
+    dcHuffmanBufferSize,
     Hooks (..),
     defaultHooks,
 

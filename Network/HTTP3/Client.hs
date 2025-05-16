@@ -18,7 +18,12 @@ module Network.HTTP3.Client (
     allocSimpleConfig,
     freeSimpleConfig,
     defaultQEncoderConfig,
+    ecDynamicTableSize,
+    ecHeaderBlockBufferSize,
+    ecInstructionBufferSize,
     defaultQDecoderConfig,
+    dcDynamicTableSize,
+    dcHuffmanBufferSize,
     Hooks (..),
     defaultHooks,
 
