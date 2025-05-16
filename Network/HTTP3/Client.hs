@@ -15,6 +15,7 @@ module Network.HTTP3.Client (
 
     -- * Common configuration
     Config (..),
+    defaultConfig,
     allocSimpleConfig,
     freeSimpleConfig,
     defaultQEncoderConfig,

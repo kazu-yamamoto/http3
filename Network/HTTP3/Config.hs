@@ -35,6 +35,16 @@ data Config = Config
     , confTimeoutManager :: T.Manager
     }
 
+defaultConfig :: Config
+defaultConfig =
+    Config
+        { confHooks = defaultHooks
+        , confQEncoderConfig = defaultQEncoderConfig
+        , confQDecoderConfig = defaultQDecoderConfig
+        , confPositionReadMaker = defaultPositionReadMaker
+        , confTimeoutManager = T.defaultManager
+        }
+
 -- | Allocating a simple configuration with a handle-based position
 --   reader and a locally allocated timeout manager.
 allocSimpleConfig :: IO Config
