@@ -19,6 +19,7 @@ import System.IO
 import Test.Hspec
 
 import Network.QPACK
+import Network.QPACK.Internal
 
 spec :: Spec
 spec = do
@@ -38,6 +39,8 @@ data Block = Block Int ByteString deriving (Show)
 test :: FilePath -> FilePath -> IO ()
 test efile qfile = do
     (dec, insthdr) <- newQDecoderS defaultQDecoderConfig (\_ -> return ()) False
+    bs <- encodeEncoderInstructions [SetDynamicTableCapacity 4096] False
+    insthdr bs
     q <- newTQueueIO
     let recv = atomically $ readTQueue q
         send x = atomically $ writeTQueue q x

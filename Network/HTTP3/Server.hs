@@ -6,12 +6,22 @@ module Network.HTTP3.Server (
     -- * Runner
     run,
 
-    -- * Runner arguments
+    -- * Common configration
     Config (..),
+    defaultConfig,
     allocSimpleConfig,
     freeSimpleConfig,
+    defaultQEncoderConfig,
+    ecDynamicTableSize,
+    ecHeaderBlockBufferSize,
+    ecInstructionBufferSize,
+    defaultQDecoderConfig,
+    dcDynamicTableSize,
+    dcHuffmanBufferSize,
     Hooks (..),
     defaultHooks,
+
+    -- * HTTP semantics
     module Network.HTTP.Semantics.Server,
 
     -- * Internal
@@ -40,6 +50,7 @@ import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
+import Network.QPACK
 import Network.QPACK.Internal
 
 -- | Running an HTTP\/3 server.

@@ -10,9 +10,10 @@ module Network.QPACK.Table (
     getBasePoint,
     getInsertionPoint,
     getInsertionPointSTM,
-    checkInsertionPoint,
-    getLargestReference,
-    updateLargestReference,
+    checkRequiredInsertCount,
+    getRequiredInsertCount,
+    updateRequiredInsertCount,
+    sendIns,
 
     -- * Entry
     insertEntryToEncoder,
@@ -27,10 +28,27 @@ module Network.QPACK.Table (
 
     -- * Misc
     getHuffmanDecoder,
-    getSendDI,
     setDebugQPACK,
     getDebugQPACK,
     qpackDebug,
+    setTableCapacity,
+    isTableReady,
+    setTableStreamsBlocked,
+    incrementKnownReceivedCount,
+    updateKnownReceivedCount,
+    insertSection,
+    getAndDelSection,
+    Section (..),
+    increaseReference,
+    decreaseReference,
+    canInsertEntry,
+    tryDrop,
+    isDraining,
+    duplicate,
+    adjustDrainingPoint,
+    clearRequiredInsertCount,
+    getLruCache,
+    getDynamicTableSize,
 ) where
 
 import Control.Concurrent.STM

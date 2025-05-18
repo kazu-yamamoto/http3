@@ -6,19 +6,16 @@ module Network.QPACK.HeaderBlock.Encode (
     encodeTokenHeader,
     EncodedFieldSection,
     EncodedEncoderInstruction,
-    EncodeStrategy (..),
-    CompressionAlgo (..),
 ) where
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
-import Data.IORef
 import Network.ByteOrder
+import Network.Control
 import Network.HPACK.Internal (
-    CompressionAlgo (..),
-    EncodeStrategy (..),
     encodeI,
     encodeS,
+    entrySize,
     toEntryToken,
  )
 import Network.HTTP.Semantics
@@ -40,15 +37,17 @@ type EncodedEncoderInstruction = B.ByteString
 --   Header block with prefix and instructions are returned.
 --   2048, 32, and 2048 bytes-buffers are
 --   temporally allocated for header block, prefix and encoder instructions.
+--   If headers are too large, 'BufferOverrun' is thrown.
 encodeHeader
-    :: EncodeStrategy
-    -> DynamicTable
+    :: DynamicTable
     -> [Header]
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
-encodeHeader stgy dyntbl hs = do
+encodeHeader dyntbl hs = do
+    setBasePointToInsersionPoint dyntbl
+    clearRequiredInsertCount dyntbl
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
         withWriteBuffer 2048 $ \wbuf2 -> do
-            hs1 <- encodeTokenHeader wbuf1 wbuf2 stgy dyntbl ts
+            hs1 <- encodeTokenHeader wbuf1 wbuf2 dyntbl ts
             unless (null hs1) $ E.throwIO BufferOverrun
     prefix <- withWriteBuffer 32 $ \wbuf -> encodePrefix wbuf dyntbl
     let hb = prefix `B.append` hb0
@@ -57,32 +56,24 @@ encodeHeader stgy dyntbl hs = do
     ts = map (\(k, v) -> let t = toToken (foldedCase k) in (t, v)) hs
 
 -- | Converting 'TokenHeaderList' to the QPACK format.
+--  'TokenHeaderList' must be smaller than or equal to workspaces.
+--  Otherwise, 'BufferOverrun' is thrown.
 encodeTokenHeader
     :: WriteBuffer
     -- ^ Workspace for the body of header block
     -> WriteBuffer
     -- ^ Workspace for encoder instructions
-    -> EncodeStrategy
     -> DynamicTable
     -> TokenHeaderList
-    -> IO TokenHeaderList
-    -- ^ Leftover
-encodeTokenHeader wbuf1 wbuf2 EncodeStrategy{..} dyntbl ts0 = do
+    -> IO [AbsoluteIndex]
+encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     clearWriteBuffer wbuf1
     clearWriteBuffer wbuf2
-    setBasePointToInsersionPoint dyntbl
     let revidx = getRevIndex dyntbl
-    ref <- newIORef ts0
-    case compressionAlgo of
-        Static ->
-            encodeStatic wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0 `E.catch` \BufferOverrun -> return ()
-        _ ->
-            encodeLinear wbuf1 wbuf2 dyntbl revidx useHuffman ref ts0 `E.catch` \BufferOverrun -> return ()
-    ts <- readIORef ref
-    unless (null ts) $ do
-        goBack wbuf1
-        goBack wbuf2
-    return ts
+    ready <- isTableReady dyntbl
+    if ready
+        then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0
+        else encodeStatic wbuf1 wbuf2 dyntbl revidx True ts0
 
 encodeStatic
     :: WriteBuffer
@@ -90,27 +81,26 @@ encodeStatic
     -> DynamicTable
     -> RevIndex
     -> Bool
-    -> IORef TokenHeaderList
     -> TokenHeaderList
-    -> IO ()
-encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ref ts0 = loop ts0
-  where
-    loop [] = return ()
-    loop ((t, val) : ts) = do
-        rr <- lookupRevIndex t val revidx
-        case rr of
-            KV hi -> do
-                -- 4.5.2.  Indexed Field Line
-                encodeIndexedFieldLine wbuf1 dyntbl hi
-            K hi -> do
-                -- 4.5.4.  Literal Field Line With Name Reference
-                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-            N -> do
-                -- 4.5.6.  Literal Field Line Without Name Reference
-                encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
-        save wbuf1
-        writeIORef ref ts
-        loop ts
+    -> IO [AbsoluteIndex]
+encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ts0 = do
+    mapM_ (encStatic wbuf1 dyntbl revidx huff) ts0
+    return []
+
+encStatic
+    :: WriteBuffer -> DynamicTable -> RevIndex -> Bool -> (Token, FieldValue) -> IO ()
+encStatic wbuf1 dyntbl revidx huff (t, val) = do
+    rr <- lookupRevIndex t val revidx
+    case rr of
+        KV hi -> do
+            -- 4.5.2.  Indexed Field Line
+            encodeIndexedFieldLine wbuf1 dyntbl hi
+        K hi -> do
+            -- 4.5.4.  Literal Field Line With Name Reference
+            encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+        N -> do
+            -- 4.5.6.  Literal Field Line with Literal Name
+            encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
 
 encodeLinear
     :: WriteBuffer
@@ -118,46 +108,126 @@ encodeLinear
     -> DynamicTable
     -> RevIndex
     -> Bool
-    -> IORef TokenHeaderList
     -> TokenHeaderList
-    -> IO ()
-encodeLinear wbuf1 wbuf2 dyntbl revidx huff ref ts0 = loop ts0
-  where
-    loop [] = return ()
-    loop ((t, val) : ts) = do
-        rr <- lookupRevIndex t val revidx
-        case rr of
-            KV hi -> do
-                -- 4.5.2.  Indexed Field Line
-                encodeIndexedFieldLine wbuf1 dyntbl hi
-            K hi
-                | shouldBeIndexed t -> do
-                    insidx <- case hi of
-                        SIndex i -> return $ Left i
-                        DIndex i -> do
-                            ip <- getInsertionPoint dyntbl
-                            return $ Right $ toInsRelativeIndex i ip
-                    let ins = InsertWithNameReference insidx val
-                    encodeEI wbuf2 True ins
-                    dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
-                    -- 4.5.3.  Indexed Field Line With Post-Base Index
-                    encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                | otherwise -> do
-                    -- 4.5.4.  Literal Field Line With Name Reference
-                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-            N
-                | shouldBeIndexed t -> do
+    -> IO [AbsoluteIndex]
+encodeLinear wbuf1 wbuf2 dyntbl revidx huff ts0 =
+    catMaybes <$> mapM (encLinear wbuf1 wbuf2 dyntbl revidx huff) ts0
+
+encLinear
+    :: WriteBuffer
+    -> WriteBuffer
+    -> DynamicTable
+    -> RevIndex
+    -> Bool
+    -> (Token, FieldValue)
+    -> IO (Maybe AbsoluteIndex)
+encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
+    rr <- lookupRevIndex t val revidx
+    qpackDebug dyntbl $
+        putStrLn $
+            show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val
+    case rr of
+        KV hi -> do
+            draining <- isDraining dyntbl hi
+            if draining
+                then tryInsert $ case hi of
+                    SIndex _ -> error "KV"
+                    DIndex i -> do
+                        ridx <- toInsRelativeIndex i <$> getInsertionPoint dyntbl
+                        let ins = Duplicate ridx
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        ai <- duplicate dyntbl hi
+                        -- 4.5.3.  Indexed Field Line with Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai
+                        increaseReference dyntbl ai
+                        return $ Just ai
+                else do
+                    case hi of
+                        SIndex _ -> do
+                            -- 4.5.2.  Indexed Field Line
+                            encodeIndexedFieldLine wbuf1 dyntbl hi
+                            return Nothing
+                        DIndex dai -> do
+                            -- 4.5.2.  Indexed Field Line
+                            encodeIndexedFieldLine wbuf1 dyntbl hi
+                            increaseReference dyntbl dai
+                            return $ Just dai
+        K hi
+            | shouldBeIndexed t -> do
+                draining <- isDraining dyntbl hi
+                if draining
+                    then tryInsert $ do
+                        let ins = InsertWithLiteralName t val
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        dai <- insertEntryToEncoder ent dyntbl
+                        -- 4.5.3.  Indexed Field Line with Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                        increaseReference dyntbl dai
+                        return $ Just dai
+                    else tryInsert $ do
+                        insidx <- case hi of
+                            SIndex i -> return $ Left i
+                            DIndex i -> do
+                                ip <- getInsertionPoint dyntbl
+                                return $ Right $ toInsRelativeIndex i ip
+                        let ins = InsertWithNameReference insidx val
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        dai <- insertEntryToEncoder ent dyntbl
+                        -- 4.5.3.  Indexed Field Line With Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                        increaseReference dyntbl dai
+                        return $ Just dai
+            | otherwise -> do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                case hi of
+                    SIndex _ -> return Nothing
+                    DIndex dai -> do
+                        increaseReference dyntbl dai
+                        return $ Just dai
+        N
+            | shouldBeIndexed t -> do
+                tryInsert $ do
                     let ins = InsertWithLiteralName t val
+                    qpackDebug dyntbl $ print ins
                     encodeEI wbuf2 True ins
-                    dai <- insertEntryToEncoder (toEntryToken t val) dyntbl
+                    dai <- insertEntryToEncoder ent dyntbl
+                    -- 4.5.3.  Indexed Field Line with Post-Base Index
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                | otherwise -> do
-                    -- 4.5.6.  Literal Field Line Without Name Reference
-                    encodeLiteralFieldLineWithoutNameReference wbuf1 t val huff
-        save wbuf1
-        save wbuf2
-        writeIORef ref ts
-        loop ts
+                    increaseReference dyntbl dai
+                    return $ Just dai
+            | otherwise -> do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                return Nothing
+  where
+    ent = toEntryToken t val
+    tryInsert action = do
+        let lru = getLruCache dyntbl
+        (_, exist) <- cached lru (tokenFoldedKey t) (return val)
+        if exist
+            then do
+                okWithoutEviction <- canInsertEntry dyntbl ent
+                if okWithoutEviction
+                    then action
+                    else do
+                        tryDrop dyntbl $ entrySize ent
+                        okWithEviction <- canInsertEntry dyntbl ent
+                        if okWithEviction
+                            then action
+                            else do
+                                -- 4.5.6.  Literal Field Line with Literal Name
+                                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                                adjustDrainingPoint dyntbl
+                                return Nothing
+            else do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                adjustDrainingPoint dyntbl
+                return Nothing
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
@@ -165,7 +235,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
     (idx, set) <- case hi of
         SIndex (AbsoluteIndex i) -> return (i, set11)
         DIndex ai -> do
-            updateLargestReference dyntbl ai
+            updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set10)
@@ -178,8 +248,9 @@ encodeIndexedFieldLineWithPostBaseIndex
     -> AbsoluteIndex -- in Dynamic table
     -> IO ()
 encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
+    updateRequiredInsertCount dyntbl ai
     bp <- getBasePoint dyntbl
-    let HBRelativeIndex idx = toHBRelativeIndex ai bp
+    let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
 
 -- 4.5.4.  Literal Field Line With Name Reference
@@ -189,7 +260,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hi val huff = do
     (idx, set) <- case hi of
         SIndex (AbsoluteIndex i) -> return (i, set0101)
         DIndex ai -> do
-            updateLargestReference dyntbl ai
+            updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set0100)
@@ -199,10 +270,10 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hi val huff = do
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 -- not implemented
 
--- 4.5.6.  Literal Field Line Without Name Reference
-encodeLiteralFieldLineWithoutNameReference
+-- 4.5.6.  Literal Field Line with Literal Name
+encodeLiteralFieldLineWithLiteralName
     :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
-encodeLiteralFieldLineWithoutNameReference wbuf token val huff = do
+encodeLiteralFieldLineWithLiteralName wbuf token val huff = do
     let key = tokenFoldedKey token
     encodeS wbuf huff set0010 set00001 3 key
     encodeS wbuf huff id set1 7 val

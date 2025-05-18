@@ -9,6 +9,7 @@ module Network.QPACK.Table.RevIndex (
     lookupRevIndex,
     lookupRevIndex',
     insertRevIndex,
+    deleteRevIndex,
     deleteRevIndexList,
 ) where
 
@@ -17,6 +18,8 @@ import qualified Data.Array as A
 import Data.Array.Base (unsafeAt)
 import Data.Function (on)
 import Data.IORef
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Network.HPACK.Internal (Entry (..))
@@ -69,17 +72,14 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
     toEnt (k, xs) = (quicIx $ tokenIx $ toToken $ foldedCase k, m)
       where
         m = case xs of
-            [] -> error "staticRevIndex"
-            [("", i)] -> StaticEntry i Nothing
-            (_, i) : _ -> StaticEntry i $ Just $ M.fromList xs
-    zs = map extract $ groupBy ((==) `on` fst) $ sort lst
+            ("", i) :| [] -> StaticEntry i Nothing
+            (_, i) :| _ -> StaticEntry i $ Just $ M.fromList $ NE.toList xs
+    zs = map extract $ NE.groupBy ((==) `on` fst) $ sort lst
       where
         lst =
             zipWith (\(k, v) i -> (k, (v, i))) staticTableList $
                 map (SIndex . AbsoluteIndex) [0 ..]
-        extract xs = (headFst xs, map snd xs)
-        headFst [] = error "headFst"
-        headFst (x : _) = fst x
+        extract xs = (fst (NE.head xs), NE.map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
 lookupStaticRevIndex :: Int -> FieldValue -> RevResult
@@ -117,13 +117,13 @@ insertDynamicRevIndex
     :: Token -> FieldValue -> HIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev `unsafeAt` quicIx (tokenIx t)
 
 {-# INLINE deleteDynamicRevIndex #-}
 deleteDynamicRevIndex :: Token -> FieldValue -> DynamicRevIndex -> IO ()
 deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
   where
-    ref = drev `unsafeAt` tokenIx t
+    ref = drev `unsafeAt` quicIx (tokenIx t)
 
 ----------------------------------------------------------------
 
@@ -210,5 +210,3 @@ deleteRevIndex (RevIndex dyn oth) (Entry _ t v)
 {-# INLINE deleteRevIndexList #-}
 deleteRevIndexList :: [Entry] -> RevIndex -> IO ()
 deleteRevIndexList es rev = mapM_ (deleteRevIndex rev) es
-
--- isStaticToken

@@ -5,7 +5,7 @@ module Network.HQ.Server (
     -- * Runner
     run,
 
-    -- * Runner arguments
+    -- * Common configration
     Config (..),
     allocSimpleConfig,
     freeSimpleConfig,

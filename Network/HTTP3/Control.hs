@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Network.HTTP3.Control (
     setupUnidirectional,
@@ -21,14 +22,16 @@ mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
 
 setupUnidirectional
-    :: Connection -> H3.Config -> IO (EncodedDecoderInstruction -> IO ())
-setupUnidirectional conn conf = do
+    :: Connection
+    -> H3.Config
+    -> IO (EncodedEncoderInstruction -> IO (), EncodedDecoderInstruction -> IO ())
+setupUnidirectional conn conf@H3.Config{..} = do
     settings <-
         encodeH3Settings
             [ (SettingsQpackBlockedStreams, 100)
-            , (SettingsQpackMaxTableCapacity, 4096)
+            , (SettingsQpackMaxTableCapacity, dcDynamicTableSize confQDecoderConfig)
             , (SettingsMaxFieldSectionSize, 32768)
-            ] -- fixme
+            ]
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC
     sC <- unidirectionalStream conn
@@ -41,15 +44,17 @@ setupUnidirectional conn conf = do
     H3.onControlStreamCreated hooks sC
     H3.onEncoderStreamCreated hooks sE
     H3.onDecoderStreamCreated hooks sD
-    return $ sendStream sD
+    return (sendStream sE, sendStream sD)
   where
     stC = mkType H3ControlStreams
     stE = mkType QPACKEncoderStream
     stD = mkType QPACKDecoderStream
     hooks = H3.confHooks conf
 
-controlStream :: Connection -> IORef IFrame -> InstructionHandler
-controlStream conn ref recv = loop0
+-- DynamicTable for Encoder
+controlStream
+    :: Connection -> TableOperation -> IORef IFrame -> InstructionHandler
+controlStream conn tblop ref recv = loop0
   where
     loop0 = do
         bs <- recv 1024
@@ -70,7 +75,7 @@ controlStream conn ref recv = loop0
         case parseH3Frame st0 bs of
             IDone typ payload leftover -> do
                 case typ of
-                    H3FrameSettings -> checkSettings conn payload
+                    H3FrameSettings -> checkSettings conn tblop payload
                     _ -> abortConnection conn H3MissingSettings ""
                 st1 <- parse leftover IInit
                 return (True, st1)
@@ -90,20 +95,25 @@ controlStream conn ref recv = loop0
                 parse leftover IInit
             st1 -> return st1
 
-checkSettings :: Connection -> ByteString -> IO ()
-checkSettings conn payload = do
+checkSettings :: Connection -> TableOperation -> ByteString -> IO ()
+checkSettings conn tblop payload = do
     h3settings <- decodeH3Settings payload
     loop (0 :: Int) h3settings
   where
     loop _ [] = return ()
-    loop flags ((k@(H3SettingsKey i), _v) : ss)
+    loop flags ((k@(H3SettingsKey i), v) : ss)
         | flags `testBit` i = abortConnection conn H3SettingsError ""
         | otherwise = do
             let flags' = flags `setBit` i
             case k of
-                SettingsQpackMaxTableCapacity -> loop flags' ss
+                SettingsQpackMaxTableCapacity -> do
+                    setCapacity tblop v
+                    loop flags' ss
+                -- FIXME
                 SettingsMaxFieldSectionSize -> loop flags' ss
-                SettingsQpackBlockedStreams -> loop flags' ss
+                SettingsQpackBlockedStreams -> do
+                    setBlockedStreams tblop v
+                    loop flags' ss
                 _
                     -- HTTP/2 settings
                     | i <= 0x6 -> abortConnection conn H3SettingsError ""

@@ -51,9 +51,8 @@ clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSi
     run conn cliconf conf $ client aux n0 paths
   where
     cliconf =
-        ClientConfig
-            { scheme = "https"
-            , authority = auxAuthority
+        H3.defaultClientConfig
+            { authority = auxAuthority
             }
 
 client :: Aux -> Int -> [Path] -> Client ()
