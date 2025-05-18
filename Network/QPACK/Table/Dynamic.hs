@@ -13,6 +13,7 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Imports
 import Network.ByteOrder
+import Network.Control
 import Network.HPACK.Internal (
     Entry,
     GCBuffer,
@@ -21,6 +22,8 @@ import Network.HPACK.Internal (
     Size,
     decH,
     dummyEntry,
+    entryFieldValue,
+    entryHeaderName,
     entrySize,
     maxNumbers,
  )
@@ -42,6 +45,7 @@ data CodeInfo
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
+        , lruCache            :: LRUCacheRef FieldName FieldValue
         }
     | DecodeInfo HuffmanDecoder
 {- FOURMOLU_ENABLE -}
@@ -106,6 +110,7 @@ newDynamicTableForEncoding sendEI = do
         knownReceivedCount  <- newTVarIO 0
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
+        lruCache            <- newLRUCacheRef 0
         return EncodeInfo{..}
     newDynamicTable info sendEI
 {- FOURMOLU_ENABLE -}
@@ -185,6 +190,11 @@ getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huf
   where
     DecodeInfo huf = codeInfo
+
+getLruCache :: DynamicTable -> LRUCacheRef FieldName FieldValue
+getLruCache DynamicTable{..} = lruCache
+  where
+    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
@@ -301,6 +311,7 @@ setTableCapacity DynamicTable{..} maxsiz = do
         EncodeInfo{..} -> do
             arr <- newArray (0, end) 0
             writeIORef referenceCounters arr
+            setLRUCapacity lruCache maxN
         _ -> return ()
     writeIORef capaReady True
   where
@@ -333,7 +344,7 @@ updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
 ----------------------------------------------------------------
 
 tryDrop :: DynamicTable -> Int -> IO ()
-tryDrop DynamicTable{..} requiredSize = loop requiredSize
+tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
   where
     EncodeInfo{..} = codeInfo
     loop n | n <= 0 = return ()

@@ -11,6 +11,7 @@ module Network.QPACK.HeaderBlock.Encode (
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Network.ByteOrder
+import Network.Control
 import Network.HPACK.Internal (
     encodeI,
     encodeS,
@@ -83,21 +84,23 @@ encodeStatic
     -> TokenHeaderList
     -> IO [AbsoluteIndex]
 encodeStatic wbuf1 _wbuf2 dyntbl revidx huff ts0 = do
-    mapM_ enc ts0
+    mapM_ (encStatic wbuf1 dyntbl revidx huff) ts0
     return []
-  where
-    enc (t, val) = do
-        rr <- lookupRevIndex t val revidx
-        case rr of
-            KV hi -> do
-                -- 4.5.2.  Indexed Field Line
-                encodeIndexedFieldLine wbuf1 dyntbl hi
-            K hi -> do
-                -- 4.5.4.  Literal Field Line With Name Reference
-                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-            N -> do
-                -- 4.5.6.  Literal Field Line with Literal Name
-                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+
+encStatic
+    :: WriteBuffer -> DynamicTable -> RevIndex -> Bool -> (Token, FieldValue) -> IO ()
+encStatic wbuf1 dyntbl revidx huff (t, val) = do
+    rr <- lookupRevIndex t val revidx
+    case rr of
+        KV hi -> do
+            -- 4.5.2.  Indexed Field Line
+            encodeIndexedFieldLine wbuf1 dyntbl hi
+        K hi -> do
+            -- 4.5.4.  Literal Field Line With Name Reference
+            encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+        N -> do
+            -- 4.5.6.  Literal Field Line with Literal Name
+            encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
 
 encodeLinear
     :: WriteBuffer
@@ -108,98 +111,123 @@ encodeLinear
     -> TokenHeaderList
     -> IO [AbsoluteIndex]
 encodeLinear wbuf1 wbuf2 dyntbl revidx huff ts0 =
-    catMaybes <$> mapM enc ts0
-  where
-    enc (t, val) = do
-        rr <- lookupRevIndex t val revidx
-        case rr of
-            KV hi -> do
+    catMaybes <$> mapM (encLinear wbuf1 wbuf2 dyntbl revidx huff) ts0
+
+encLinear
+    :: WriteBuffer
+    -> WriteBuffer
+    -> DynamicTable
+    -> RevIndex
+    -> Bool
+    -> (Token, FieldValue)
+    -> IO (Maybe AbsoluteIndex)
+encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
+    rr <- lookupRevIndex t val revidx
+    qpackDebug dyntbl $
+        putStrLn $
+            show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val
+    case rr of
+        KV hi -> do
+            draining <- isDraining dyntbl hi
+            if draining
+                then tryInsert $ case hi of
+                    SIndex _ -> error "KV"
+                    DIndex i -> do
+                        ridx <- toInsRelativeIndex i <$> getInsertionPoint dyntbl
+                        let ins = Duplicate ridx
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        ai <- duplicate dyntbl hi
+                        -- 4.5.3.  Indexed Field Line with Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai
+                        increaseReference dyntbl ai
+                        return $ Just ai
+                else do
+                    case hi of
+                        SIndex _ -> do
+                            -- 4.5.2.  Indexed Field Line
+                            encodeIndexedFieldLine wbuf1 dyntbl hi
+                            return Nothing
+                        DIndex dai -> do
+                            -- 4.5.2.  Indexed Field Line
+                            encodeIndexedFieldLine wbuf1 dyntbl hi
+                            increaseReference dyntbl dai
+                            return $ Just dai
+        K hi
+            | shouldBeIndexed t -> do
                 draining <- isDraining dyntbl hi
                 if draining
-                    then tryInsert t val $ \_ent -> case hi of
-                        SIndex _ -> error "KV"
-                        DIndex i -> do
-                            ridx <- toInsRelativeIndex i <$> getInsertionPoint dyntbl
-                            let ins = Duplicate ridx
-                            encodeEI wbuf2 True ins
-                            ai <- duplicate dyntbl hi
-                            -- 4.5.3.  Indexed Field Line with Post-Base Index
-                            encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai
-                            increaseReference dyntbl ai
-                            return $ Just ai
-                    else do
-                        case hi of
-                            SIndex _ -> do
-                                -- 4.5.2.  Indexed Field Line
-                                encodeIndexedFieldLine wbuf1 dyntbl hi
-                                return Nothing
-                            DIndex dai -> do
-                                -- 4.5.2.  Indexed Field Line
-                                encodeIndexedFieldLine wbuf1 dyntbl hi
-                                increaseReference dyntbl dai
-                                return $ Just dai
-            K hi
-                | shouldBeIndexed t -> do
-                    draining <- isDraining dyntbl hi
-                    if draining
-                        then tryInsert t val $ \ent -> do
-                            let ins = InsertWithLiteralName t val
-                            encodeEI wbuf2 True ins
-                            dai <- insertEntryToEncoder ent dyntbl
-                            -- 4.5.3.  Indexed Field Line with Post-Base Index
-                            encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                            increaseReference dyntbl dai
-                            return $ Just dai
-                        else tryInsert t val $ \ent -> do
-                            insidx <- case hi of
-                                SIndex i -> return $ Left i
-                                DIndex i -> do
-                                    ip <- getInsertionPoint dyntbl
-                                    return $ Right $ toInsRelativeIndex i ip
-                            let ins = InsertWithNameReference insidx val
-                            encodeEI wbuf2 True ins
-                            dai <- insertEntryToEncoder ent dyntbl
-                            -- 4.5.3.  Indexed Field Line With Post-Base Index
-                            encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                            increaseReference dyntbl dai
-                            return $ Just dai
-                | otherwise -> do
-                    -- 4.5.4.  Literal Field Line With Name Reference
-                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-                    case hi of
-                        SIndex _ -> return Nothing
-                        DIndex dai -> do
-                            increaseReference dyntbl dai
-                            return $ Just dai
-            N
-                | shouldBeIndexed t -> do
-                    tryInsert t val $ \ent -> do
+                    then tryInsert $ do
                         let ins = InsertWithLiteralName t val
+                        qpackDebug dyntbl $ print ins
                         encodeEI wbuf2 True ins
                         dai <- insertEntryToEncoder ent dyntbl
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                         increaseReference dyntbl dai
                         return $ Just dai
-                | otherwise -> do
-                    -- 4.5.6.  Literal Field Line with Literal Name
-                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                    return Nothing
-    tryInsert t val action = do
-        let ent = toEntryToken t val
-        okWithoutEviction <- canInsertEntry dyntbl ent
-        if okWithoutEviction
-            then action ent
-            else do
-                tryDrop dyntbl $ entrySize ent
-                okWithEviction <- canInsertEntry dyntbl ent
-                if okWithEviction
-                    then action ent
+                    else tryInsert $ do
+                        insidx <- case hi of
+                            SIndex i -> return $ Left i
+                            DIndex i -> do
+                                ip <- getInsertionPoint dyntbl
+                                return $ Right $ toInsRelativeIndex i ip
+                        let ins = InsertWithNameReference insidx val
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        dai <- insertEntryToEncoder ent dyntbl
+                        -- 4.5.3.  Indexed Field Line With Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                        increaseReference dyntbl dai
+                        return $ Just dai
+            | otherwise -> do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                case hi of
+                    SIndex _ -> return Nothing
+                    DIndex dai -> do
+                        increaseReference dyntbl dai
+                        return $ Just dai
+        N
+            | shouldBeIndexed t -> do
+                tryInsert $ do
+                    let ins = InsertWithLiteralName t val
+                    qpackDebug dyntbl $ print ins
+                    encodeEI wbuf2 True ins
+                    dai <- insertEntryToEncoder ent dyntbl
+                    -- 4.5.3.  Indexed Field Line with Post-Base Index
+                    encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                    increaseReference dyntbl dai
+                    return $ Just dai
+            | otherwise -> do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                return Nothing
+  where
+    ent = toEntryToken t val
+    tryInsert action = do
+        let lru = getLruCache dyntbl
+        (_, exist) <- cached lru (tokenFoldedKey t) (return val)
+        if exist
+            then do
+                okWithoutEviction <- canInsertEntry dyntbl ent
+                if okWithoutEviction
+                    then action
                     else do
-                        -- 4.5.6.  Literal Field Line with Literal Name
-                        encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                        adjustDrainingPoint dyntbl
-                        return Nothing
+                        tryDrop dyntbl $ entrySize ent
+                        okWithEviction <- canInsertEntry dyntbl ent
+                        if okWithEviction
+                            then action
+                            else do
+                                -- 4.5.6.  Literal Field Line with Literal Name
+                                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                                adjustDrainingPoint dyntbl
+                                return Nothing
+            else do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                adjustDrainingPoint dyntbl
+                return Nothing
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
