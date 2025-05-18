@@ -178,6 +178,9 @@ qpackDebug DynamicTable{..} action = do
 getMaxNumOfEntries :: DynamicTable -> IO Int
 getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 
+getDynamicTableSize :: DynamicTable -> IO Int
+getDynamicTableSize DynamicTable{..} = readTVarIO tableSize
+
 ----------------------------------------------------------------
 
 {-# INLINE getRevIndex #-}
@@ -301,7 +304,8 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
 ----------------------------------------------------------------
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
-setTableCapacity DynamicTable{..} maxsiz = do
+setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
+    qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
     writeIORef maxTableSize maxsiz
     tbl <- atomically $ newArray (0, end) dummyEntry
     atomically $ do
@@ -357,6 +361,9 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
         when (refN == 0) $ do
             table <- readTVarIO circularTable
             ent <- unsafeRead table i
+            qpackDebug dyntbl $
+                putStrLn $
+                    "DROPPED: " ++ show (entryHeaderName ent) ++ " " ++ show (entryFieldValue ent)
             unsafeWrite table i dummyEntry
             let siz = entrySize ent
             atomically $ modifyTVar' tableSize $ subtract siz

@@ -48,6 +48,7 @@ module Network.QPACK.Table (
     adjustDrainingPoint,
     clearRequiredInsertCount,
     getLruCache,
+    getDynamicTableSize,
 ) where
 
 import Control.Concurrent.STM

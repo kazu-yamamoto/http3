@@ -189,6 +189,10 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
+                siz <- getDynamicTableSize dyntbl
+                qpackDebug dyntbl $
+                    putStrLn $
+                        "Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough bufsiz1 ts
