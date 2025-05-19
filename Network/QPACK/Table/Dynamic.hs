@@ -362,11 +362,13 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
         refN <- unsafeRead refs i
         when (refN == 0) $ do
             table <- readTVarIO circularTable
-            ent <- unsafeRead table i
+            ent <- atomically $ do
+                e <- unsafeRead table i
+                unsafeWrite table i dummyEntry
+                return e
             qpackDebug dyntbl $
                 putStrLn $
                     "DROPPED: " ++ show (entryHeaderName ent) ++ " " ++ show (entryFieldValue ent)
-            unsafeWrite table i dummyEntry
             let siz = entrySize ent
             atomically $ modifyTVar' tableSize $ subtract siz
             modifyIORef' droppingPoint (+ 1)
@@ -379,7 +381,7 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
-    ent <- unsafeRead table i
+    ent <- atomically $ unsafeRead table i
     deleteRevIndex revIndex ent
     insertEntryToEncoder ent dyntbl
   where
