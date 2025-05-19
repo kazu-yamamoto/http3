@@ -88,11 +88,11 @@ library
         iproute >= 1.7 && < 1.8,
         network,
         network-byte-order,
-        network-control,
+        network-control >= 0.1.7 && <0.2,
         quic >= 0.2.11 && < 0.3,
         sockaddr,
         stm,
-        time-manager >= 0.2 && < 0.3,
+        time-manager >= 0.2.3 && <0.3,
         utf8-string >=1.0 && <1.1
 
 executable h3-server

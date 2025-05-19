@@ -6,8 +6,7 @@ module Network.QPACK.Table.Dynamic where
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO (IOArray)
-import Data.Array.MArray (modifyArray', newArray)
+import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -297,7 +296,10 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = idx `mod` maxN
     arr <- readIORef referenceCounters
-    modifyArray' arr i func
+    -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
+    x <- unsafeRead arr i
+    let x' = func x
+    unsafeWrite arr i x'
   where
     EncodeInfo{..} = codeInfo
 
@@ -360,11 +362,13 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
         refN <- unsafeRead refs i
         when (refN == 0) $ do
             table <- readTVarIO circularTable
-            ent <- unsafeRead table i
+            ent <- atomically $ do
+                e <- unsafeRead table i
+                unsafeWrite table i dummyEntry
+                return e
             qpackDebug dyntbl $
                 putStrLn $
                     "DROPPED: " ++ show (entryHeaderName ent) ++ " " ++ show (entryFieldValue ent)
-            unsafeWrite table i dummyEntry
             let siz = entrySize ent
             atomically $ modifyTVar' tableSize $ subtract siz
             modifyIORef' droppingPoint (+ 1)
@@ -377,7 +381,7 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
-    ent <- unsafeRead table i
+    ent <- atomically $ unsafeRead table i
     deleteRevIndex revIndex ent
     insertEntryToEncoder ent dyntbl
   where
@@ -396,7 +400,7 @@ adjustDrainingPoint DynamicTable{..} = do
     InsertionPoint beg <- readTVarIO insertionPoint
     AbsoluteIndex end <- readIORef droppingPoint
     let num = beg - end
-        space = max 2 (num .>>. 4)
+        space = max 2 (num !>>. 4)
         end' = beg - num + space
     writeIORef drainingPoint $ AbsoluteIndex end'
   where
