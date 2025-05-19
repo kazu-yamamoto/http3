@@ -6,8 +6,7 @@ module Network.QPACK.Table.Dynamic where
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO (IOArray)
-import Data.Array.MArray (modifyArray', newArray)
+import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -297,7 +296,10 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = idx `mod` maxN
     arr <- readIORef referenceCounters
-    modifyArray' arr i func
+    -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
+    x <- unsafeRead arr i
+    let x' = func x
+    unsafeWrite arr i x'
   where
     EncodeInfo{..} = codeInfo
 
