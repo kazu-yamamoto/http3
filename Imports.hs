@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Imports (
     ByteString (..),
     module Control.Applicative,
@@ -16,11 +18,14 @@ module Imports (
     module Data.CaseInsensitive,
     withForeignPtr,
     mallocPlainForeignPtrBytes,
+#if !MIN_VERSION_base(4,17,0)
+    (!<<.), (!>>.),
+#endif
 ) where
 
 import Control.Applicative
 import Control.Monad
-import Data.Bits hiding (Bits)
+import Data.Bits
 import Data.ByteString.Internal (ByteString (..))
 import Data.CaseInsensitive (foldedCase, mk, original)
 import Data.Foldable
@@ -35,3 +40,13 @@ import GHC.ForeignPtr (mallocPlainForeignPtrBytes)
 import Network.HTTP.Semantics
 import Network.HTTP.Types
 import Numeric
+
+#if !MIN_VERSION_base(4,17,0)
+infixl 8 !<<.
+(!<<.) :: Bits a => a -> Int -> a
+(!<<.) = unsafeShiftL
+
+infixl 8 !>>.
+(!>>.) :: Bits a => a -> Int -> a
+(!>>.) = unsafeShiftR
+#endif
