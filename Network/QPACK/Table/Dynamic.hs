@@ -3,6 +3,7 @@
 
 module Network.QPACK.Table.Dynamic where
 
+import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
@@ -26,6 +27,7 @@ import Network.HPACK.Internal (
     entrySize,
     maxNumbers,
  )
+import System.IO.Unsafe (unsafePerformIO)
 
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
@@ -170,7 +172,11 @@ getDebugQPACK DynamicTable{..} = readIORef debugQPACK
 qpackDebug :: DynamicTable -> IO () -> IO ()
 qpackDebug DynamicTable{..} action = do
     debug <- readIORef debugQPACK
-    when debug action
+    when debug $ withMVar stdoutLock $ \_ -> action
+
+{-# NOINLINE stdoutLock #-}
+stdoutLock :: MVar ()
+stdoutLock = unsafePerformIO $ newMVar ()
 
 ----------------------------------------------------------------
 
