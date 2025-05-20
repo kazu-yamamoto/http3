@@ -102,6 +102,7 @@ testSwitch
     -> IO ()
 testSwitch send insthdr (_, blk@(Block n bs))
     | n == 0 = insthdr bs
+    -- to avoid blocking by "dec", ask decoding to the other thread
     | otherwise = send blk
 
 decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
@@ -118,11 +119,15 @@ decode dec h recv mvar = loop
                     then loop
                     else do
                         putStrLn $ "---- Stream " ++ show n
-                        mapM_ print hdr
-                        putStrLn "----"
-                        mapM_ print hdr'
-                        putStrLn "----"
+                        let hdrt = zip hdr hdr'
+                        mapM_ put hdrt
                         exitFailure
+    put :: (Header, Header) -> IO ()
+    put (kv0, kv1)
+        | kv0 == kv1 = print kv1
+        | otherwise = do
+            putStrLn $ "EXPECT: " ++ show kv1
+            putStrLn $ "ACTUAL: " ++ show kv0
 
 fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
