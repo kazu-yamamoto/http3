@@ -113,6 +113,12 @@ decodePrefix rbuf dyntbl = do
     let baseIndex = decodeBase reqInsCnt s delta
     qpackDebug dyntbl $
         putStrLn $
-            "Required" ++ show reqInsCnt ++ ", " ++ show baseIndex
+            show reqInsCnt
+                ++ ", "
+                ++ show baseIndex
+                ++ ", "
+                ++ show totalNumberOfInserts
+                ++ ", maxN "
+                ++ show maxEntries
     let needAck = reqInsCnt /= 0
     return (reqInsCnt, baseIndex, needAck)

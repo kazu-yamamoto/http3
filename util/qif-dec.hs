@@ -31,8 +31,10 @@ main = do
     args <- getArgs
     case args of
         [size, efile] -> dump (read size) efile
-        [size, efile, qfile] -> test (read size) efile qfile
-        _ -> putStrLn "qif size <encode-file> [<qif-file>]"
+        [size, efile, qfile, "0"] -> testNone (read size) efile qfile
+        -- [size, efile, qfile, "1"] -> testImmediate (read size) efile qfile
+        [size, efile, qfile, "1"] -> testNone (read size) efile qfile
+        _ -> putStrLn "qif size <encode-file> [<qif-file> \"0\"/\"1\"]"
 
 ----------------------------------------------------------------
 
@@ -61,14 +63,13 @@ dumpSwitch dec insthdr (_, Block n bs)
         putStrLn "---- Encoder Stream"
         insthdr bs
     | otherwise = do
-        putStrLn $ "---- Stream " ++ show n
         _ <- dec n bs
         return ()
 
 ----------------------------------------------------------------
 
-test :: Int -> FilePath -> FilePath -> IO ()
-test size efile qfile = do
+testNone :: Int -> FilePath -> FilePath -> IO ()
+testNone size efile qfile = do
     (dec, insthdr') <-
         newQDecoderS
             defaultQDecoderConfig{dcDynamicTableSize = size}
@@ -86,27 +87,27 @@ test size efile qfile = do
             yield
     mvar <- newEmptyMVar
     withFile qfile ReadMode $ \h -> do
-        tid <- forkIO $ decode dec h recv mvar
+        tid <- forkIO $ decodeNone dec h recv mvar
         runConduitRes
             ( sourceFile efile
                 .| conduitParser block
-                .| mapM_C (liftIO . testSwitch send insthdr)
+                .| mapM_C (liftIO . testSwitchNone send insthdr)
             )
         takeMVar mvar
         killThread tid
 
-testSwitch
+testSwitchNone
     :: (Block -> IO ())
     -> EncoderInstructionHandlerS
     -> (a, Block)
     -> IO ()
-testSwitch send insthdr (_, blk@(Block n bs))
+testSwitchNone send insthdr (_, blk@(Block n bs))
     | n == 0 = insthdr bs
     -- to avoid blocking by "dec", ask decoding to the other thread
     | otherwise = send blk
 
-decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
-decode dec h recv mvar = loop
+decodeNone :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
+decodeNone dec h recv mvar = loop
   where
     loop = do
         hdr' <- fromCaseSensitive <$> headerlist h
@@ -120,14 +121,53 @@ decode dec h recv mvar = loop
                     else do
                         putStrLn $ "---- Stream " ++ show n
                         let hdrt = zip hdr hdr'
-                        mapM_ put hdrt
+                        mapM_ printDiff hdrt
                         exitFailure
-    put :: (Header, Header) -> IO ()
-    put (kv0, kv1)
-        | kv0 == kv1 = print kv1
-        | otherwise = do
-            putStrLn $ "EXPECT: " ++ show kv1
-            putStrLn $ "ACTUAL: " ++ show kv0
+
+----------------------------------------------------------------
+
+testImmediate :: Int -> FilePath -> FilePath -> IO ()
+testImmediate size efile qfile = do
+    (dec, insthdr) <-
+        newQDecoderS
+            defaultQDecoderConfig{dcDynamicTableSize = size}
+            (\_ -> return ())
+            False
+    ins <- encodeEncoderInstructions [SetDynamicTableCapacity size] False
+    insthdr ins
+    withFile qfile ReadMode $ \h -> do
+        runConduitRes
+            ( sourceFile efile
+                .| conduitParser block
+                .| mapM_C (liftIO . testSwitchImmediate dec insthdr h)
+            )
+
+testSwitchImmediate
+    :: (Int -> ByteString -> IO [Header])
+    -> (ByteString -> IO ())
+    -> Handle
+    -> (PositionRange, Block)
+    -> IO ()
+testSwitchImmediate dec insthdr h (_, Block n bs)
+    | n == 0 = insthdr bs
+    -- to avoid blocking by "dec", ask decoding to the other thread
+    | otherwise = do
+        hdr <- fromCaseSensitive <$> dec n bs
+        hdr' <- fromCaseSensitive <$> headerlist h
+        when (hdr /= hdr') $ do
+            putStrLn $ "---- Stream " ++ show n
+            let hdrt = zip hdr hdr'
+            mapM_ printDiff hdrt
+            exitFailure
+
+----------------------------------------------------------------
+
+printDiff :: (Header, Header) -> IO ()
+printDiff (kv0, kv1)
+    | kv0 == kv1 = print kv1
+    | otherwise = do
+        putStrLn $ "EXPECT: " ++ show kv1
+        putStrLn $ "ACTUAL: " ++ show kv0
 
 fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
