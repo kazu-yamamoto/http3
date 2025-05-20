@@ -16,6 +16,7 @@ import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
 import Network.QUIC (StreamId)
 import System.Environment
+import System.Exit
 import System.IO
 
 import Network.QPACK
@@ -112,7 +113,7 @@ decode dec h recv mvar = loop
             then putMVar mvar ()
             else do
                 Block n bs <- recv
-                hdr <- dec n bs
+                hdr <- fromCaseSensitive <$> dec n bs
                 if hdr == hdr'
                     then loop
                     else do
@@ -121,7 +122,7 @@ decode dec h recv mvar = loop
                         putStrLn "----"
                         mapM_ print hdr'
                         putStrLn "----"
-                        putMVar mvar ()
+                        exitFailure
 
 fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
