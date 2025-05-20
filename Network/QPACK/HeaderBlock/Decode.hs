@@ -114,9 +114,9 @@ decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
             "IndexedFieldLineWithPostBaseIndex ("
                 ++ show hidx
                 ++ " "
-                ++ show i
-                ++ "/"
                 ++ show bp
+                ++ " after "
+                ++ show i
                 ++ ") "
                 ++ showTokenHeader ret
     return ret

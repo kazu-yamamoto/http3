@@ -309,6 +309,7 @@ qpackDecoder dyntbl sid bs = do
 
 qpackDecoderS :: DynamicTable -> StreamId -> EncodedFieldSection -> IO [Header]
 qpackDecoderS dyntbl sid bs = do
+    qpackDebug dyntbl $ putStrLn $ "---- Stream " ++ show sid
     (hs, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
     when needAck $
         encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
