@@ -37,8 +37,7 @@ decodeTokenHeaderS
     -> IO ([Header], Bool)
 decodeTokenHeaderS dyntbl rbuf = do
     (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
-    debug <- getDebugQPACK dyntbl
-    unless debug $ checkRequiredInsertCount dyntbl reqInsertCount
+    checkRequiredInsertCount dyntbl reqInsertCount
     hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
     return (hs, needAck)
 
