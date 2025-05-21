@@ -57,7 +57,7 @@ dumpSwitch dec insthdr ref (_, blk@(Block n bs))
     | otherwise = do
         mhdr <- dec n bs
         case mhdr of
-            Nothing -> modifyIORef' ref (\fifo -> blk <| fifo)
+            Nothing -> modifyIORef' ref (blk <|)
             Just _ -> return ()
   where
     loop fifo = do
@@ -110,7 +110,7 @@ testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
     | otherwise = do
         mhdr <- dec n bs
         case mhdr of
-            Nothing -> modifyIORef' ref (\fifo -> blk <| fifo)
+            Nothing -> modifyIORef' ref (blk <|)
             Just hdr -> compareHeaders hdr
   where
     loop fifo = do

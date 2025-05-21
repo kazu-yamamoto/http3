@@ -351,10 +351,7 @@ incrementKnownReceivedCount DynamicTable{..} n =
 
 updateKnownReceivedCount :: DynamicTable -> RequiredInsertCount -> IO ()
 updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
-    atomically $ modifyTVar' knownReceivedCount $ \krc ->
-        if reqInsCnt > krc
-            then reqInsCnt
-            else krc
+    atomically $ modifyTVar' knownReceivedCount $ \krc -> max reqInsCnt krc
   where
     EncodeInfo{..} = codeInfo
 
