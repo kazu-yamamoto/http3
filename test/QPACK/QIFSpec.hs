@@ -64,7 +64,7 @@ switch send insthdr (_, blk@(Block n bs))
     | otherwise = send blk
 
 decode
-    :: (StreamId -> ByteString -> IO [Header])
+    :: (StreamId -> ByteString -> IO (Maybe [Header]))
     -> Handle
     -> IO Block
     -> MVar ()
@@ -78,7 +78,7 @@ decode dec h recv mvar = loop
                 putMVar mvar ()
             else do
                 Block n bs <- recv
-                hdr <- dec n bs
+                Just hdr <- dec n bs
                 hdr `shouldBe` hdr'
                 loop
 
