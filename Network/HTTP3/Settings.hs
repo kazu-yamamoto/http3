@@ -11,13 +11,13 @@ newtype H3SettingsKey = H3SettingsKey Int deriving (Eq)
 
 {- FOURMOLU_DISABLE -}
 pattern SettingsQpackMaxTableCapacity :: H3SettingsKey
-pattern SettingsQpackMaxTableCapacity  = H3SettingsKey 0x1
+pattern SettingsQpackMaxTableCapacity  = H3SettingsKey 0x01
 
 pattern SettingsMaxFieldSectionSize   :: H3SettingsKey
-pattern SettingsMaxFieldSectionSize    = H3SettingsKey 0x6
+pattern SettingsMaxFieldSectionSize    = H3SettingsKey 0x06
 
 pattern SettingsQpackBlockedStreams   :: H3SettingsKey
-pattern SettingsQpackBlockedStreams    = H3SettingsKey 0x7
+pattern SettingsQpackBlockedStreams    = H3SettingsKey 0x07
 {- FOURMOLU_ENABLE -}
 
 {- FOURMOLU_DISABLE -}

@@ -39,23 +39,23 @@ data H3FrameType
 
 {- FOURMOLU_DISABLE -}
 fromH3FrameType :: H3FrameType -> Int64
-fromH3FrameType H3FrameData        = 0x0
-fromH3FrameType H3FrameHeaders     = 0x1
-fromH3FrameType H3FrameCancelPush  = 0x3
-fromH3FrameType H3FrameSettings    = 0x4
-fromH3FrameType H3FramePushPromise = 0x5
-fromH3FrameType H3FrameGoaway      = 0x7
-fromH3FrameType H3FrameMaxPushId   = 0xD
+fromH3FrameType H3FrameData        = 0x00
+fromH3FrameType H3FrameHeaders     = 0x01
+fromH3FrameType H3FrameCancelPush  = 0x03
+fromH3FrameType H3FrameSettings    = 0x04
+fromH3FrameType H3FramePushPromise = 0x05
+fromH3FrameType H3FrameGoaway      = 0x07
+fromH3FrameType H3FrameMaxPushId   = 0x0d
 fromH3FrameType (H3FrameUnknown i) = i
 
 toH3FrameType :: Int64 -> H3FrameType
-toH3FrameType 0x0 = H3FrameData
-toH3FrameType 0x1 = H3FrameHeaders
-toH3FrameType 0x3 = H3FrameCancelPush
-toH3FrameType 0x4 = H3FrameSettings
-toH3FrameType 0x5 = H3FramePushPromise
-toH3FrameType 0x7 = H3FrameGoaway
-toH3FrameType 0xD = H3FrameMaxPushId
+toH3FrameType 0x00 = H3FrameData
+toH3FrameType 0x01 = H3FrameHeaders
+toH3FrameType 0x03 = H3FrameCancelPush
+toH3FrameType 0x04 = H3FrameSettings
+toH3FrameType 0x05 = H3FramePushPromise
+toH3FrameType 0x07 = H3FrameGoaway
+toH3FrameType 0x0d = H3FrameMaxPushId
 toH3FrameType i   = H3FrameUnknown i
 
 permittedInControlStream :: H3FrameType -> Bool
@@ -67,7 +67,7 @@ permittedInControlStream H3FramePushPromise = False
 permittedInControlStream H3FrameGoaway      = True
 permittedInControlStream H3FrameMaxPushId   = True
 permittedInControlStream (H3FrameUnknown i)
-    | i <= 0x9 = False
+    | i <= 0x09 = False
     | otherwise = True
 
 permittedInRequestStream :: H3FrameType -> Bool
@@ -79,7 +79,7 @@ permittedInRequestStream H3FramePushPromise = True
 permittedInRequestStream H3FrameGoaway      = False
 permittedInRequestStream H3FrameMaxPushId   = False
 permittedInRequestStream (H3FrameUnknown i)
-    | i <= 0x9  = False
+    | i <= 0x09 = False
     | otherwise = True
 
 permittedInPushStream :: H3FrameType -> Bool
@@ -91,7 +91,7 @@ permittedInPushStream H3FramePushPromise = False
 permittedInPushStream H3FrameGoaway      = False
 permittedInPushStream H3FrameMaxPushId   = False
 permittedInPushStream (H3FrameUnknown i)
-    | i <= 0x9  = False
+    | i <= 0x09 = False
     | otherwise = True
 {- FOURMOLU_ENABLE -}
 
