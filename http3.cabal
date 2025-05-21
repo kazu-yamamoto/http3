@@ -185,6 +185,7 @@ test-suite spec
         HTTP3.ServerSpec
         QPACK.InstructionSpec
         QPACK.QIFSpec
+        QPACK.QIF2Spec
         QPACK.TableSpec
         QIF
 
@@ -198,6 +199,7 @@ test-suite spec
         async,
         base16-bytestring,
         bytestring,
+        case-insensitive,
         conduit,
         conduit-extra,
         containers,

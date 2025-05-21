@@ -3,6 +3,7 @@
 
 module HTTP3.Server (
     setup,
+    server,
     teardown,
     trailersMaker,
     firstTrailerValue,
@@ -31,14 +32,14 @@ import Test.Hspec
 
 import HTTP3.Config
 
-setup :: IO ThreadId
-setup = do
+setup :: Server -> IO ThreadId
+setup svr = do
     sc <- makeTestServerConfig
     tid <- forkIO $ QUIC.run sc loop
     threadDelay 500000 -- give enough time to the server
     return tid
   where
-    loop conn = E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> run conn conf server
+    loop conn = E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> run conn conf svr
 
 teardown :: ThreadId -> IO ()
 teardown tid = killThread tid
