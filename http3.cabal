@@ -153,6 +153,7 @@ executable h3-client
 executable qif-dec
     main-is:            qif-dec.hs
     hs-source-dirs:     util
+    other-modules:      QIF
     default-language:   Haskell2010
     default-extensions: Strict StrictData
     ghc-options:        -Wall -threaded -rtsopts
