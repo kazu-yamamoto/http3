@@ -243,7 +243,7 @@ decoderInstructionHandler dyntbl recv = loop
     handle (SectionAcknowledgement sid) = do
         msec <- getAndDelSection dyntbl sid
         case msec of
-            Nothing -> undefined -- XXX error
+            Nothing -> E.throwIO DecoderInstructionError
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
@@ -343,7 +343,8 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = setTableCapacity dyntbl n
     handle (InsertWithNameReference ii val) = do
-        -- XXX Checking ready
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             idx <- case ii of
                 Left ai -> return $ SIndex ai
@@ -355,12 +356,15 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             insertEntryToDecoder ent dyntbl
         -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (InsertWithLiteralName t val) = do
-        -- XXX Checking ready
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (Duplicate ri) = do
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             ip <- getInsertionPointSTM dyntbl
             let idx = DIndex $ fromInsRelativeIndex ri ip
