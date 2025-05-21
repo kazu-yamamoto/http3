@@ -259,7 +259,6 @@ insertEntryToDecoder ent DynamicTable{..} = do
     let i = insp `mod` maxN
     table <- readTVar circularTable
     unsafeWrite table i ent
-    -- FIXME: checking size, no dropping signal from encoder
     modifyTVar' tableSize (+ entrySize ent)
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
