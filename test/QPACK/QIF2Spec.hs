@@ -7,7 +7,7 @@ import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
-import Data.ByteString.Builder
+import Data.ByteString.Builder (Builder, byteString)
 import qualified Data.ByteString.Char8 as C8
 import Data.CaseInsensitive hiding (map)
 import Data.List
@@ -15,7 +15,7 @@ import Data.Maybe
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Client.Internal
 import Network.HTTP.Semantics.Server
-import Network.HTTP.Types
+import Network.HTTP.Types (RequestHeaders, notFound404, ok200)
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
 import qualified Network.HTTP3.Server as S
@@ -128,3 +128,8 @@ responseSection req = responseBuilder ok200 header body
         foldr1 (<>) $
             map (\(k, v) -> byteString (k <> " " <> v <> "\n")) $
                 map (\(k, v) -> (tokenFoldedKey k, v)) (pthl ++ thl)
+
+-- | Creating request with builder only from headers
+--   where :path and :method are included.
+requestBuilder2 :: RequestHeaders -> Builder -> C.Request
+requestBuilder2 hdr builder = Request $ OutObj hdr (OutBodyBuilder builder) defaultTrailersMaker
