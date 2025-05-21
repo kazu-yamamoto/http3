@@ -34,12 +34,15 @@ decodeTokenHeader dyntbl rbuf = do
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
-    -> IO ([Header], Bool)
+    -> IO (Maybe ([Header], Bool))
 decodeTokenHeaderS dyntbl rbuf = do
     (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
-    checkRequiredInsertCount dyntbl reqInsertCount
-    hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
-    return (hs, needAck)
+    ok <- checkRequiredInsertCountNB dyntbl reqInsertCount
+    if ok
+        then do
+            hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
+            return $ Just (hs, needAck)
+        else return $ Nothing
 
 toTokenHeader
     :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader

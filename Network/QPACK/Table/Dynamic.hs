@@ -93,6 +93,11 @@ checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomical
     -- So, equal is necessary.
     check (reqip <= ip)
 
+checkRequiredInsertCountNB :: DynamicTable -> RequiredInsertCount -> IO Bool
+checkRequiredInsertCountNB DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    InsertionPoint ip <- readTVar insertionPoint
+    return (reqip <= ip)
+
 ----------------------------------------------------------------
 
 {- FOURMOLU_DISABLE -}

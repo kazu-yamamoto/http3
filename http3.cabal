@@ -162,6 +162,7 @@ executable qif-dec
         bytestring,
         conduit,
         conduit-extra,
+        containers,
         http3,
         quic,
         stm
