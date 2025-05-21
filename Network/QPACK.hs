@@ -240,7 +240,6 @@ decoderInstructionHandler dyntbl recv = loop
             qpackDebug dyntbl $ mapM_ print ins
             mapM_ handle ins
             loop
-    -- FIXME: updating dynamic table for encoder
     handle (SectionAcknowledgement sid) = do
         msec <- getAndDelSection dyntbl sid
         case msec of
