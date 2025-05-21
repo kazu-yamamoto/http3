@@ -21,13 +21,27 @@ import QIF
 spec :: Spec
 spec = do
     describe "simple decoder" $ do
-        it "decodes well" $ do
+        it "decodes with dynamic table" $ do
             forM_ ["fb-req-hq", "fb-resp-hq", "netbsd-hq"] $ \svc ->
-                forM_ ["f5", "ls-qpack", "nghttp3", "proxygen", "qthingey", "quinn"] $ \impl -> do
-                    putStrLn $ impl ++ " with " ++ svc
-                    let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.0"
-                        out = "qifs/qifs/" ++ svc ++ ".qif"
-                    test 4096 inp out
+                forM_ ["f5", "ls-qpack", "nghttp3", "proxygen", "qthingey", "quinn"] $ \impl ->
+                    forM_ [".0.0", ".0.1", ".100.0", ".100.1"] $ \suffix ->
+                        forM_ [256, 512, 4096 :: Int] $ \size -> do
+                            let inp =
+                                    "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out." ++ show size ++ suffix
+                                out = "qifs/qifs/" ++ svc ++ ".qif"
+                            putStrLn inp
+                            test size inp out
+
+        it "decodes only with static table" $ do
+            forM_ ["fb-req-hq", "fb-resp-hq", "netbsd-hq"] $ \svc ->
+                forM_ ["ls-qpack", "nghttp3", "qthingey", "quinn"] $ \impl ->
+                    forM_ [".0.0", ".0.1", ".100.0", ".100.1"] $ \suffix -> do
+                        let size = 0
+                        let inp =
+                                "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out." ++ show size ++ suffix
+                            out = "qifs/qifs/" ++ svc ++ ".qif"
+                        putStrLn inp
+                        test size inp out
 
 ----------------------------------------------------------------
 
