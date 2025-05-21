@@ -3,23 +3,20 @@
 
 module QPACK.QIFSpec where
 
-import Conduit hiding (yield)
-import Control.Concurrent
-import Control.Concurrent.STM
-import qualified Control.Exception as E
 import Control.Monad
-import Data.Attoparsec.ByteString (Parser)
-import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
+import Data.IORef
+import Data.Sequence (Seq, ViewR (..), viewr, (<|))
+import qualified Data.Sequence as Seq
 import Network.QUIC (StreamId)
 import System.IO
 import Test.Hspec
 
 import Network.QPACK
 import Network.QPACK.Internal
+
+import QIF
 
 spec :: Spec
 spec = do
@@ -30,94 +27,51 @@ spec = do
                     putStrLn $ impl ++ " with " ++ svc
                     let inp = "qifs/encoded/qpack-05/" ++ impl ++ "/" ++ svc ++ ".out.4096.0.0"
                         out = "qifs/qifs/" ++ svc ++ ".qif"
-                    test inp out
-
-data Block = Block Int ByteString deriving (Show)
+                    test 4096 inp out
 
 ----------------------------------------------------------------
 
-test :: FilePath -> FilePath -> IO ()
-test efile qfile = do
-    (dec, insthdr) <- newQDecoderS defaultQDecoderConfig (\_ -> return ()) False
-    bs <- encodeEncoderInstructions [SetDynamicTableCapacity 4096] False
-    insthdr bs
-    q <- newTQueueIO
-    let recv = atomically $ readTQueue q
-        send x = atomically $ writeTQueue q x
-    mvar <- newEmptyMVar
+test :: Int -> FilePath -> FilePath -> IO ()
+test size efile qfile = do
+    (dec, insthdr) <-
+        newQDecoderS
+            defaultQDecoderConfig{dcDynamicTableSize = size}
+            (\_ -> return ())
+            False
+    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    ref <- newIORef Seq.empty
     withFile qfile ReadMode $ \h -> do
-        tid <- forkIO $ decode dec h recv mvar
-        runConduitRes
-            (sourceFile efile .| conduitParser block .| mapM_C (liftIO . switch send insthdr))
-        takeMVar mvar
-        killThread tid
+        processBlock efile $ testSwitch dec insthdr ref h
 
-switch
-    :: (Block -> IO ())
+testSwitch
+    :: (StreamId -> ByteString -> IO (Maybe [Header]))
     -> EncoderInstructionHandlerS
+    -> IORef (Seq Block)
+    -> Handle
     -> (PositionRange, Block)
     -> IO ()
-switch send insthdr (_, blk@(Block n bs))
+testSwitch dec insthdr ref h (_, blk@(Block n bs))
     | n == 0 = do
         insthdr bs
-        yield
-    | otherwise = send blk
-
-decode
-    :: (StreamId -> ByteString -> IO (Maybe [Header]))
-    -> Handle
-    -> IO Block
-    -> MVar ()
-    -> IO ()
-decode dec h recv mvar = loop
+        fifo <- readIORef ref
+        loop fifo
+    -- to avoid blocking by "dec", ask decoding to the other thread
+    | otherwise = do
+        mhdr <- dec n bs
+        case mhdr of
+            Nothing -> modifyIORef' ref (blk <|)
+            Just hdr -> compareHeaders hdr
   where
-    loop = do
+    loop fifo = do
+        case viewr fifo of
+            EmptyR -> writeIORef ref Seq.empty
+            fifo' :> Block n1 bs1 -> do
+                mhdr <- dec n1 bs1
+                case mhdr of
+                    Nothing -> writeIORef ref fifo
+                    Just hdr -> do
+                        compareHeaders hdr
+                        loop fifo'
+    compareHeaders hdr = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        if null hdr'
-            then
-                putMVar mvar ()
-            else do
-                Block n bs <- recv
-                Just hdr <- dec n bs
-                hdr `shouldBe` hdr'
-                loop
-
-fromCaseSensitive :: [Header] -> [Header]
-fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
-
-block :: Parser Block
-block = do
-    num <- toInt <$> P.take 8
-    len <- toInt <$> P.take 4
-    dat <- P.take len
-    return $ Block num dat
-
-toInt :: ByteString -> Int
-toInt bs = BS.foldl' f 0 bs
-  where
-    f n w8 = n * 256 + fromIntegral w8
-
-----------------------------------------------------------------
-
-headerlist :: Handle -> IO [Header]
-headerlist h = loop id
-  where
-    loop b = do
-        ml <- line h
-        case ml of
-            Nothing -> return $ b []
-            Just l
-                | l == "" -> return $ b []
-                | otherwise -> do
-                    let (k, v0) = BS8.break (== '\t') l
-                        v = BS8.drop 1 v0
-                    loop (b . ((mk k, v) :))
-
-line :: Handle -> IO (Maybe ByteString)
-line h = do
-    el <- E.try $ BS8.hGetLine h
-    case el of
-        Left (_ :: E.IOException) -> return Nothing
-        Right l
-            | BS8.take 1 l == "#" -> line h
-            | otherwise -> return $ Just l
+        fromCaseSensitive hdr `shouldBe` hdr'

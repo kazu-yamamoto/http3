@@ -145,9 +145,3 @@ printDiff (kv0, kv1)
     | otherwise = do
         putStrLn $ "EXPECT: " ++ show kv1
         putStrLn $ "ACTUAL: " ++ show kv0
-
-fromCaseSensitive :: [Header] -> [Header]
-fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
-
-headerSize :: Header -> Int
-headerSize (k, v) = BS.length (foldedCase k) + BS.length v

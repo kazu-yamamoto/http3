@@ -1,7 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module QIF (processBlock, Block (..), headerlist) where
+module QIF (
+    processBlock,
+    Block (..),
+    headerlist,
+    fromCaseSensitive,
+    headerSize,
+) where
 
 import qualified Control.Exception as E
 import Data.Attoparsec.ByteString (Parser)
@@ -68,3 +74,11 @@ line h = do
         Right l
             | BS8.take 1 l == "#" -> line h
             | otherwise -> return $ Just l
+
+----------------------------------------------------------------
+
+fromCaseSensitive :: [Header] -> [Header]
+fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
+
+headerSize :: Header -> Int
+headerSize (k, v) = BS.length (foldedCase k) + BS.length v
