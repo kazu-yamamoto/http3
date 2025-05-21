@@ -42,7 +42,7 @@ decodeTokenHeaderS dyntbl rbuf = do
         then do
             hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
             return $ Just (hs, needAck)
-        else return $ Nothing
+        else return Nothing
 
 toTokenHeader
     :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader

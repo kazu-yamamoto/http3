@@ -17,7 +17,7 @@ import HTTP3.Config
 import HTTP3.Server
 
 spec :: Spec
-spec = beforeAll setup $ afterAll teardown h3spec
+spec = beforeAll (setup server 4096) $ afterAll teardown h3spec
 
 h3spec :: SpecWith a
 h3spec = do

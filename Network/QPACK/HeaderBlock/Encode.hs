@@ -1,5 +1,4 @@
 {-# LANGUAGE BinaryLiterals #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module Network.QPACK.HeaderBlock.Encode (
     encodeHeader,
