@@ -27,19 +27,42 @@ import HTTP3.Config
 import HTTP3.Server hiding (server)
 import QIF
 
+qiffile :: FilePath
+qiffile = "qifs/qifs/fb-req-hq.qif"
+
 spec :: Spec
-spec = beforeAll (setup server) $ afterAll teardown qifspec
-
-qifspec :: SpecWith a
-qifspec = do
+spec = do
     describe "QIF server" $ do
-        it "handles headers with dynamic table" $ \_ -> runClient
+        it "handles dynamic table of 0-bytes" $ do
+            let size = 0
+            E.bracket (setup server size) (teardown) $
+                \_ -> runClient size
+    describe "QIF server" $ do
+        it "handles dynamic table of 256-bytes" $ do
+            let size = 256
+            E.bracket (setup server size) (teardown) $
+                \_ -> runClient size
+    describe "QIF server" $ do
+        it "handles dynamic table of 512-bytes" $ do
+            let size = 512
+            E.bracket (setup server size) (teardown) $
+                \_ -> runClient size
+    describe "QIF server" $ do
+        it "handles dynamic table of 4096-bytes" $ do
+            let size = 4096
+            E.bracket (setup server size) (teardown) $
+                \_ -> runClient size
 
-runClient :: IO ()
-runClient = QUIC.run testClientConfig $ \conn ->
-    E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> do
-        let file = "qifs/qifs/fb-req-hq.qif"
-        withFile file ReadMode $ \hdl ->
+runClient :: Int -> IO ()
+runClient siz = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+        let conf =
+                conf0
+                    { S.confQEncoderConfig = S.defaultQEncoderConfig{S.ecDynamicTableSize = siz}
+                    , S.confQDecoderConfig = S.defaultQDecoderConfig{S.dcDynamicTableSize = siz}
+                    }
+
+        withFile qiffile ReadMode $ \hdl ->
             C.run conn testH3ClientConfig conf $ client hdl
 
 client :: Handle -> (C.Request -> (C.Response -> IO ()) -> IO a) -> p -> IO ()

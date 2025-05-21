@@ -32,14 +32,21 @@ import Test.Hspec
 
 import HTTP3.Config
 
-setup :: Server -> IO ThreadId
-setup svr = do
+setup :: Server -> Int -> IO ThreadId
+setup svr siz = do
     sc <- makeTestServerConfig
     tid <- forkIO $ QUIC.run sc loop
     threadDelay 500000 -- give enough time to the server
     return tid
   where
-    loop conn = E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> run conn conf svr
+    loop conn = E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+        let conf =
+                conf0
+                    { confQEncoderConfig = defaultQEncoderConfig{ecDynamicTableSize = siz}
+                    , confQDecoderConfig = defaultQDecoderConfig{dcDynamicTableSize = siz}
+                    }
+
+        run conn conf svr
 
 teardown :: ThreadId -> IO ()
 teardown tid = killThread tid

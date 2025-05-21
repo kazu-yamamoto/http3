@@ -9,6 +9,6 @@ import HTTP3.Server
 
 spec :: Spec
 spec =
-    beforeAll (setup server) $
+    beforeAll (setup server 4096) $
         afterAll teardown $
             h3ErrorSpec testClientConfig testH3ClientConfig 2000 -- 2 seconds
