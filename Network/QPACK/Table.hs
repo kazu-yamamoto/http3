@@ -11,6 +11,7 @@ module Network.QPACK.Table (
     getInsertionPoint,
     getInsertionPointSTM,
     checkRequiredInsertCount,
+    checkRequiredInsertCountNB,
     getRequiredInsertCount,
     updateRequiredInsertCount,
     sendIns,

@@ -3,6 +3,7 @@
 
 module Network.QPACK.Table.Dynamic where
 
+import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
@@ -26,6 +27,7 @@ import Network.HPACK.Internal (
     entrySize,
     maxNumbers,
  )
+import System.IO.Unsafe (unsafePerformIO)
 
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
@@ -90,6 +92,11 @@ checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomical
     -- InsertionPoin is index + 1
     -- So, equal is necessary.
     check (reqip <= ip)
+
+checkRequiredInsertCountNB :: DynamicTable -> RequiredInsertCount -> IO Bool
+checkRequiredInsertCountNB DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    InsertionPoint ip <- readTVar insertionPoint
+    return (reqip <= ip)
 
 ----------------------------------------------------------------
 
@@ -170,7 +177,11 @@ getDebugQPACK DynamicTable{..} = readIORef debugQPACK
 qpackDebug :: DynamicTable -> IO () -> IO ()
 qpackDebug DynamicTable{..} action = do
     debug <- readIORef debugQPACK
-    when debug action
+    when debug $ withMVar stdoutLock $ \_ -> action
+
+{-# NOINLINE stdoutLock #-}
+stdoutLock :: MVar ()
+stdoutLock = unsafePerformIO $ newMVar ()
 
 ----------------------------------------------------------------
 

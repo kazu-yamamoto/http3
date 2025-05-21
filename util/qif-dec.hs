@@ -4,8 +4,6 @@
 module Main where
 
 import Conduit hiding (yield)
-import Control.Concurrent
-import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
@@ -14,8 +12,12 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Conduit.Attoparsec
+import Data.IORef
+import Data.Sequence (Seq, ViewR (..), viewr, (<|))
+import qualified Data.Sequence as Seq
 import Network.QUIC (StreamId)
 import System.Environment
+import System.Exit
 import System.IO
 
 import Network.QPACK
@@ -31,7 +33,7 @@ main = do
     case args of
         [size, efile] -> dump (read size) efile
         [size, efile, qfile] -> test (read size) efile qfile
-        _ -> putStrLn "qif size <encode-file> [<qif-file>]"
+        _ -> putStrLn "qif size <encode-file> [<qif-file> \"0\"/\"1\"]"
 
 ----------------------------------------------------------------
 
@@ -42,86 +44,104 @@ dump size efile = do
             defaultQDecoderConfig{dcDynamicTableSize = size}
             (\_ -> return ())
             True
-    bs <- encodeEncoderInstructions [SetDynamicTableCapacity size] False
-    insthdr bs
+    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    ref <- newIORef Seq.empty
     runConduitRes
         ( sourceFile efile
             .| conduitParser block
-            .| mapM_C (liftIO . dumpSwitch dec insthdr)
+            .| mapM_C (liftIO . dumpSwitch dec insthdr ref)
         )
 
 dumpSwitch
-    :: (StreamId -> ByteString -> IO [Header])
+    :: (StreamId -> ByteString -> IO (Maybe [Header]))
     -> EncoderInstructionHandlerS
-    -> (a, Block)
+    -> IORef (Seq Block)
+    -> (PositionRange, Block)
     -> IO ()
-dumpSwitch dec insthdr (_, Block n bs)
+dumpSwitch dec insthdr ref (_, blk@(Block n bs))
     | n == 0 = do
         putStrLn "---- Encoder Stream"
         insthdr bs
+        fifo <- readIORef ref
+        loop fifo
     | otherwise = do
-        putStrLn $ "---- Stream " ++ show n
-        _ <- dec n bs
-        return ()
+        mhdr <- dec n bs
+        case mhdr of
+            Nothing -> modifyIORef' ref (\fifo -> blk <| fifo)
+            Just _ -> return ()
+  where
+    loop fifo = do
+        case viewr fifo of
+            EmptyR -> writeIORef ref Seq.empty
+            fifo' :> Block n1 bs1 -> do
+                mhdr <- dec n1 bs1
+                case mhdr of
+                    Nothing -> writeIORef ref fifo
+                    Just _ -> loop fifo'
 
 ----------------------------------------------------------------
 
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
-    (dec, insthdr') <-
+    (dec, insthdr) <-
         newQDecoderS
             defaultQDecoderConfig{dcDynamicTableSize = size}
             (\_ -> return ())
             False
-    ins <- encodeEncoderInstructions [SetDynamicTableCapacity size] False
-    insthdr' ins
-    q <- newTQueueIO
-    let recv = atomically $ readTQueue q
-        send x = atomically $ writeTQueue q x
-        insthdr bs = do
-            emp <- atomically $ isEmptyTQueue q
-            unless emp yield
-            insthdr' bs
-            yield
-    mvar <- newEmptyMVar
+    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    ref <- newIORef Seq.empty
     withFile qfile ReadMode $ \h -> do
-        tid <- forkIO $ decode dec h recv mvar
         runConduitRes
             ( sourceFile efile
                 .| conduitParser block
-                .| mapM_C (liftIO . testSwitch send insthdr)
+                .| mapM_C (liftIO . testSwitch dec insthdr ref h)
             )
-        takeMVar mvar
-        killThread tid
 
 testSwitch
-    :: (Block -> IO ())
+    :: (StreamId -> ByteString -> IO (Maybe [Header]))
     -> EncoderInstructionHandlerS
-    -> (a, Block)
+    -> IORef (Seq Block)
+    -> Handle
+    -> (PositionRange, Block)
     -> IO ()
-testSwitch send insthdr (_, blk@(Block n bs))
-    | n == 0 = insthdr bs
-    | otherwise = send blk
-
-decode :: QDecoderS -> Handle -> IO Block -> MVar () -> IO ()
-decode dec h recv mvar = loop
+testSwitch dec insthdr ref h (_, blk@(Block n bs))
+    | n == 0 = do
+        insthdr bs
+        fifo <- readIORef ref
+        loop fifo
+    -- to avoid blocking by "dec", ask decoding to the other thread
+    | otherwise = do
+        mhdr <- dec n bs
+        case mhdr of
+            Nothing -> modifyIORef' ref (\fifo -> blk <| fifo)
+            Just hdr -> compareHeaders hdr
   where
-    loop = do
+    loop fifo = do
+        case viewr fifo of
+            EmptyR -> writeIORef ref Seq.empty
+            fifo' :> Block n1 bs1 -> do
+                mhdr <- dec n1 bs1
+                case mhdr of
+                    Nothing -> writeIORef ref fifo
+                    Just hdr -> do
+                        compareHeaders hdr
+                        loop fifo'
+    compareHeaders hdr = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        if null hdr'
-            then putMVar mvar ()
-            else do
-                Block n bs <- recv
-                hdr <- dec n bs
-                if hdr == hdr'
-                    then loop
-                    else do
-                        putStrLn $ "---- Stream " ++ show n
-                        mapM_ print hdr
-                        putStrLn "----"
-                        mapM_ print hdr'
-                        putStrLn "----"
-                        putMVar mvar ()
+        when (fromCaseSensitive hdr /= hdr') $ do
+            putStrLn $ "---- Stream " ++ show n
+            let hdrt = zip hdr hdr'
+            mapM_ printDiff hdrt
+            exitFailure
+
+----------------------------------------------------------------
+
+printDiff :: (Header, Header) -> IO ()
+printDiff (kv0, kv1)
+    | kv0 == kv1 = print kv1
+    | otherwise = do
+        putStrLn $ "EXPECT: " ++ show kv1
+        putStrLn $ "ACTUAL: " ++ show kv0
 
 fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))

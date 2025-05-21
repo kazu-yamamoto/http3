@@ -74,7 +74,7 @@ type QEncoder = StreamId -> TokenHeaderList -> IO EncodedFieldSection
 type QDecoder = StreamId -> EncodedFieldSection -> IO TokenHeaderTable
 
 -- | QPACK simple decoder.
-type QDecoderS = StreamId -> EncodedFieldSection -> IO [Header]
+type QDecoderS = StreamId -> EncodedFieldSection -> IO (Maybe [Header])
 
 -- | Encoder instruction handler.
 type EncoderInstructionHandler = (Int -> IO EncodedEncoderInstruction) -> IO ()
@@ -307,12 +307,17 @@ qpackDecoder dyntbl sid bs = do
         encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
     return tbl
 
-qpackDecoderS :: DynamicTable -> StreamId -> EncodedFieldSection -> IO [Header]
+qpackDecoderS
+    :: DynamicTable -> StreamId -> EncodedFieldSection -> IO (Maybe [Header])
 qpackDecoderS dyntbl sid bs = do
-    (hs, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
-    when needAck $
-        encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
-    return hs
+    qpackDebug dyntbl $ putStrLn $ "---- Stream " ++ show sid
+    mhs <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
+    case mhs of
+        Nothing -> return Nothing
+        Just (hs, needAck) -> do
+            when needAck $
+                encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
+            return $ Just hs
 
 -- Note: dyntbl for decoder
 encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler

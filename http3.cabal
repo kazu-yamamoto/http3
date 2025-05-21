@@ -150,8 +150,8 @@ executable h3-client
     else
         buildable: False
 
-executable qif
-    main-is:            qif.hs
+executable qif-dec
+    main-is:            qif-dec.hs
     hs-source-dirs:     util
     default-language:   Haskell2010
     default-extensions: Strict StrictData
@@ -162,6 +162,7 @@ executable qif
         bytestring,
         conduit,
         conduit-extra,
+        containers,
         http3,
         quic,
         stm

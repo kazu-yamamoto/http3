@@ -34,13 +34,15 @@ decodeTokenHeader dyntbl rbuf = do
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
-    -> IO ([Header], Bool)
+    -> IO (Maybe ([Header], Bool))
 decodeTokenHeaderS dyntbl rbuf = do
     (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
-    debug <- getDebugQPACK dyntbl
-    unless debug $ checkRequiredInsertCount dyntbl reqInsertCount
-    hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
-    return (hs, needAck)
+    ok <- checkRequiredInsertCountNB dyntbl reqInsertCount
+    if ok
+        then do
+            hs <- decodeSimple (toTokenHeader dyntbl bp) rbuf
+            return $ Just (hs, needAck)
+        else return $ Nothing
 
 toTokenHeader
     :: DynamicTable -> BasePoint -> Word8 -> ReadBuffer -> IO TokenHeader
@@ -114,9 +116,9 @@ decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
             "IndexedFieldLineWithPostBaseIndex ("
                 ++ show hidx
                 ++ " "
-                ++ show i
-                ++ "/"
                 ++ show bp
+                ++ " after "
+                ++ show i
                 ++ ") "
                 ++ showTokenHeader ret
     return ret
