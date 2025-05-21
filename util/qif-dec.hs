@@ -5,7 +5,6 @@ module Main where
 
 import Conduit hiding (yield)
 import qualified Control.Exception as E
-import Control.Monad
 import Data.Attoparsec.ByteString (Parser)
 import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString)
@@ -81,6 +80,11 @@ dumpSwitch dec insthdr ref (_, blk@(Block n bs))
 
 ----------------------------------------------------------------
 
+data Ratio = Ratio
+    { ratioInst :: Int
+    , ratioHeader :: Int
+    }
+
 test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
     (dec, insthdr) <-
@@ -90,23 +94,29 @@ test size efile qfile = do
             False
     encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
     ref <- newIORef Seq.empty
+    ratio <- newIORef $ Ratio{ratioInst = 0, ratioHeader = 0}
     withFile qfile ReadMode $ \h -> do
         runConduitRes
             ( sourceFile efile
                 .| conduitParser block
-                .| mapM_C (liftIO . testSwitch dec insthdr ref h)
+                .| mapM_C (liftIO . testSwitch dec insthdr ref h ratio)
             )
+        r <- readIORef ratio
+        let (x, y) = ((ratioInst r * 1000) `div` ratioHeader r) `divMod` 10
+        putStrLn $ show x ++ "." ++ show y
 
 testSwitch
     :: (StreamId -> ByteString -> IO (Maybe [Header]))
     -> EncoderInstructionHandlerS
     -> IORef (Seq Block)
     -> Handle
+    -> IORef Ratio
     -> (PositionRange, Block)
     -> IO ()
-testSwitch dec insthdr ref h (_, blk@(Block n bs))
+testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
     | n == 0 = do
         insthdr bs
+        modifyIORef' ratio $ \r -> r{ratioInst = ratioInst r + BS.length bs}
         fifo <- readIORef ref
         loop fifo
     -- to avoid blocking by "dec", ask decoding to the other thread
@@ -128,11 +138,17 @@ testSwitch dec insthdr ref h (_, blk@(Block n bs))
                         loop fifo'
     compareHeaders hdr = do
         hdr' <- fromCaseSensitive <$> headerlist h
-        when (fromCaseSensitive hdr /= hdr') $ do
-            putStrLn $ "---- Stream " ++ show n
-            let hdrt = zip hdr hdr'
-            mapM_ printDiff hdrt
-            exitFailure
+        if fromCaseSensitive hdr == hdr'
+            then modifyIORef' ratio $ \r ->
+                r
+                    { ratioInst = ratioInst r + BS.length bs
+                    , ratioHeader = ratioHeader r + sum (map headerSize hdr)
+                    }
+            else do
+                putStrLn $ "---- Stream " ++ show n
+                let hdrt = zip hdr hdr'
+                mapM_ printDiff hdrt
+                exitFailure
 
 ----------------------------------------------------------------
 
@@ -145,6 +161,9 @@ printDiff (kv0, kv1)
 
 fromCaseSensitive :: [Header] -> [Header]
 fromCaseSensitive = map (\(k, v) -> (foldedCase $ mk k, v))
+
+headerSize :: Header -> Int
+headerSize (k, v) = BS.length (foldedCase k) + BS.length v
 
 ----------------------------------------------------------------
 
