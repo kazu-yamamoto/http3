@@ -16,7 +16,6 @@ extra-source-files:
     test/serverkey.pem
     test/inputFile
     qifs/qifs/*.qif
-    qifs/encoded/qpack-05/examples/*.1
     qifs/encoded/qpack-05/f5/*.0
     qifs/encoded/qpack-05/f5/*.1
     qifs/encoded/qpack-05/ls-qpack/*.0
