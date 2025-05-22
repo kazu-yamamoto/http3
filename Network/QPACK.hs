@@ -10,6 +10,10 @@ module Network.QPACK (
     newQEncoder,
     TableOperation (..),
 
+    -- ** Encoder for debugging
+    QEncoderS,
+    newQEncoderS,
+
     -- * Decoder
     QDecoderConfig (..),
     defaultQDecoderConfig,
@@ -45,7 +49,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
-import Data.CaseInsensitive
+import Data.CaseInsensitive hiding (map)
 import qualified Data.CaseInsensitive as CI
 import Network.ByteOrder
 import Network.HPACK.Internal (
@@ -69,6 +73,9 @@ import Network.QPACK.Types
 
 -- | QPACK encoder.
 type QEncoder = StreamId -> TokenHeaderList -> IO EncodedFieldSection
+
+-- | QPACK simple encoder.
+type QEncoderS = StreamId -> [Header] -> IO EncodedFieldSection
 
 -- | QPACK decoder.
 type QDecoder = StreamId -> EncodedFieldSection -> IO TokenHeaderTable
@@ -185,9 +192,7 @@ qpackEncoder
     -> Int
     -> DynamicTable
     -> MVar ()
-    -> StreamId
-    -> TokenHeaderList
-    -> IO EncodedFieldSection
+    -> QEncoder
 qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
@@ -211,6 +216,44 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
                         Section reqInsCnt $
                             concat daiss
                 return section
+
+qpackEncoderS
+    :: GCBuffer
+    -> Int
+    -> GCBuffer
+    -> Int
+    -> DynamicTable
+    -> MVar ()
+    -> Bool
+    -> QEncoderS
+qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock immediateAck sid hs =
+    withMVar lock $ \_ ->
+        withForeignPtr gcbuf1 $ \buf1 ->
+            withForeignPtr gcbuf2 $ \buf2 -> do
+                siz <- getDynamicTableSize dyntbl
+                qpackDebug dyntbl $
+                    putStrLn $
+                        "Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
+                setBasePointToInsersionPoint dyntbl
+                clearRequiredInsertCount dyntbl
+                let tss = splitThrough bufsiz1 ts
+                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl) tss
+                let (hbs, daiss) = unzip his
+                prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
+                let section = BS.concat (prefix : hbs)
+                reqInsCnt <- getRequiredInsertCount dyntbl
+                -- To count only blocked sections,
+                -- dont' register this section if reqInsCnt == 0.
+                when (reqInsCnt /= 0 && not immediateAck) $
+                    insertSection dyntbl sid $
+                        Section reqInsCnt $
+                            concat daiss
+                return section
+  where
+    mk' (k, v) = (t, v)
+      where
+        t = toToken $ foldedCase k
+    ts = map mk' hs
 
 qpackEncodeHeader
     :: Buffer
@@ -259,6 +302,34 @@ decoderInstructionHandler dyntbl recv = loop
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
         | otherwise = incrementKnownReceivedCount dyntbl n
+
+----------------------------------------------------------------
+
+newQEncoderS
+    :: QEncoderConfig -- capacity
+    -> (EncodedEncoderInstruction -> IO ())
+    -> Int -- blocked stream
+    -> Bool -- immediate Acks
+    -> IO QEncoderS
+newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
+    let bufsiz1 = ecHeaderBlockBufferSize
+        bufsiz2 = ecInstructionBufferSize
+    gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
+    gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
+    dyntbl <- newDynamicTableForEncoding saveEI
+    setTableCapacity dyntbl ecMaxTableCapacity
+    setMaxBlockedStreams dyntbl blocked
+    lock <- newMVar ()
+    let enc =
+            qpackEncoderS
+                gcbuf1
+                bufsiz1
+                gcbuf2
+                bufsiz2
+                dyntbl
+                lock
+                immediateAck
+    return enc
 
 ----------------------------------------------------------------
 
