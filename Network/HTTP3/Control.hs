@@ -26,11 +26,12 @@ setupUnidirectional
     -> H3.Config
     -> IO (EncodedEncoderInstruction -> IO (), EncodedDecoderInstruction -> IO ())
 setupUnidirectional conn conf@H3.Config{..} = do
+    let QDecoderConfig{..} = confQDecoderConfig
     settings <-
         encodeH3Settings
-            [ (SettingsQpackBlockedStreams, 100)
-            , (SettingsQpackMaxTableCapacity, dcDynamicTableSize confQDecoderConfig)
-            , (SettingsMaxFieldSectionSize, 32768)
+            [ (SettingsQpackBlockedStreams, dcBlockedSterams)
+            , (SettingsQpackMaxTableCapacity, dcMaxTableCapacity)
+            , (SettingsMaxFieldSectionSize, dcMaxFieldSectionSize)
             ]
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC

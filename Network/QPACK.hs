@@ -101,7 +101,7 @@ data TableOperation = TableOperation
 
 -- | Configuration for QPACK encoder.
 data QEncoderConfig = QEncoderConfig
-    { ecDynamicTableSize :: Size
+    { ecMaxTableCapacity :: Size
     , ecHeaderBlockBufferSize :: Size
     , ecInstructionBufferSize :: Size
     }
@@ -110,11 +110,11 @@ data QEncoderConfig = QEncoderConfig
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
--- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
+-- QEncoderConfig {ecMaxTableCapacity = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
 defaultQEncoderConfig :: QEncoderConfig
 defaultQEncoderConfig =
     QEncoderConfig
-        { ecDynamicTableSize = 4096
+        { ecMaxTableCapacity = 4096
         , ecHeaderBlockBufferSize = 4096
         , ecInstructionBufferSize = 4096
         }
@@ -143,7 +143,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
         ctl =
             TableOperation
                 { setCapacity = \n -> do
-                    let tableSize = min ecDynamicTableSize n
+                    let tableSize = min ecMaxTableCapacity n
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
                     sendIns dyntbl ins
@@ -263,20 +263,24 @@ decoderInstructionHandler dyntbl recv = loop
 
 -- | Configuration for QPACK decoder.
 data QDecoderConfig = QDecoderConfig
-    { dcDynamicTableSize :: Size
+    { dcMaxTableCapacity :: Size
     , dcHuffmanBufferSize :: Size
+    , dcBlockedSterams :: Int
+    , dcMaxFieldSectionSize :: Int
     }
     deriving (Show)
 
 -- | Default configuration for QPACK decoder.
 --
 -- >>> defaultQDecoderConfig
--- QDecoderConfig {dcDynamicTableSize = 4096, dcHuffmanBufferSize = 4096}
+-- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 4096, dcBlockedSterams = 100, dcMaxFieldSectionSize = 32768}
 defaultQDecoderConfig :: QDecoderConfig
 defaultQDecoderConfig =
     QDecoderConfig
-        { dcDynamicTableSize = 4096
+        { dcMaxTableCapacity = 4096
         , dcHuffmanBufferSize = 4096
+        , dcBlockedSterams = 100
+        , dcMaxFieldSectionSize = 32768
         }
 
 -- | Creating a new QPACK decoder.
@@ -288,7 +292,7 @@ newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     let dec = qpackDecoder dyntbl
-        handler = encoderInstructionHandler dcDynamicTableSize dyntbl
+        handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
@@ -302,7 +306,7 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
-        handler = encoderInstructionHandlerS dcDynamicTableSize dyntbl
+        handler = encoderInstructionHandlerS dcMaxTableCapacity dyntbl
     return (dec, handler)
 
 qpackDecoder
