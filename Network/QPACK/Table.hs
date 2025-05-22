@@ -54,6 +54,8 @@ module Network.QPACK.Table (
     setMaxHeaderSize,
     getMaxHeaderSize,
     getBlockedStreams,
+    tryIncreaseStreams,
+    decreaseStreams,
 ) where
 
 import Control.Concurrent.STM

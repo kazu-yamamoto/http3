@@ -42,29 +42,32 @@ data CodeInfo
         , requiredInsertCount :: IORef RequiredInsertCount
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
-        , maxBlockedStreams   :: IORef Int
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef FieldName FieldValue
         }
-    | DecodeInfo HuffmanDecoder
+    | DecodeInfo
+        { huffmanDecoder :: HuffmanDecoder
+        , blockedStreams :: IORef Int
+        }
 {- FOURMOLU_ENABLE -}
 
 -- | Dynamic table for QPACK.
 {- FOURMOLU_DISABLE -}
 data DynamicTable = DynamicTable
-    { codeInfo        :: CodeInfo
-    , insertionPoint  :: TVar InsertionPoint
-    , maxNumOfEntries :: TVar Int
-    , circularTable   :: TVar Table
-    , basePoint       :: IORef BasePoint
-    , debugQPACK      :: IORef Bool
-    , capaReady       :: IORef Bool
-    , tableSize       :: TVar Size
-    , maxTableSize    :: IORef Size
-    , sendIns         :: ByteString -> IO ()
-    , maxHeaderSize   :: IORef Int
+    { codeInfo          :: CodeInfo
+    , insertionPoint    :: TVar InsertionPoint
+    , maxNumOfEntries   :: TVar Int
+    , circularTable     :: TVar Table
+    , basePoint         :: IORef BasePoint
+    , debugQPACK        :: IORef Bool
+    , capaReady         :: IORef Bool
+    , tableSize         :: TVar Size
+    , maxTableSize      :: IORef Size
+    , sendIns           :: ByteString -> IO ()
+    , maxHeaderSize     :: IORef Int
+    , maxBlockedStreams :: IORef Int
     }
 {- FOURMOLU_ENABLE -}
 
@@ -113,7 +116,6 @@ newDynamicTableForEncoding sendEI = do
         requiredInsertCount <- newIORef 0
         droppingPoint       <- newIORef 0
         drainingPoint       <- newIORef 0
-        maxBlockedStreams   <- newIORef 0
         knownReceivedCount  <- newTVarIO 0
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
@@ -131,9 +133,9 @@ newDynamicTableForDecoding
 newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
-    let decoder = decodeHLock tvar
-        info = DecodeInfo decoder
-    newDynamicTable info sendDI
+    let huffmanDecoder = decodeHLock tvar
+    blockedStreams <- newIORef 0
+    newDynamicTable DecodeInfo{..} sendDI
 
 decodeHLock
     :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
@@ -166,6 +168,7 @@ newDynamicTable info send = do
     maxTableSize <- newIORef 0
     let sendIns = send
     maxHeaderSize <- newIORef maxBound
+    maxBlockedStreams <- newIORef 0 -- fixme
     return DynamicTable{..}
 
 ----------------------------------------------------------------
@@ -202,9 +205,9 @@ getRevIndex DynamicTable{..} = revIndex
     EncodeInfo{..} = codeInfo
 
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
-getHuffmanDecoder DynamicTable{..} = huf
+getHuffmanDecoder DynamicTable{..} = huffmanDecoder
   where
-    DecodeInfo huf = codeInfo
+    DecodeInfo{..} = codeInfo
 
 getLruCache :: DynamicTable -> LRUCacheRef FieldName FieldValue
 getLruCache DynamicTable{..} = lruCache
@@ -346,13 +349,9 @@ isTableReady DynamicTable{..} = readIORef capaReady
 
 setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
 setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
-  where
-    EncodeInfo{..} = codeInfo
 
 getMaxBlockedStreams :: DynamicTable -> IO Int
 getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
-  where
-    EncodeInfo{..} = codeInfo
 
 getMaxHeaderSize :: DynamicTable -> IO Int
 getMaxHeaderSize DynamicTable{..} = readIORef maxHeaderSize
@@ -430,3 +429,18 @@ adjustDrainingPoint DynamicTable{..} = do
     writeIORef drainingPoint $ AbsoluteIndex end'
   where
     EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+tryIncreaseStreams :: DynamicTable -> IO Bool
+tryIncreaseStreams DynamicTable{..} = do
+    lim <- readIORef maxBlockedStreams
+    curr <- atomicModifyIORef' blockedStreams (\n -> (n + 1, n + 1))
+    return (curr <= lim)
+  where
+    DecodeInfo{..} = codeInfo
+
+decreaseStreams :: DynamicTable -> IO ()
+decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
+  where
+    DecodeInfo{..} = codeInfo

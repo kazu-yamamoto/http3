@@ -291,6 +291,7 @@ newQDecoder
 newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxBlockedStreams dyntbl dcBlockedSterams
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
@@ -304,6 +305,7 @@ newQDecoderS
 newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxBlockedStreams dyntbl dcBlockedSterams
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dcMaxTableCapacity dyntbl

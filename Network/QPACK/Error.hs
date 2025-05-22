@@ -30,6 +30,7 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 data DecodeError
     = IllegalStaticIndex
     | IllegalInsertCount
+    | BlockedStreamsOverflow
     deriving (Eq, Show)
 
 data EncoderInstructionError = EncoderInstructionError

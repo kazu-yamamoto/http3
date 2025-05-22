@@ -3,6 +3,7 @@
 module Network.QPACK.HeaderBlock.Decode where
 
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
@@ -17,6 +18,7 @@ import Network.HPACK.Internal (
 import Network.HTTP.Types
 
 import Imports
+import Network.QPACK.Error
 import Network.QPACK.HeaderBlock.Prefix
 import Network.QPACK.Table
 import Network.QPACK.Types
@@ -27,6 +29,12 @@ decodeTokenHeader
     -> IO (TokenHeaderTable, Bool)
 decodeTokenHeader dyntbl rbuf = do
     (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
+    ready <- checkRequiredInsertCountNB dyntbl reqInsertCount
+    unless ready $ do
+        ok <- tryIncreaseStreams dyntbl
+        unless ok $ E.throwIO BlockedStreamsOverflow
+        checkRequiredInsertCount dyntbl reqInsertCount
+        decreaseStreams dyntbl
     checkRequiredInsertCount dyntbl reqInsertCount
     tbl <- decodeSophisticated (toTokenHeader dyntbl bp) rbuf
     return (tbl, needAck)
