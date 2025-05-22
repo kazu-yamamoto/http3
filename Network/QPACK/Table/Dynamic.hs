@@ -42,7 +42,7 @@ data CodeInfo
         , requiredInsertCount :: IORef RequiredInsertCount
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
-        , blockedStreams      :: IORef Int
+        , maxBlockedStreams   :: IORef Int
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
@@ -113,7 +113,7 @@ newDynamicTableForEncoding sendEI = do
         requiredInsertCount <- newIORef 0
         droppingPoint       <- newIORef 0
         drainingPoint       <- newIORef 0
-        blockedStreams      <- newIORef 0
+        maxBlockedStreams   <- newIORef 0
         knownReceivedCount  <- newTVarIO 0
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
@@ -280,6 +280,11 @@ canInsertEntry DynamicTable{..} ent = do
 
 ----------------------------------------------------------------
 
+getBlockedStreams :: DynamicTable -> IO Int
+getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
+  where
+    EncodeInfo{..} = codeInfo
+
 insertSection :: DynamicTable -> StreamId -> Section -> IO ()
 insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
   where
@@ -339,8 +344,13 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
 isTableReady :: DynamicTable -> IO Bool
 isTableReady DynamicTable{..} = readIORef capaReady
 
-setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
-setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
+setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
+setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
+  where
+    EncodeInfo{..} = codeInfo
+
+getMaxBlockedStreams :: DynamicTable -> IO Int
+getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
   where
     EncodeInfo{..} = codeInfo
 

@@ -147,7 +147,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
                     sendIns dyntbl ins
-                , setBlockedStreams = setTableStreamsBlocked dyntbl
+                , setBlockedStreams = setMaxBlockedStreams dyntbl
                 , setHeaderSize = setMaxHeaderSize dyntbl
                 }
     return (enc, handler, ctl)
@@ -203,7 +203,12 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
                 reqInsCnt <- getRequiredInsertCount dyntbl
-                insertSection dyntbl sid $ Section reqInsCnt $ concat daiss
+                -- To count only blocked sections,
+                -- dont' register this section if reqInsCnt == 0.
+                when (reqInsCnt /= 0) $
+                    insertSection dyntbl sid $
+                        Section reqInsCnt $
+                            concat daiss
                 return section
 
 qpackEncodeHeader
