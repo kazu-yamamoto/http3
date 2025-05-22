@@ -109,6 +109,11 @@ checkSettings conn tblop payload = do
                 SettingsQpackMaxTableCapacity -> do
                     setCapacity tblop v
                     loop flags' ss
+                -- This value is not used yet.
+                -- RFC 9114: "A server that receives a larger field
+                -- section than it is willing to handle can send an
+                -- HTTP 431 (Request Header Fields Too Large) status
+                -- code ([RFC6585])."
                 SettingsMaxFieldSectionSize -> do
                     setHeaderSize tblop v
                     loop flags' ss
