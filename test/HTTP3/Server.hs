@@ -42,8 +42,8 @@ setup svr siz = do
     loop conn = E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
         let conf =
                 conf0
-                    { confQEncoderConfig = defaultQEncoderConfig{ecDynamicTableSize = siz}
-                    , confQDecoderConfig = defaultQDecoderConfig{dcDynamicTableSize = siz}
+                    { confQEncoderConfig = defaultQEncoderConfig{ecMaxTableCapacity = siz}
+                    , confQDecoderConfig = defaultQDecoderConfig{dcMaxTableCapacity = siz}
                     }
 
         run conn conf svr

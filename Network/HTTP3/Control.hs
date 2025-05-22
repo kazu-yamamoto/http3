@@ -26,11 +26,12 @@ setupUnidirectional
     -> H3.Config
     -> IO (EncodedEncoderInstruction -> IO (), EncodedDecoderInstruction -> IO ())
 setupUnidirectional conn conf@H3.Config{..} = do
+    let QDecoderConfig{..} = confQDecoderConfig
     settings <-
         encodeH3Settings
-            [ (SettingsQpackBlockedStreams, 100)
-            , (SettingsQpackMaxTableCapacity, dcDynamicTableSize confQDecoderConfig)
-            , (SettingsMaxFieldSectionSize, 32768)
+            [ (SettingsQpackBlockedStreams, dcBlockedSterams)
+            , (SettingsQpackMaxTableCapacity, dcMaxTableCapacity)
+            , (SettingsMaxFieldSectionSize, dcMaxFieldSectionSize)
             ]
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC
@@ -109,8 +110,14 @@ checkSettings conn tblop payload = do
                 SettingsQpackMaxTableCapacity -> do
                     setCapacity tblop v
                     loop flags' ss
-                -- FIXME
-                SettingsMaxFieldSectionSize -> loop flags' ss
+                -- This value is not used yet.
+                -- RFC 9114: "A server that receives a larger field
+                -- section than it is willing to handle can send an
+                -- HTTP 431 (Request Header Fields Too Large) status
+                -- code ([RFC6585])."
+                SettingsMaxFieldSectionSize -> do
+                    setHeaderSize tblop v
+                    loop flags' ss
                 SettingsQpackBlockedStreams -> do
                     setBlockedStreams tblop v
                     loop flags' ss

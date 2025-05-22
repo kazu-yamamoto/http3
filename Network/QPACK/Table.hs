@@ -34,7 +34,8 @@ module Network.QPACK.Table (
     qpackDebug,
     setTableCapacity,
     isTableReady,
-    setTableStreamsBlocked,
+    setMaxBlockedStreams,
+    getMaxBlockedStreams,
     incrementKnownReceivedCount,
     updateKnownReceivedCount,
     insertSection,
@@ -50,6 +51,11 @@ module Network.QPACK.Table (
     clearRequiredInsertCount,
     getLruCache,
     getDynamicTableSize,
+    setMaxHeaderSize,
+    getMaxHeaderSize,
+    getBlockedStreams,
+    tryIncreaseStreams,
+    decreaseStreams,
 ) where
 
 import Control.Concurrent.STM

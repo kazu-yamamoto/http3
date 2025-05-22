@@ -58,8 +58,8 @@ runClient siz = QUIC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
         let conf =
                 conf0
-                    { S.confQEncoderConfig = S.defaultQEncoderConfig{S.ecDynamicTableSize = siz}
-                    , S.confQDecoderConfig = S.defaultQDecoderConfig{S.dcDynamicTableSize = siz}
+                    { S.confQEncoderConfig = S.defaultQEncoderConfig{S.ecMaxTableCapacity = siz}
+                    , S.confQDecoderConfig = S.defaultQDecoderConfig{S.dcMaxTableCapacity = siz}
                     }
 
         withFile qiffile ReadMode $ \hdl ->

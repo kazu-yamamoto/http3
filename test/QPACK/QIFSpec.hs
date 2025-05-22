@@ -49,7 +49,7 @@ test :: Int -> FilePath -> FilePath -> IO ()
 test size efile qfile = do
     (dec, insthdr) <-
         newQDecoderS
-            defaultQDecoderConfig{dcDynamicTableSize = size}
+            defaultQDecoderConfig{dcMaxTableCapacity = size}
             (\_ -> return ())
             False
     encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr

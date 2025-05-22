@@ -94,13 +94,14 @@ type InstructionHandler = (Int -> IO ByteString) -> IO ()
 data TableOperation = TableOperation
     { setCapacity :: Int -> IO ()
     , setBlockedStreams :: Int -> IO ()
+    , setHeaderSize :: Int -> IO ()
     }
 
 ----------------------------------------------------------------
 
 -- | Configuration for QPACK encoder.
 data QEncoderConfig = QEncoderConfig
-    { ecDynamicTableSize :: Size
+    { ecMaxTableCapacity :: Size
     , ecHeaderBlockBufferSize :: Size
     , ecInstructionBufferSize :: Size
     }
@@ -109,11 +110,11 @@ data QEncoderConfig = QEncoderConfig
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
--- QEncoderConfig {ecDynamicTableSize = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
+-- QEncoderConfig {ecMaxTableCapacity = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
 defaultQEncoderConfig :: QEncoderConfig
 defaultQEncoderConfig =
     QEncoderConfig
-        { ecDynamicTableSize = 4096
+        { ecMaxTableCapacity = 4096
         , ecHeaderBlockBufferSize = 4096
         , ecInstructionBufferSize = 4096
         }
@@ -142,11 +143,12 @@ newQEncoder QEncoderConfig{..} sendEI = do
         ctl =
             TableOperation
                 { setCapacity = \n -> do
-                    let tableSize = min ecDynamicTableSize n
+                    let tableSize = min ecMaxTableCapacity n
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
                     sendIns dyntbl ins
-                , setBlockedStreams = setTableStreamsBlocked dyntbl
+                , setBlockedStreams = setMaxBlockedStreams dyntbl
+                , setHeaderSize = setMaxHeaderSize dyntbl
                 }
     return (enc, handler, ctl)
 
@@ -201,7 +203,12 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
                 reqInsCnt <- getRequiredInsertCount dyntbl
-                insertSection dyntbl sid $ Section reqInsCnt $ concat daiss
+                -- To count only blocked sections,
+                -- dont' register this section if reqInsCnt == 0.
+                when (reqInsCnt /= 0) $
+                    insertSection dyntbl sid $
+                        Section reqInsCnt $
+                            concat daiss
                 return section
 
 qpackEncodeHeader
@@ -240,11 +247,10 @@ decoderInstructionHandler dyntbl recv = loop
             qpackDebug dyntbl $ mapM_ print ins
             mapM_ handle ins
             loop
-    -- FIXME: updating dynamic table for encoder
     handle (SectionAcknowledgement sid) = do
         msec <- getAndDelSection dyntbl sid
         case msec of
-            Nothing -> undefined -- XXX error
+            Nothing -> E.throwIO DecoderInstructionError
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
@@ -257,20 +263,24 @@ decoderInstructionHandler dyntbl recv = loop
 
 -- | Configuration for QPACK decoder.
 data QDecoderConfig = QDecoderConfig
-    { dcDynamicTableSize :: Size
+    { dcMaxTableCapacity :: Size
     , dcHuffmanBufferSize :: Size
+    , dcBlockedSterams :: Int
+    , dcMaxFieldSectionSize :: Int
     }
     deriving (Show)
 
 -- | Default configuration for QPACK decoder.
 --
 -- >>> defaultQDecoderConfig
--- QDecoderConfig {dcDynamicTableSize = 4096, dcHuffmanBufferSize = 4096}
+-- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 4096, dcBlockedSterams = 100, dcMaxFieldSectionSize = 32768}
 defaultQDecoderConfig :: QDecoderConfig
 defaultQDecoderConfig =
     QDecoderConfig
-        { dcDynamicTableSize = 4096
+        { dcMaxTableCapacity = 4096
         , dcHuffmanBufferSize = 4096
+        , dcBlockedSterams = 100
+        , dcMaxFieldSectionSize = 32768
         }
 
 -- | Creating a new QPACK decoder.
@@ -281,8 +291,9 @@ newQDecoder
 newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxBlockedStreams dyntbl dcBlockedSterams
     let dec = qpackDecoder dyntbl
-        handler = encoderInstructionHandler dcDynamicTableSize dyntbl
+        handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
 
 -- | Creating a new simple QPACK decoder.
@@ -294,9 +305,10 @@ newQDecoderS
 newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxBlockedStreams dyntbl dcBlockedSterams
     when debug $ setDebugQPACK dyntbl
     let dec = qpackDecoderS dyntbl
-        handler = encoderInstructionHandlerS dcDynamicTableSize dyntbl
+        handler = encoderInstructionHandlerS dcMaxTableCapacity dyntbl
     return (dec, handler)
 
 qpackDecoder
@@ -344,7 +356,8 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = setTableCapacity dyntbl n
     handle (InsertWithNameReference ii val) = do
-        -- XXX Checking ready
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             idx <- case ii of
                 Left ai -> return $ SIndex ai
@@ -356,12 +369,15 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             insertEntryToDecoder ent dyntbl
         -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (InsertWithLiteralName t val) = do
-        -- XXX Checking ready
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
     handle (Duplicate ri) = do
+        ready <- isTableReady dyntbl
+        unless ready $ E.throwIO EncoderInstructionError
         atomically $ do
             ip <- getInsertionPointSTM dyntbl
             let idx = DIndex $ fromInsRelativeIndex ri ip

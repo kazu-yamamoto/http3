@@ -42,28 +42,32 @@ data CodeInfo
         , requiredInsertCount :: IORef RequiredInsertCount
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
-        , blockedStreams      :: IORef Int
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef FieldName FieldValue
         }
-    | DecodeInfo HuffmanDecoder
+    | DecodeInfo
+        { huffmanDecoder :: HuffmanDecoder
+        , blockedStreams :: IORef Int
+        }
 {- FOURMOLU_ENABLE -}
 
 -- | Dynamic table for QPACK.
 {- FOURMOLU_DISABLE -}
 data DynamicTable = DynamicTable
-    { codeInfo        :: CodeInfo
-    , insertionPoint  :: TVar InsertionPoint
-    , maxNumOfEntries :: TVar Int
-    , circularTable   :: TVar Table
-    , basePoint       :: IORef BasePoint
-    , debugQPACK      :: IORef Bool
-    , capaReady       :: IORef Bool
-    , tableSize       :: TVar Size
-    , maxTableSize    :: IORef Size
-    , sendIns         :: ByteString -> IO ()
+    { codeInfo          :: CodeInfo
+    , insertionPoint    :: TVar InsertionPoint
+    , maxNumOfEntries   :: TVar Int
+    , circularTable     :: TVar Table
+    , basePoint         :: IORef BasePoint
+    , debugQPACK        :: IORef Bool
+    , capaReady         :: IORef Bool
+    , tableSize         :: TVar Size
+    , maxTableSize      :: IORef Size
+    , sendIns           :: ByteString -> IO ()
+    , maxHeaderSize     :: IORef Int
+    , maxBlockedStreams :: IORef Int
     }
 {- FOURMOLU_ENABLE -}
 
@@ -112,7 +116,6 @@ newDynamicTableForEncoding sendEI = do
         requiredInsertCount <- newIORef 0
         droppingPoint       <- newIORef 0
         drainingPoint       <- newIORef 0
-        blockedStreams      <- newIORef 0
         knownReceivedCount  <- newTVarIO 0
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
@@ -130,9 +133,9 @@ newDynamicTableForDecoding
 newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
-    let decoder = decodeHLock tvar
-        info = DecodeInfo decoder
-    newDynamicTable info sendDI
+    let huffmanDecoder = decodeHLock tvar
+    blockedStreams <- newIORef 0
+    newDynamicTable DecodeInfo{..} sendDI
 
 decodeHLock
     :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
@@ -164,6 +167,8 @@ newDynamicTable info send = do
     tableSize <- newTVarIO 0
     maxTableSize <- newIORef 0
     let sendIns = send
+    maxHeaderSize <- newIORef maxBound
+    maxBlockedStreams <- newIORef 0 -- fixme
     return DynamicTable{..}
 
 ----------------------------------------------------------------
@@ -200,9 +205,9 @@ getRevIndex DynamicTable{..} = revIndex
     EncodeInfo{..} = codeInfo
 
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
-getHuffmanDecoder DynamicTable{..} = huf
+getHuffmanDecoder DynamicTable{..} = huffmanDecoder
   where
-    DecodeInfo huf = codeInfo
+    DecodeInfo{..} = codeInfo
 
 getLruCache :: DynamicTable -> LRUCacheRef FieldName FieldValue
 getLruCache DynamicTable{..} = lruCache
@@ -259,7 +264,6 @@ insertEntryToDecoder ent DynamicTable{..} = do
     let i = insp `mod` maxN
     table <- readTVar circularTable
     unsafeWrite table i ent
-    -- FIXME: checking size, no dropping signal from encoder
     modifyTVar' tableSize (+ entrySize ent)
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
@@ -278,6 +282,11 @@ canInsertEntry DynamicTable{..} ent = do
     return (siz + entrySize ent <= maxsiz)
 
 ----------------------------------------------------------------
+
+getBlockedStreams :: DynamicTable -> IO Int
+getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
+  where
+    EncodeInfo{..} = codeInfo
 
 insertSection :: DynamicTable -> StreamId -> Section -> IO ()
 insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
@@ -338,10 +347,17 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
 isTableReady :: DynamicTable -> IO Bool
 isTableReady DynamicTable{..} = readIORef capaReady
 
-setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
-setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
-  where
-    EncodeInfo{..} = codeInfo
+setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
+setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
+
+getMaxBlockedStreams :: DynamicTable -> IO Int
+getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
+
+getMaxHeaderSize :: DynamicTable -> IO Int
+getMaxHeaderSize DynamicTable{..} = readIORef maxHeaderSize
+
+setMaxHeaderSize :: DynamicTable -> Int -> IO ()
+setMaxHeaderSize DynamicTable{..} n = writeIORef maxHeaderSize n
 
 incrementKnownReceivedCount :: DynamicTable -> Int -> IO ()
 incrementKnownReceivedCount DynamicTable{..} n =
@@ -413,3 +429,18 @@ adjustDrainingPoint DynamicTable{..} = do
     writeIORef drainingPoint $ AbsoluteIndex end'
   where
     EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+tryIncreaseStreams :: DynamicTable -> IO Bool
+tryIncreaseStreams DynamicTable{..} = do
+    lim <- readIORef maxBlockedStreams
+    curr <- atomicModifyIORef' blockedStreams (\n -> (n + 1, n + 1))
+    return (curr <= lim)
+  where
+    DecodeInfo{..} = codeInfo
+
+decreaseStreams :: DynamicTable -> IO ()
+decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
+  where
+    DecodeInfo{..} = codeInfo
