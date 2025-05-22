@@ -143,6 +143,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
         ctl =
             TableOperation
                 { setCapacity = \n -> do
+                    -- "n" is decoder-proposed size via settings.
                     let tableSize = min ecMaxTableCapacity n
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
