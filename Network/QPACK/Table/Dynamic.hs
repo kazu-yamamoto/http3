@@ -64,6 +64,7 @@ data DynamicTable = DynamicTable
     , tableSize       :: TVar Size
     , maxTableSize    :: IORef Size
     , sendIns         :: ByteString -> IO ()
+    , maxHeaderSize   :: IORef Int
     }
 {- FOURMOLU_ENABLE -}
 
@@ -164,6 +165,7 @@ newDynamicTable info send = do
     tableSize <- newTVarIO 0
     maxTableSize <- newIORef 0
     let sendIns = send
+    maxHeaderSize <- newIORef maxBound
     return DynamicTable{..}
 
 ----------------------------------------------------------------
@@ -341,6 +343,12 @@ setTableStreamsBlocked :: DynamicTable -> Int -> IO ()
 setTableStreamsBlocked DynamicTable{..} n = writeIORef blockedStreams n
   where
     EncodeInfo{..} = codeInfo
+
+getMaxHeaderSize :: DynamicTable -> IO Int
+getMaxHeaderSize DynamicTable{..} = readIORef maxHeaderSize
+
+setMaxHeaderSize :: DynamicTable -> Int -> IO ()
+setMaxHeaderSize DynamicTable{..} n = writeIORef maxHeaderSize n
 
 incrementKnownReceivedCount :: DynamicTable -> Int -> IO ()
 incrementKnownReceivedCount DynamicTable{..} n =

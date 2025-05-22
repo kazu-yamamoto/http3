@@ -94,6 +94,7 @@ type InstructionHandler = (Int -> IO ByteString) -> IO ()
 data TableOperation = TableOperation
     { setCapacity :: Int -> IO ()
     , setBlockedStreams :: Int -> IO ()
+    , setHeaderSize :: Int -> IO ()
     }
 
 ----------------------------------------------------------------
@@ -147,6 +148,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
                     sendIns dyntbl ins
                 , setBlockedStreams = setTableStreamsBlocked dyntbl
+                , setHeaderSize = setMaxHeaderSize dyntbl
                 }
     return (enc, handler, ctl)
 

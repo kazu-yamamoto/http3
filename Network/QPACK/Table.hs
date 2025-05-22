@@ -50,6 +50,8 @@ module Network.QPACK.Table (
     clearRequiredInsertCount,
     getLruCache,
     getDynamicTableSize,
+    setMaxHeaderSize,
+    getMaxHeaderSize,
 ) where
 
 import Control.Concurrent.STM
