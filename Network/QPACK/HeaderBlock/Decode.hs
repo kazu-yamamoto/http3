@@ -77,6 +77,25 @@ decodeIndexedFieldLine rbuf dyntbl bp w8 = do
             "IndexedFieldLine (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
 
+-- 4.5.3.  Indexed Field Line With Post-Base Index
+decodeIndexedFieldLineWithPostBaseIndex
+    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
+    i <- decodeI 4 (w8 .&. 0b00001111) rbuf
+    let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
+    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
+    qpackDebug dyntbl $
+        putStrLn $
+            "IndexedFieldLineWithPostBaseIndex ("
+                ++ show hidx
+                ++ " "
+                ++ show bp
+                ++ " after "
+                ++ show i
+                ++ ") "
+                ++ showTokenHeader ret
+    return ret
+
 -- 4.5.4.  Literal Field Line With Name Reference
 decodeLiteralFieldLineWithNameReference
     :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
@@ -98,39 +117,6 @@ decodeLiteralFieldLineWithNameReference rbuf dyntbl bp w8 = do
                 ++ showTokenHeader ret
     return ret
 
--- 4.5.6.  Literal Field Line With Literal Name
-decodeLiteralFieldLineWithLiteralName
-    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeLiteralFieldLineWithLiteralName rbuf dyntbl _bp _w8 = do
-    ff rbuf (-1)
-    let hufdec = getHuffmanDecoder dyntbl
-    key <- toToken <$> decodeS (.&. 0b00000111) (`testBit` 3) 3 hufdec rbuf
-    val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
-    let ret = (key, val)
-    qpackDebug dyntbl $
-        putStrLn $
-            "LiteralFieldLineWithLiteralName " ++ showTokenHeader ret
-    return ret
-
--- 4.5.3.  Indexed Field Line With Post-Base Index
-decodeIndexedFieldLineWithPostBaseIndex
-    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
-    i <- decodeI 4 (w8 .&. 0b00001111) rbuf
-    let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $
-        putStrLn $
-            "IndexedFieldLineWithPostBaseIndex ("
-                ++ show hidx
-                ++ " "
-                ++ show bp
-                ++ " after "
-                ++ show i
-                ++ ") "
-                ++ showTokenHeader ret
-    return ret
-
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 decodeLiteralFieldLineWithPostBaseNameReference
     :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
@@ -147,6 +133,20 @@ decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl bp w8 = do
                 ++ show hidx
                 ++ ") "
                 ++ showTokenHeader ret
+    return ret
+
+-- 4.5.6.  Literal Field Line With Literal Name
+decodeLiteralFieldLineWithLiteralName
+    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
+decodeLiteralFieldLineWithLiteralName rbuf dyntbl _bp _w8 = do
+    ff rbuf (-1)
+    let hufdec = getHuffmanDecoder dyntbl
+    key <- toToken <$> decodeS (.&. 0b00000111) (`testBit` 3) 3 hufdec rbuf
+    val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
+    let ret = (key, val)
+    qpackDebug dyntbl $
+        putStrLn $
+            "LiteralFieldLineWithLiteralName " ++ showTokenHeader ret
     return ret
 
 showTokenHeader :: TokenHeader -> String
