@@ -32,13 +32,19 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-data RevResult = N | K HIndex | KV HIndex deriving (Eq, Show)
+data RevResult
+    = N
+    | K AbsoluteIndex -- static table only
+    | KV HIndex
+    deriving (Eq, Show)
 
 ----------------------------------------------------------------
 
 data RevIndex = RevIndex DynamicRevIndex OtherRevIdex
 
-type DynamicRevIndex = Array Int (IORef ValueMap)
+type DynamicValueMap = Map FieldValue HIndex
+
+type DynamicRevIndex = Array Int (IORef DynamicValueMap)
 
 data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
 
@@ -60,9 +66,10 @@ type OtherRevIdex = IORef (Map KeyValue HIndex)
 
 type StaticRevIndex = Array Int StaticEntry
 
-data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving (Show)
+data StaticEntry = StaticEntry AbsoluteIndex (Maybe StaticValueMap)
+    deriving (Show)
 
-type ValueMap = Map FieldValue HIndex
+type StaticValueMap = Map FieldValue AbsoluteIndex
 
 ----------------------------------------------------------------
 
@@ -78,7 +85,7 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
       where
         lst =
             zipWith (\(k, v) i -> (k, (v, i))) staticTableList $
-                map (SIndex . AbsoluteIndex) [0 ..]
+                map AbsoluteIndex [0 ..]
         extract xs = (fst (NE.head xs), NE.map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
@@ -87,7 +94,7 @@ lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
     StaticEntry i Nothing -> K i
     StaticEntry i (Just m) -> case M.lookup v m of
         Nothing -> K i
-        Just j -> KV j
+        Just j -> KV $ SIndex j
 
 ----------------------------------------------------------------
 

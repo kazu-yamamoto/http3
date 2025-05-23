@@ -411,9 +411,8 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
   where
     EncodeInfo{..} = codeInfo
 
-isDraining :: DynamicTable -> HIndex -> IO Bool
-isDraining _ (SIndex _) = return False
-isDraining DynamicTable{..} (DIndex ai) = do
+isDraining :: DynamicTable -> AbsoluteIndex -> IO Bool
+isDraining DynamicTable{..} ai = do
     di <- readIORef drainingPoint
     return (ai <= di)
   where
