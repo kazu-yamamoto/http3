@@ -56,6 +56,7 @@ module Network.QPACK.Table (
     getBlockedStreams,
     tryIncreaseStreams,
     decreaseStreams,
+    printReferences,
 ) where
 
 import Control.Concurrent.STM

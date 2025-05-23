@@ -445,3 +445,24 @@ decreaseStreams :: DynamicTable -> IO ()
 decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
   where
     DecodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+printReferences :: DynamicTable -> IO ()
+printReferences DynamicTable{..} = do
+    AbsoluteIndex start <- readIORef droppingPoint
+    InsertionPoint end <- readTVarIO insertionPoint
+    maxN <- readTVarIO maxNumOfEntries
+    arr <- readIORef referenceCounters
+    putStr "Refs:"
+    loop start end arr maxN
+    putStr "\n"
+  where
+    loop :: Int -> Int -> IOArray Index Int -> Int -> IO ()
+    loop start end arr maxN
+        | start < end = do
+            n <- unsafeRead arr (start `mod` maxN)
+            putStr $ " " ++ show n
+            loop (start + 1) end arr maxN
+        | otherwise = return ()
+    EncodeInfo{..} = codeInfo

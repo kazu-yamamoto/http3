@@ -126,7 +126,10 @@ encLinear
     -> IO (Maybe AbsoluteIndex)
 encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     rr <- lookupRevIndex t val revidx
-    qpackDebug dyntbl $
+    qpackDebug dyntbl $ do
+        tblsiz <- getDynamicTableSize dyntbl
+        putStrLn $ "Table size: " ++ show tblsiz
+        printReferences dyntbl
         putStrLn $
             show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val
     case rr of
