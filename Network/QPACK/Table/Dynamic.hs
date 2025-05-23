@@ -425,7 +425,7 @@ adjustDrainingPoint DynamicTable{..} = do
     InsertionPoint beg <- readTVarIO insertionPoint
     AbsoluteIndex end <- readIORef droppingPoint
     let num = beg - end
-        space = max 2 (num !>>. 4)
+        space = max 1 (num !>>. 4)
         end' = beg - num + space
     writeIORef drainingPoint $ AbsoluteIndex end'
   where
