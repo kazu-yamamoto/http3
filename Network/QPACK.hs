@@ -244,10 +244,11 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock immediateAck sid hs =
                 reqInsCnt <- getRequiredInsertCount dyntbl
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
-                when (reqInsCnt /= 0 && not immediateAck) $
-                    insertSection dyntbl sid $
-                        Section reqInsCnt $
-                            concat daiss
+                when (reqInsCnt /= 0) $ do
+                    let dais = concat daiss
+                    if immediateAck
+                        then mapM_ (decreaseReference dyntbl) dais
+                        else insertSection dyntbl sid $ Section reqInsCnt dais
                 return section
   where
     mk' (k, v) = (t, v)
