@@ -132,7 +132,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         KV hi -> do
             draining <- isDraining dyntbl hi
             if draining
-                then tryInsert $ case hi of
+                then tryInsert Nothing $ case hi of
                     SIndex _ -> error "KV"
                     DIndex i -> do
                         ridx <- toInsRelativeIndex i <$> getInsertionPoint dyntbl
@@ -159,7 +159,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             | shouldBeIndexed t -> do
                 draining <- isDraining dyntbl hi
                 if draining
-                    then tryInsert $ do
+                    then tryInsert Nothing $ do
                         let ins = InsertWithLiteralName t val
                         qpackDebug dyntbl $ print ins
                         encodeEI wbuf2 True ins
@@ -168,7 +168,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                         increaseReference dyntbl dai
                         return $ Just dai
-                    else tryInsert $ do
+                    else tryInsert (Just hi) $ do
                         insidx <- case hi of
                             SIndex i -> return $ Left i
                             DIndex i -> do
@@ -192,7 +192,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         return $ Just dai
         N
             | shouldBeIndexed t -> do
-                tryInsert $ do
+                tryInsert Nothing $ do
                     let ins = InsertWithLiteralName t val
                     qpackDebug dyntbl $ print ins
                     encodeEI wbuf2 True ins
@@ -207,7 +207,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 return Nothing
   where
     ent = toEntryToken t val
-    tryInsert action = do
+    -- If "mhi" is draining, 'Nothing' must be specified.
+    tryInsert mhi action = do
         let lru = getLruCache dyntbl
         (_, exist) <- cached lru (tokenFoldedKey t) (return val)
         if exist
@@ -220,16 +221,34 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         okWithEviction <- canInsertEntry dyntbl ent
                         if okWithEviction
                             then action
-                            else do
-                                -- 4.5.6.  Literal Field Line with Literal Name
-                                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                                adjustDrainingPoint dyntbl
-                                return Nothing
-            else do
-                -- 4.5.6.  Literal Field Line with Literal Name
-                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                adjustDrainingPoint dyntbl
-                return Nothing
+                            else case mhi of
+                                Nothing -> do
+                                    -- 4.5.6.  Literal Field Line with Literal Name
+                                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                                    adjustDrainingPoint dyntbl
+                                    return Nothing
+                                Just hi -> do
+                                    -- 4.5.4.  Literal Field Line With Name Reference
+                                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                                    case hi of
+                                        SIndex _ -> return Nothing
+                                        DIndex dai -> do
+                                            increaseReference dyntbl dai
+                                            return $ Just dai
+            else case mhi of
+                Nothing -> do
+                    -- 4.5.6.  Literal Field Line with Literal Name
+                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                    adjustDrainingPoint dyntbl
+                    return Nothing
+                Just hi -> do
+                    -- 4.5.4.  Literal Field Line With Name Reference
+                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                    case hi of
+                        SIndex _ -> return Nothing
+                        DIndex dai -> do
+                            increaseReference dyntbl dai
+                            return $ Just dai
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
