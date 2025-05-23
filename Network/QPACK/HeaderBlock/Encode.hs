@@ -9,6 +9,7 @@ module Network.QPACK.HeaderBlock.Encode (
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as C8
 import Network.ByteOrder
 import Network.Control
 import Network.HPACK.Internal (
@@ -102,7 +103,7 @@ encStatic wbuf1 dyntbl revidx huff (t, val) = do
             encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
         N -> do
             -- 4.5.6.  Literal Field Line with Literal Name
-            encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+            encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
 
 encodeLinear
     :: WriteBuffer
@@ -176,6 +177,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     tryInsert mi action = do
         let lru = getLruCache dyntbl
         (_, exist) <- cached lru (tokenFoldedKey t) (return val)
+        qpackDebug dyntbl $ putStrLn $ if exist then "HIT" else "not HIT"
         if exist
             then do
                 okWithoutEviction <- canInsertEntry dyntbl ent
@@ -189,7 +191,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                             else case mi of
                                 Nothing -> do
                                     -- 4.5.6.  Literal Field Line with Literal Name
-                                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                                    encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
                                     adjustDrainingPoint dyntbl
                                     return Nothing
                                 Just i -> do
@@ -199,7 +201,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else case mi of
                 Nothing -> do
                     -- 4.5.6.  Literal Field Line with Literal Name
-                    encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
+                    encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
                     adjustDrainingPoint dyntbl
                     return Nothing
                 Just i -> do
@@ -218,6 +220,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set10)
     encodeI wbuf set 6 idx
+    qpackDebug dyntbl $ putStrLn "IndexedFieldLine "
 
 -- 4.5.3.  Indexed Field Line With Post-Base Index
 encodeIndexedFieldLineWithPostBaseIndex
@@ -230,21 +233,29 @@ encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
     bp <- getBasePoint dyntbl
     let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
+    qpackDebug dyntbl $ putStrLn "IndexedFieldLineWithPostBaseIndex "
 
 -- 4.5.4.  Literal Field Line With Name Reference
 encodeLiteralFieldLineWithNameReference
     :: WriteBuffer -> DynamicTable -> AbsoluteIndex -> ByteString -> Bool -> IO ()
-encodeLiteralFieldLineWithNameReference wbuf _dyntbl (AbsoluteIndex idx) val huff = do
+encodeLiteralFieldLineWithNameReference wbuf dyntbl (AbsoluteIndex idx) val huff = do
     encodeI wbuf set0101 4 idx
     encodeS wbuf huff id set1 7 val
+    qpackDebug dyntbl $ putStrLn $ "LiteralFieldLineWithNameReference "
 
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 -- not implemented
 
 -- 4.5.6.  Literal Field Line with Literal Name
 encodeLiteralFieldLineWithLiteralName
-    :: WriteBuffer -> Token -> ByteString -> Bool -> IO ()
-encodeLiteralFieldLineWithLiteralName wbuf token val huff = do
+    :: WriteBuffer -> DynamicTable -> Token -> ByteString -> Bool -> IO ()
+encodeLiteralFieldLineWithLiteralName wbuf dyntbl token val huff = do
     let key = tokenFoldedKey token
     encodeS wbuf huff set0010 set00001 3 key
     encodeS wbuf huff id set1 7 val
+    qpackDebug dyntbl $
+        putStrLn $
+            "LiteralFieldLineWithLiteralName " ++ showHeader key val
+
+showHeader :: ByteString -> ByteString -> String
+showHeader key val = "\"" ++ C8.unpack key ++ "\" \"" ++ C8.unpack val ++ "\""
