@@ -155,44 +155,10 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                             encodeIndexedFieldLine wbuf1 dyntbl hi
                             increaseReference dyntbl dai
                             return $ Just dai
-        K hi
-            | shouldBeIndexed t -> do
-                draining <- isDraining dyntbl hi
-                if draining
-                    then tryInsert Nothing $ do
-                        let ins = InsertWithLiteralName t val
-                        qpackDebug dyntbl $ print ins
-                        encodeEI wbuf2 True ins
-                        dai <- insertEntryToEncoder ent dyntbl
-                        -- 4.5.3.  Indexed Field Line with Post-Base Index
-                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                        increaseReference dyntbl dai
-                        return $ Just dai
-                    else tryInsert (Just hi) $ do
-                        insidx <- case hi of
-                            SIndex i -> return $ Left i
-                            DIndex i -> do
-                                ip <- getInsertionPoint dyntbl
-                                return $ Right $ toInsRelativeIndex i ip
-                        let ins = InsertWithNameReference insidx val
-                        qpackDebug dyntbl $ print ins
-                        encodeEI wbuf2 True ins
-                        dai <- insertEntryToEncoder ent dyntbl
-                        -- 4.5.3.  Indexed Field Line With Post-Base Index
-                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                        increaseReference dyntbl dai
-                        return $ Just dai
-            | otherwise -> do
-                -- 4.5.4.  Literal Field Line With Name Reference
-                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-                case hi of
-                    SIndex _ -> return Nothing
-                    DIndex dai -> do
-                        increaseReference dyntbl dai
-                        return $ Just dai
-        N
-            | shouldBeIndexed t -> do
-                tryInsert Nothing $ do
+        K hi -> do
+            draining <- isDraining dyntbl hi
+            if draining
+                then tryInsert Nothing $ do
                     let ins = InsertWithLiteralName t val
                     qpackDebug dyntbl $ print ins
                     encodeEI wbuf2 True ins
@@ -201,10 +167,30 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                     increaseReference dyntbl dai
                     return $ Just dai
-            | otherwise -> do
-                -- 4.5.6.  Literal Field Line with Literal Name
-                encodeLiteralFieldLineWithLiteralName wbuf1 t val huff
-                return Nothing
+                else tryInsert (Just hi) $ do
+                    insidx <- case hi of
+                        SIndex i -> return $ Left i
+                        DIndex i -> do
+                            ip <- getInsertionPoint dyntbl
+                            return $ Right $ toInsRelativeIndex i ip
+                    let ins = InsertWithNameReference insidx val
+                    qpackDebug dyntbl $ print ins
+                    encodeEI wbuf2 True ins
+                    dai <- insertEntryToEncoder ent dyntbl
+                    -- 4.5.3.  Indexed Field Line With Post-Base Index
+                    encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                    increaseReference dyntbl dai
+                    return $ Just dai
+        N -> do
+            tryInsert Nothing $ do
+                let ins = InsertWithLiteralName t val
+                qpackDebug dyntbl $ print ins
+                encodeEI wbuf2 True ins
+                dai <- insertEntryToEncoder ent dyntbl
+                -- 4.5.3.  Indexed Field Line with Post-Base Index
+                encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
+                increaseReference dyntbl dai
+                return $ Just dai
   where
     ent = toEntryToken t val
     -- If "mhi" is draining, 'Nothing' must be specified.
