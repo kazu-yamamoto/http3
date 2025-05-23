@@ -140,16 +140,18 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         KV hi@(DIndex ai) -> do
             draining <- isDraining dyntbl ai
             if draining
-                then tryInsert Nothing $ do
-                    ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                    let ins = Duplicate ridx
-                    qpackDebug dyntbl $ print ins
-                    encodeEI wbuf2 True ins
-                    ai' <- duplicate dyntbl hi
-                    -- 4.5.3.  Indexed Field Line with Post-Base Index
-                    encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
-                    increaseReference dyntbl ai
-                    return $ Just ai
+                then do
+                    qpackDebug dyntbl $ putStrLn "DRAINING"
+                    tryInsert Nothing $ do
+                        ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
+                        let ins = Duplicate ridx
+                        qpackDebug dyntbl $ print ins
+                        encodeEI wbuf2 True ins
+                        ai' <- duplicate dyntbl hi
+                        -- 4.5.3.  Indexed Field Line with Post-Base Index
+                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
+                        increaseReference dyntbl ai
+                        return $ Just ai
                 else do
                     -- 4.5.2.  Indexed Field Line
                     encodeIndexedFieldLine wbuf1 dyntbl hi
@@ -176,10 +178,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 return $ Just dai
   where
     ent = toEntryToken t val
-    -- If "mhi" is draining, 'Nothing' must be specified.
     tryInsert mi action = do
         let lru = getLruCache dyntbl
-        (_, exist) <- cached lru (tokenFoldedKey t) (return val)
+        (_, exist) <- cached lru (tokenFoldedKey t, val) (return ())
         qpackDebug dyntbl $ putStrLn $ if exist then "HIT" else "not HIT"
         if exist
             then do
@@ -191,26 +192,23 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         okWithEviction <- canInsertEntry dyntbl ent
                         if okWithEviction
                             then action
-                            else case mi of
-                                Nothing -> do
-                                    -- 4.5.6.  Literal Field Line with Literal Name
-                                    encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
-                                    adjustDrainingPoint dyntbl
-                                    return Nothing
-                                Just i -> do
-                                    -- 4.5.4.  Literal Field Line With Name Reference
-                                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
-                                    return Nothing
-            else case mi of
-                Nothing -> do
-                    -- 4.5.6.  Literal Field Line with Literal Name
-                    encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
-                    adjustDrainingPoint dyntbl
-                    return Nothing
-                Just i -> do
-                    -- 4.5.4.  Literal Field Line With Name Reference
-                    encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
-                    return Nothing
+                            else do
+                                qpackDebug dyntbl $ putStrLn "NO SPACE"
+                                defaultAction mi
+            else do
+                let mi' = case mi of
+                        Nothing -> tokenToStaticIndex t
+                        Just x -> Just x
+                defaultAction mi'
+    defaultAction Nothing = do
+        -- 4.5.6.  Literal Field Line with Literal Name
+        encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
+        adjustDrainingPoint dyntbl
+        return Nothing
+    defaultAction (Just i) = do
+        -- 4.5.4.  Literal Field Line With Name Reference
+        encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
+        return Nothing
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()

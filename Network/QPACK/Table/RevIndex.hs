@@ -11,6 +11,7 @@ module Network.QPACK.Table.RevIndex (
     insertRevIndex,
     deleteRevIndex,
     deleteRevIndexList,
+    tokenToStaticIndex,
 ) where
 
 import Data.Array (Array)
@@ -199,6 +200,14 @@ lookupRevIndex' Token{..} v
     ix = quicIx tokenIx
 
 --    k = tokenFoldedKey t -- fixme
+
+tokenToStaticIndex :: Token -> Maybe AbsoluteIndex
+tokenToStaticIndex Token{..}
+    | ix >= 0 = case staticRevIndex `unsafeAt` ix of
+        StaticEntry i _ -> Just i
+    | otherwise = Nothing
+  where
+    ix = quicIx tokenIx
 
 ----------------------------------------------------------------
 

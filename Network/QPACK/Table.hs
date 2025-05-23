@@ -26,6 +26,7 @@ module Network.QPACK.Table (
     RevResult (..),
     getRevIndex,
     lookupRevIndex,
+    tokenToStaticIndex,
 
     -- * Misc
     getHuffmanDecoder,

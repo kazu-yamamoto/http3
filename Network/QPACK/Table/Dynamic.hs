@@ -45,7 +45,7 @@ data CodeInfo
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
-        , lruCache            :: LRUCacheRef FieldName FieldValue
+        , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         }
     | DecodeInfo
         { huffmanDecoder :: HuffmanDecoder
@@ -209,7 +209,7 @@ getHuffmanDecoder DynamicTable{..} = huffmanDecoder
   where
     DecodeInfo{..} = codeInfo
 
-getLruCache :: DynamicTable -> LRUCacheRef FieldName FieldValue
+getLruCache :: DynamicTable -> LRUCacheRef (FieldName, FieldValue) ()
 getLruCache DynamicTable{..} = lruCache
   where
     EncodeInfo{..} = codeInfo
