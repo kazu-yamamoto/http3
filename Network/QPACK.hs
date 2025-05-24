@@ -299,7 +299,7 @@ decoderInstructionHandler dyntbl recv = loop
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
-    handle (StreamCancellation _n) = return ()
+    handle (StreamCancellation _n) = return () -- fixme
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
         | otherwise = incrementKnownReceivedCount dyntbl n
