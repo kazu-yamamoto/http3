@@ -73,8 +73,9 @@ encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     ready <- isTableReady dyntbl
     maxBlocked <- getMaxBlockedStreams dyntbl
     blocked <- getPossiblyBlocked dyntbl
+    immACK <- getImmediateAck dyntbl
     -- this one would be blocked, so <, not <=
-    if ready && blocked < maxBlocked
+    if ready && (blocked < maxBlocked || immACK)
         then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0
         else encodeStatic wbuf1 wbuf2 dyntbl revidx True ts0
 
