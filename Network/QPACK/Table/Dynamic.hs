@@ -77,6 +77,7 @@ module Network.QPACK.Table.Dynamic (
     getDebugQPACK,
     setDebugQPACK,
     printReferences,
+    checkAbsoluteIndex,
 
     -- * QIF
     getImmediateAck,
@@ -561,6 +562,16 @@ printReferences DynamicTable{..} = do
             putStr $ " " ++ show n
             loop (start + 1) end arr maxN
         | otherwise = return ()
+    EncodeInfo{..} = codeInfo
+
+checkAbsoluteIndex :: DynamicTable -> AbsoluteIndex -> IO ()
+checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) = do
+    InsertionPoint beg <- readTVarIO insertionPoint
+    AbsoluteIndex end <- readIORef droppingPoint
+    if end <= ai && ai < beg
+        then return ()
+        else error "checkAbsoluteIndex"
+  where
     EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
