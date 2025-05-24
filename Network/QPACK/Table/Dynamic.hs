@@ -36,7 +36,6 @@ module Network.QPACK.Table.Dynamic (
     -- * Required insert count
     getRequiredInsertCount,
     clearRequiredInsertCount,
-    setInsersionPointToRequiredInsertCount,
     checkRequiredInsertCount,
     checkRequiredInsertCountNB,
     updateRequiredInsertCount,
@@ -45,6 +44,7 @@ module Network.QPACK.Table.Dynamic (
     incrementKnownReceivedCount,
     updateKnownReceivedCount,
     wouldBeBlocked,
+    setInsersionPointToKnownReceivedCount,
 
     -- * Points
     getBasePoint,
@@ -350,13 +350,6 @@ clearRequiredInsertCount DynamicTable{..} = writeIORef requiredInsertCount 0
   where
     EncodeInfo{..} = codeInfo
 
-setInsersionPointToRequiredInsertCount :: DynamicTable -> IO ()
-setInsersionPointToRequiredInsertCount dyntbl@DynamicTable{..} = do
-    InsertionPoint ai <- getInsertionPoint dyntbl
-    writeIORef requiredInsertCount $ RequiredInsertCount ai
-  where
-    EncodeInfo{..} = codeInfo
-
 checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
 checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
     InsertionPoint ip <- readTVar insertionPoint
@@ -400,6 +393,13 @@ wouldBeBlocked :: DynamicTable -> RequiredInsertCount -> IO Bool
 wouldBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
     ip <- readTVar knownReceivedCount
     return (reqip <= ip)
+  where
+    EncodeInfo{..} = codeInfo
+
+setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
+setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do
+    InsertionPoint ai <- getInsertionPoint dyntbl
+    atomically $ writeTVar knownReceivedCount ai
   where
     EncodeInfo{..} = codeInfo
 

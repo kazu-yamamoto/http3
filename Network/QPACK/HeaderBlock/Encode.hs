@@ -151,12 +151,16 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         ai' <- duplicate dyntbl hi
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
-                        unless immACK $ increaseReference dyntbl ai
+                        if immACK
+                            then setInsersionPointToKnownReceivedCount dyntbl
+                            else increaseReference dyntbl ai
                         return $ Just ai
                 else do
                     -- 4.5.2.  Indexed Field Line
                     encodeIndexedFieldLine wbuf1 dyntbl hi
-                    unless immACK $ increaseReference dyntbl ai
+                    if immACK
+                        then setInsersionPointToKnownReceivedCount dyntbl
+                        else increaseReference dyntbl ai
                     return $ Just ai
         K i -> tryInsert (Just i) $ do
             let ins = InsertWithNameReference (Left i) val
@@ -165,7 +169,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             dai <- insertEntryToEncoder ent dyntbl
             -- 4.5.3.  Indexed Field Line With Post-Base Index
             encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-            unless immACK $ increaseReference dyntbl dai
+            if immACK
+                then setInsersionPointToKnownReceivedCount dyntbl
+                else increaseReference dyntbl dai
             return $ Just dai
         N -> do
             tryInsert Nothing $ do
