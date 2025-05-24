@@ -15,7 +15,6 @@ module Network.QPACK.Table.Dynamic (
 
     -- * Entry
     canInsertEntry,
-    tryDrop,
     insertEntryToDecoder,
     insertEntryToEncoder,
     toDynamicEntry,
@@ -34,16 +33,11 @@ module Network.QPACK.Table.Dynamic (
     tryIncreaseStreams,
     decreaseStreams,
 
-    -- * Draining
-    adjustDrainingPoint,
-    isDraining,
-    duplicate,
-
     -- * Required insert count
     getRequiredInsertCount,
+    clearRequiredInsertCount,
     checkRequiredInsertCount,
     checkRequiredInsertCountNB,
-    clearRequiredInsertCount,
     updateRequiredInsertCount,
 
     -- * Known received count
@@ -55,6 +49,12 @@ module Network.QPACK.Table.Dynamic (
     setBasePointToInsersionPoint,
     getInsertionPoint,
     getInsertionPointSTM,
+
+    -- * Draining
+    isDraining,
+    adjustDrainingPoint,
+    duplicate,
+    tryDrop,
 
     -- * Accessing
     getLruCache,
@@ -103,6 +103,9 @@ import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
 import Network.QUIC (StreamId)
 
+----------------------------------------------------------------
+
+type Table = TArray Index Entry
 data Section = Section RequiredInsertCount [AbsoluteIndex]
 
 {- FOURMOLU_DISABLE -}
@@ -140,37 +143,6 @@ data DynamicTable = DynamicTable
     , maxBlockedStreams :: IORef Int
     }
 {- FOURMOLU_ENABLE -}
-
-type Table = TArray Index Entry
-
-----------------------------------------------------------------
-
-getBasePoint :: DynamicTable -> IO BasePoint
-getBasePoint DynamicTable{..} = readIORef basePoint
-
-setBasePointToInsersionPoint :: DynamicTable -> IO ()
-setBasePointToInsersionPoint DynamicTable{..} = do
-    InsertionPoint ip <- readTVarIO insertionPoint
-    writeIORef basePoint $ BasePoint ip
-
-getInsertionPoint :: DynamicTable -> IO InsertionPoint
-getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint
-
-getInsertionPointSTM :: DynamicTable -> STM InsertionPoint
-getInsertionPointSTM DynamicTable{..} = readTVar insertionPoint
-
-checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
-checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
-    InsertionPoint ip <- readTVar insertionPoint
-    -- RequiredInsertCount is index + 1
-    -- InsertionPoin is index + 1
-    -- So, equal is necessary.
-    check (reqip <= ip)
-
-checkRequiredInsertCountNB :: DynamicTable -> RequiredInsertCount -> IO Bool
-checkRequiredInsertCountNB DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
-    InsertionPoint ip <- readTVar insertionPoint
-    return (reqip <= ip)
 
 ----------------------------------------------------------------
 
@@ -243,72 +215,41 @@ newDynamicTable info send = do
 
 ----------------------------------------------------------------
 
-setDebugQPACK :: DynamicTable -> IO ()
-setDebugQPACK DynamicTable{..} = writeIORef debugQPACK True
-
-getDebugQPACK :: DynamicTable -> IO Bool
-getDebugQPACK DynamicTable{..} = readIORef debugQPACK
-
-qpackDebug :: DynamicTable -> IO () -> IO ()
-qpackDebug DynamicTable{..} action = do
-    debug <- readIORef debugQPACK
-    when debug $ withMVar stdoutLock $ \_ -> action
-
-{-# NOINLINE stdoutLock #-}
-stdoutLock :: MVar ()
-stdoutLock = unsafePerformIO $ newMVar ()
-
-----------------------------------------------------------------
-
-getMaxNumOfEntries :: DynamicTable -> IO Int
-getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
+isTableReady :: DynamicTable -> IO Bool
+isTableReady DynamicTable{..} = readIORef capaReady
 
 getTableCapacity :: DynamicTable -> IO Int
 getTableCapacity DynamicTable{..} = readTVarIO tableSize
 
+setTableCapacity :: DynamicTable -> Int -> IO ()
+setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
+    qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
+    writeIORef maxTableSize maxsiz
+    tbl <- atomically $ newArray (0, end) dummyEntry
+    atomically $ do
+        writeTVar maxNumOfEntries maxN
+        writeTVar circularTable tbl
+    case codeInfo of
+        EncodeInfo{..} -> do
+            arr <- newArray (0, end) 0
+            writeIORef referenceCounters arr
+            setLRUCapacity lruCache maxN
+        _ -> return ()
+    writeIORef capaReady True
+  where
+    maxN = maxNumbers maxsiz
+    end = maxN - 1
+
+getMaxNumOfEntries :: DynamicTable -> IO Int
+getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
+
 ----------------------------------------------------------------
 
-{-# INLINE getRevIndex #-}
-getRevIndex :: DynamicTable -> RevIndex
-getRevIndex DynamicTable{..} = revIndex
-  where
-    EncodeInfo{..} = codeInfo
-
-getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
-getHuffmanDecoder DynamicTable{..} = huffmanDecoder
-  where
-    DecodeInfo{..} = codeInfo
-
-getLruCache :: DynamicTable -> LRUCacheRef (FieldName, FieldValue) ()
-getLruCache DynamicTable{..} = lruCache
-  where
-    EncodeInfo{..} = codeInfo
-
-----------------------------------------------------------------
-
-clearRequiredInsertCount :: DynamicTable -> IO ()
-clearRequiredInsertCount DynamicTable{..} = writeIORef requiredInsertCount 0
-  where
-    EncodeInfo{..} = codeInfo
-
-getRequiredInsertCount :: DynamicTable -> IO RequiredInsertCount
-getRequiredInsertCount DynamicTable{..} = readIORef requiredInsertCount
-  where
-    EncodeInfo{..} = codeInfo
-
-absoluteIndexToRequiredInsertCount :: AbsoluteIndex -> RequiredInsertCount
-absoluteIndexToRequiredInsertCount (AbsoluteIndex idx) =
-    RequiredInsertCount (idx + 1)
-
-updateRequiredInsertCount :: DynamicTable -> AbsoluteIndex -> IO ()
-updateRequiredInsertCount DynamicTable{..} aidx = do
-    let newric = absoluteIndexToRequiredInsertCount aidx
-    oldric <- readIORef requiredInsertCount
-    when (newric > oldric) $ writeIORef requiredInsertCount newric
-  where
-    EncodeInfo{..} = codeInfo
-
-----------------------------------------------------------------
+canInsertEntry :: DynamicTable -> Entry -> IO Bool
+canInsertEntry DynamicTable{..} ent = do
+    siz <- readTVarIO tableSize
+    maxsiz <- readIORef maxTableSize
+    return (siz + entrySize ent <= maxsiz)
 
 insertEntryToEncoder :: Entry -> DynamicTable -> IO AbsoluteIndex
 insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
@@ -344,19 +285,6 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
     unsafeRead table i
 
 ----------------------------------------------------------------
-
-canInsertEntry :: DynamicTable -> Entry -> IO Bool
-canInsertEntry DynamicTable{..} ent = do
-    siz <- readTVarIO tableSize
-    maxsiz <- readIORef maxTableSize
-    return (siz + entrySize ent <= maxsiz)
-
-----------------------------------------------------------------
-
-getBlockedStreams :: DynamicTable -> IO Int
-getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
-  where
-    EncodeInfo{..} = codeInfo
 
 insertSection :: DynamicTable -> StreamId -> Section -> IO ()
 insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
@@ -395,39 +323,68 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
-setTableCapacity :: DynamicTable -> Int -> IO ()
-setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
-    qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
-    writeIORef maxTableSize maxsiz
-    tbl <- atomically $ newArray (0, end) dummyEntry
-    atomically $ do
-        writeTVar maxNumOfEntries maxN
-        writeTVar circularTable tbl
-    case codeInfo of
-        EncodeInfo{..} -> do
-            arr <- newArray (0, end) 0
-            writeIORef referenceCounters arr
-            setLRUCapacity lruCache maxN
-        _ -> return ()
-    writeIORef capaReady True
+getBlockedStreams :: DynamicTable -> IO Int
+getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
   where
-    maxN = maxNumbers maxsiz
-    end = maxN - 1
-
-isTableReady :: DynamicTable -> IO Bool
-isTableReady DynamicTable{..} = readIORef capaReady
-
-setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
-setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
+    EncodeInfo{..} = codeInfo
 
 getMaxBlockedStreams :: DynamicTable -> IO Int
 getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
 
-getMaxHeaderSize :: DynamicTable -> IO Int
-getMaxHeaderSize DynamicTable{..} = readIORef maxHeaderSize
+setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
+setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
 
-setMaxHeaderSize :: DynamicTable -> Int -> IO ()
-setMaxHeaderSize DynamicTable{..} n = writeIORef maxHeaderSize n
+tryIncreaseStreams :: DynamicTable -> IO Bool
+tryIncreaseStreams DynamicTable{..} = do
+    lim <- readIORef maxBlockedStreams
+    curr <- atomicModifyIORef' blockedStreams (\n -> (n + 1, n + 1))
+    return (curr <= lim)
+  where
+    DecodeInfo{..} = codeInfo
+
+decreaseStreams :: DynamicTable -> IO ()
+decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
+  where
+    DecodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+getRequiredInsertCount :: DynamicTable -> IO RequiredInsertCount
+getRequiredInsertCount DynamicTable{..} = readIORef requiredInsertCount
+  where
+    EncodeInfo{..} = codeInfo
+
+clearRequiredInsertCount :: DynamicTable -> IO ()
+clearRequiredInsertCount DynamicTable{..} = writeIORef requiredInsertCount 0
+  where
+    EncodeInfo{..} = codeInfo
+
+checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
+checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    InsertionPoint ip <- readTVar insertionPoint
+    -- RequiredInsertCount is index + 1
+    -- InsertionPoin is index + 1
+    -- So, equal is necessary.
+    check (reqip <= ip)
+
+checkRequiredInsertCountNB :: DynamicTable -> RequiredInsertCount -> IO Bool
+checkRequiredInsertCountNB DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    InsertionPoint ip <- readTVar insertionPoint
+    return (reqip <= ip)
+
+absoluteIndexToRequiredInsertCount :: AbsoluteIndex -> RequiredInsertCount
+absoluteIndexToRequiredInsertCount (AbsoluteIndex idx) =
+    RequiredInsertCount (idx + 1)
+
+updateRequiredInsertCount :: DynamicTable -> AbsoluteIndex -> IO ()
+updateRequiredInsertCount DynamicTable{..} aidx = do
+    let newric = absoluteIndexToRequiredInsertCount aidx
+    oldric <- readIORef requiredInsertCount
+    when (newric > oldric) $ writeIORef requiredInsertCount newric
+  where
+    EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
 
 incrementKnownReceivedCount :: DynamicTable -> Int -> IO ()
 incrementKnownReceivedCount DynamicTable{..} n =
@@ -442,6 +399,52 @@ updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
     EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
+
+getBasePoint :: DynamicTable -> IO BasePoint
+getBasePoint DynamicTable{..} = readIORef basePoint
+
+setBasePointToInsersionPoint :: DynamicTable -> IO ()
+setBasePointToInsersionPoint DynamicTable{..} = do
+    InsertionPoint ip <- readTVarIO insertionPoint
+    writeIORef basePoint $ BasePoint ip
+
+getInsertionPoint :: DynamicTable -> IO InsertionPoint
+getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint
+
+getInsertionPointSTM :: DynamicTable -> STM InsertionPoint
+getInsertionPointSTM DynamicTable{..} = readTVar insertionPoint
+
+----------------------------------------------------------------
+
+isDraining :: DynamicTable -> AbsoluteIndex -> IO Bool
+isDraining DynamicTable{..} ai = do
+    di <- readIORef drainingPoint
+    return (ai <= di)
+  where
+    EncodeInfo{..} = codeInfo
+
+adjustDrainingPoint :: DynamicTable -> IO ()
+adjustDrainingPoint DynamicTable{..} = do
+    InsertionPoint beg <- readTVarIO insertionPoint
+    AbsoluteIndex end <- readIORef droppingPoint
+    let num = beg - end
+        space = max 1 (num !>>. 4)
+        end' = beg - num + space
+    writeIORef drainingPoint $ AbsoluteIndex end'
+  where
+    EncodeInfo{..} = codeInfo
+
+duplicate :: DynamicTable -> HIndex -> IO AbsoluteIndex
+duplicate _ (SIndex _) = error "duplicate"
+duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
+    maxN <- readTVarIO maxNumOfEntries
+    let i = ai `mod` maxN
+    table <- readTVarIO circularTable
+    ent <- atomically $ unsafeRead table i
+    deleteRevIndex revIndex ent
+    insertEntryToEncoder ent dyntbl
+  where
+    EncodeInfo{..} = codeInfo
 
 tryDrop :: DynamicTable -> Int -> IO ()
 tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
@@ -471,52 +474,48 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
                 deleteRevIndex revIndex ent
                 loop (n - siz)
 
-duplicate :: DynamicTable -> HIndex -> IO AbsoluteIndex
-duplicate _ (SIndex _) = error "duplicate"
-duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
-    maxN <- readTVarIO maxNumOfEntries
-    let i = ai `mod` maxN
-    table <- readTVarIO circularTable
-    ent <- atomically $ unsafeRead table i
-    deleteRevIndex revIndex ent
-    insertEntryToEncoder ent dyntbl
-  where
-    EncodeInfo{..} = codeInfo
-
-isDraining :: DynamicTable -> AbsoluteIndex -> IO Bool
-isDraining DynamicTable{..} ai = do
-    di <- readIORef drainingPoint
-    return (ai <= di)
-  where
-    EncodeInfo{..} = codeInfo
-
-adjustDrainingPoint :: DynamicTable -> IO ()
-adjustDrainingPoint DynamicTable{..} = do
-    InsertionPoint beg <- readTVarIO insertionPoint
-    AbsoluteIndex end <- readIORef droppingPoint
-    let num = beg - end
-        space = max 1 (num !>>. 4)
-        end' = beg - num + space
-    writeIORef drainingPoint $ AbsoluteIndex end'
-  where
-    EncodeInfo{..} = codeInfo
-
 ----------------------------------------------------------------
 
-tryIncreaseStreams :: DynamicTable -> IO Bool
-tryIncreaseStreams DynamicTable{..} = do
-    lim <- readIORef maxBlockedStreams
-    curr <- atomicModifyIORef' blockedStreams (\n -> (n + 1, n + 1))
-    return (curr <= lim)
+getLruCache :: DynamicTable -> LRUCacheRef (FieldName, FieldValue) ()
+getLruCache DynamicTable{..} = lruCache
   where
-    DecodeInfo{..} = codeInfo
+    EncodeInfo{..} = codeInfo
 
-decreaseStreams :: DynamicTable -> IO ()
-decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
+{-# INLINE getRevIndex #-}
+getRevIndex :: DynamicTable -> RevIndex
+getRevIndex DynamicTable{..} = revIndex
+  where
+    EncodeInfo{..} = codeInfo
+
+getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
+getHuffmanDecoder DynamicTable{..} = huffmanDecoder
   where
     DecodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
+
+getMaxHeaderSize :: DynamicTable -> IO Int
+getMaxHeaderSize DynamicTable{..} = readIORef maxHeaderSize
+
+setMaxHeaderSize :: DynamicTable -> Int -> IO ()
+setMaxHeaderSize DynamicTable{..} n = writeIORef maxHeaderSize n
+
+----------------------------------------------------------------
+
+qpackDebug :: DynamicTable -> IO () -> IO ()
+qpackDebug DynamicTable{..} action = do
+    debug <- readIORef debugQPACK
+    when debug $ withMVar stdoutLock $ \_ -> action
+
+getDebugQPACK :: DynamicTable -> IO Bool
+getDebugQPACK DynamicTable{..} = readIORef debugQPACK
+
+setDebugQPACK :: DynamicTable -> IO ()
+setDebugQPACK DynamicTable{..} = writeIORef debugQPACK True
+
+{-# NOINLINE stdoutLock #-}
+stdoutLock :: MVar ()
+stdoutLock = unsafePerformIO $ newMVar ()
 
 printReferences :: DynamicTable -> IO ()
 printReferences DynamicTable{..} = do
