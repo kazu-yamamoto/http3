@@ -146,9 +146,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     tryInsert Nothing $ do
                         ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
                         let ins = Duplicate ridx
-                        qpackDebug dyntbl $ print ins
                         encodeEI wbuf2 True ins
                         ai' <- duplicate dyntbl hi
+                        qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show ai'
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
                         if immACK
@@ -164,9 +164,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     return $ Just ai
         K i -> tryInsert (Just i) $ do
             let ins = InsertWithNameReference (Left i) val
-            qpackDebug dyntbl $ print ins
             encodeEI wbuf2 True ins
             dai <- insertEntryToEncoder ent dyntbl
+            qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show dai
             -- 4.5.3.  Indexed Field Line With Post-Base Index
             encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
             if immACK
@@ -176,9 +176,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         N -> do
             tryInsert Nothing $ do
                 let ins = InsertWithLiteralName t val
-                qpackDebug dyntbl $ print ins
                 encodeEI wbuf2 True ins
                 dai <- insertEntryToEncoder ent dyntbl
+                qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show dai
                 -- 4.5.3.  Indexed Field Line with Post-Base Index
                 encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                 unless immACK $ increaseReference dyntbl dai
