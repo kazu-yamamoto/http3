@@ -412,8 +412,8 @@ updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
 
 wouldBeBlocked :: DynamicTable -> RequiredInsertCount -> IO Bool
 wouldBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
-    ip <- readTVar knownReceivedCount
-    return (reqip <= ip)
+    krc <- readTVar knownReceivedCount
+    return (reqip > krc)
   where
     EncodeInfo{..} = codeInfo
 
