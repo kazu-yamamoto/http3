@@ -246,10 +246,15 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 immAck <- getImmediateAck dyntbl
                 when (reqInsCnt /= 0) $ do
                     let dais = concat daiss
-                    unless immAck $ do
-                        insertSection dyntbl sid $ Section reqInsCnt dais
-                        blocked <- wouldBeBlocked dyntbl reqInsCnt
-                        when blocked $ insertBlockedStream dyntbl sid
+                    if immAck
+                        -- This code must be here.
+                        -- If dont' register reference, entries
+                        -- are dropped before decoder can use them.
+                        then mapM_ (decreaseReference dyntbl) dais
+                        else do
+                            insertSection dyntbl sid $ Section reqInsCnt dais
+                            blocked <- wouldBeBlocked dyntbl reqInsCnt
+                            when blocked $ insertBlockedStream dyntbl sid
                 return section
   where
     mk' (k, v) = (t, v)
