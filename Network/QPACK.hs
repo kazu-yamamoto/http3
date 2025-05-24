@@ -224,9 +224,8 @@ qpackEncoderS
     -> Int
     -> DynamicTable
     -> MVar ()
-    -> Bool
     -> QEncoderS
-qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock immediateAck sid hs =
+qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
@@ -244,9 +243,10 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock immediateAck sid hs =
                 reqInsCnt <- getRequiredInsertCount dyntbl
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
+                immAck <- getImmediateAck dyntbl
                 when (reqInsCnt /= 0) $ do
                     let dais = concat daiss
-                    if immediateAck
+                    if immAck
                         then mapM_ (decreaseReference dyntbl) dais
                         else insertSection dyntbl sid $ Section reqInsCnt dais
                 return section
@@ -320,6 +320,7 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
     dyntbl <- newDynamicTableForEncoding saveEI
     setTableCapacity dyntbl ecMaxTableCapacity
     setMaxBlockedStreams dyntbl blocked
+    setImmediateAck dyntbl immediateAck
     lock <- newMVar ()
     let enc =
             qpackEncoderS
@@ -329,7 +330,6 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
                 bufsiz2
                 dyntbl
                 lock
-                immediateAck
     return enc
 
 ----------------------------------------------------------------

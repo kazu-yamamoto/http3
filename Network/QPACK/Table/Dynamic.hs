@@ -73,6 +73,10 @@ module Network.QPACK.Table.Dynamic (
     getDebugQPACK,
     setDebugQPACK,
     printReferences,
+
+    -- * QIF
+    getImmediateAck,
+    setImmediateAck,
 ) where
 
 import Control.Concurrent
@@ -118,6 +122,7 @@ data CodeInfo
         , referenceCounters   :: IORef (IOArray Index Int)
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
+        , immediateAck        :: IORef Bool -- for QIF
         }
     | DecodeInfo
         { huffmanDecoder :: HuffmanDecoder  -- only for encoder instruction handler
@@ -161,6 +166,7 @@ newDynamicTableForEncoding sendEI = do
         referenceCounters   <- newIORef arr
         sections            <- newIORef IntMap.empty
         lruCache            <- newLRUCacheRef 0
+        immediateAck        <- newIORef False
         return EncodeInfo{..}
     newDynamicTable info sendEI
 {- FOURMOLU_ENABLE -}
@@ -534,4 +540,16 @@ printReferences DynamicTable{..} = do
             putStr $ " " ++ show n
             loop (start + 1) end arr maxN
         | otherwise = return ()
+    EncodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+getImmediateAck :: DynamicTable -> IO Bool
+getImmediateAck DynamicTable{..} = readIORef immediateAck
+  where
+    EncodeInfo{..} = codeInfo
+
+setImmediateAck :: DynamicTable -> Bool -> IO ()
+setImmediateAck DynamicTable{..} b = writeIORef immediateAck b
+  where
     EncodeInfo{..} = codeInfo
