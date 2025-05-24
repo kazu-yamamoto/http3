@@ -92,10 +92,12 @@ encodeEI wbuf _ (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 idx
 decodeEncoderInstructions'
     :: ByteString -> IO ([EncoderInstruction], ByteString)
 decodeEncoderInstructions' bs = do
-    let bufsiz = 4096
-    gcbuf <- mallocPlainForeignPtrBytes 4096
+    let bufsiz = 2048
+    gcbuf <- mallocPlainForeignPtrBytes 2048
     decodeEncoderInstructions (decodeH gcbuf bufsiz) bs
 
+-- HuffmanDecoder is occupied.
+-- No other threads MUST NOT use it.
 decodeEncoderInstructions
     :: HuffmanDecoder -> ByteString -> IO ([EncoderInstruction], ByteString)
 decodeEncoderInstructions hufdec bs = withReadBuffer bs $ loop id

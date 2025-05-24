@@ -75,22 +75,19 @@ module Network.QPACK.Table.Dynamic (
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import qualified Control.Exception as E
 import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Imports
-import Network.ByteOrder
 import Network.Control
 import Network.HPACK.Internal (
     Entry,
-    GCBuffer,
     HuffmanDecoder,
     Index,
     Size,
-    decH,
+    decodeH,
     dummyEntry,
     entryFieldValue,
     entryHeaderName,
@@ -121,7 +118,7 @@ data CodeInfo
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         }
     | DecodeInfo
-        { huffmanDecoder :: HuffmanDecoder
+        { huffmanDecoder :: HuffmanDecoder  -- only for encoder instruction handler
         , blockedStreams :: IORef Int
         }
 {- FOURMOLU_ENABLE -}
@@ -174,27 +171,9 @@ newDynamicTableForDecoding
     -> IO DynamicTable
 newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
-    tvar <- newTVarIO $ Just (gcbuf, huftmpsiz)
-    let huffmanDecoder = decodeHLock tvar
+    let huffmanDecoder = decodeH gcbuf huftmpsiz
     blockedStreams <- newIORef 0
     newDynamicTable DecodeInfo{..} sendDI
-
-decodeHLock
-    :: TVar (Maybe (GCBuffer, Int)) -> ReadBuffer -> Int -> IO ByteString
-decodeHLock tvar rbuf len = E.bracket lock unlock $ \(gcbuf, bufsiz) ->
-    withForeignPtr gcbuf $ \buf -> do
-        wbuf <- newWriteBuffer buf bufsiz
-        decH wbuf rbuf len
-        toByteString wbuf
-  where
-    lock = atomically $ do
-        mx <- readTVar tvar
-        case mx of
-            Nothing -> retry
-            Just x -> do
-                writeTVar tvar Nothing
-                return x
-    unlock x = atomically $ writeTVar tvar $ Just x
 
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
 newDynamicTable info send = do
@@ -487,6 +466,7 @@ getRevIndex DynamicTable{..} = revIndex
   where
     EncodeInfo{..} = codeInfo
 
+-- only for encoder instruction handler
 getHuffmanDecoder :: DynamicTable -> HuffmanDecoder
 getHuffmanDecoder DynamicTable{..} = huffmanDecoder
   where

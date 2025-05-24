@@ -337,7 +337,7 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
 -- | Configuration for QPACK decoder.
 data QDecoderConfig = QDecoderConfig
     { dcMaxTableCapacity :: Size
-    , dcHuffmanBufferSize :: Size
+    , dcHuffmanBufferSize :: Size -- for encoder insteruction handler
     , dcBlockedSterams :: Int
     , dcMaxFieldSectionSize :: Int
     }
@@ -346,12 +346,12 @@ data QDecoderConfig = QDecoderConfig
 -- | Default configuration for QPACK decoder.
 --
 -- >>> defaultQDecoderConfig
--- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 4096, dcBlockedSterams = 100, dcMaxFieldSectionSize = 32768}
+-- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 2048, dcBlockedSterams = 100, dcMaxFieldSectionSize = 32768}
 defaultQDecoderConfig :: QDecoderConfig
 defaultQDecoderConfig =
     QDecoderConfig
         { dcMaxTableCapacity = 4096
-        , dcHuffmanBufferSize = 4096
+        , dcHuffmanBufferSize = 2048 -- no global locking
         , dcBlockedSterams = 100
         , dcMaxFieldSectionSize = 32768
         }
@@ -424,7 +424,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
     qpackDebug dyntbl $ mapM_ print ins
     mapM_ handle ins
   where
-    hufdec = getHuffmanDecoder dyntbl
+    hufdec = getHuffmanDecoder dyntbl -- only for encoder instruction handler
     handle (SetDynamicTableCapacity n)
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = setTableCapacity dyntbl n
