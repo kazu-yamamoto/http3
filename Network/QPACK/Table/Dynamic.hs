@@ -1,7 +1,77 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
-module Network.QPACK.Table.Dynamic where
+module Network.QPACK.Table.Dynamic (
+    -- * Dynamic table
+    DynamicTable,
+    newDynamicTableForEncoding,
+    newDynamicTableForDecoding,
+
+    -- * Capacity
+    isTableReady,
+    getTableCapacity,
+    setTableCapacity,
+    getMaxNumOfEntries,
+
+    -- * Entry
+    canInsertEntry,
+    tryDrop,
+    insertEntryToDecoder,
+    insertEntryToEncoder,
+    toDynamicEntry,
+
+    -- * Section
+    Section (..),
+    insertSection,
+    getAndDelSection,
+    increaseReference,
+    decreaseReference,
+
+    -- * Streams
+    getBlockedStreams,
+    getMaxBlockedStreams,
+    setMaxBlockedStreams,
+    tryIncreaseStreams,
+    decreaseStreams,
+
+    -- * Draining
+    adjustDrainingPoint,
+    isDraining,
+    duplicate,
+
+    -- * Required insert count
+    getRequiredInsertCount,
+    checkRequiredInsertCount,
+    checkRequiredInsertCountNB,
+    clearRequiredInsertCount,
+    updateRequiredInsertCount,
+
+    -- * Known received count
+    incrementKnownReceivedCount,
+    updateKnownReceivedCount,
+
+    -- * Points
+    getBasePoint,
+    setBasePointToInsersionPoint,
+    getInsertionPoint,
+    getInsertionPointSTM,
+
+    -- * Accessing
+    getLruCache,
+    getRevIndex,
+    getHuffmanDecoder,
+    sendIns,
+
+    -- * Max header size
+    getMaxHeaderSize,
+    setMaxHeaderSize,
+
+    -- * Debug
+    qpackDebug,
+    getDebugQPACK,
+    setDebugQPACK,
+    printReferences,
+) where
 
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -168,7 +238,7 @@ newDynamicTable info send = do
     maxTableSize <- newIORef 0
     let sendIns = send
     maxHeaderSize <- newIORef maxBound
-    maxBlockedStreams <- newIORef 0 -- fixme
+    maxBlockedStreams <- newIORef 0
     return DynamicTable{..}
 
 ----------------------------------------------------------------
@@ -193,8 +263,8 @@ stdoutLock = unsafePerformIO $ newMVar ()
 getMaxNumOfEntries :: DynamicTable -> IO Int
 getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 
-getDynamicTableSize :: DynamicTable -> IO Int
-getDynamicTableSize DynamicTable{..} = readTVarIO tableSize
+getTableCapacity :: DynamicTable -> IO Int
+getTableCapacity DynamicTable{..} = readTVarIO tableSize
 
 ----------------------------------------------------------------
 

@@ -127,7 +127,7 @@ encLinear
 encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     rr <- lookupRevIndex t val revidx
     qpackDebug dyntbl $ do
-        tblsiz <- getDynamicTableSize dyntbl
+        tblsiz <- getTableCapacity dyntbl
         putStrLn $ "Table size: " ++ show tblsiz
         printReferences dyntbl
         putStrLn $

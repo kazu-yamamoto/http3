@@ -197,7 +197,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
-                siz <- getDynamicTableSize dyntbl
+                siz <- getTableCapacity dyntbl
                 qpackDebug dyntbl $
                     putStrLn $
                         "Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
@@ -230,7 +230,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock immediateAck sid hs =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
-                siz <- getDynamicTableSize dyntbl
+                siz <- getTableCapacity dyntbl
                 qpackDebug dyntbl $
                     putStrLn $
                         "Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
