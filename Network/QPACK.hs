@@ -246,9 +246,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 immAck <- getImmediateAck dyntbl
                 when (reqInsCnt /= 0) $ do
                     let dais = concat daiss
-                    if immAck
-                        then mapM_ (decreaseReference dyntbl) dais
-                        else insertSection dyntbl sid $ Section reqInsCnt dais
+                    unless immAck $ insertSection dyntbl sid $ Section reqInsCnt dais
                 return section
   where
     mk' (k, v) = (t, v)
