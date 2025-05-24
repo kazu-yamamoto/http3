@@ -72,7 +72,7 @@ encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     let revidx = getRevIndex dyntbl
     ready <- isTableReady dyntbl
     maxBlocked <- getMaxBlockedStreams dyntbl
-    blocked <- getBlockedStreams dyntbl
+    blocked <- getPossiblyBlocked dyntbl
     -- this one would be blocked, so <, not <=
     if ready && blocked < maxBlocked
         then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0

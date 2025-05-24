@@ -29,9 +29,13 @@ module Network.QPACK.Table.Dynamic (
     -- * Streams
     getMaxBlockedStreams,
     setMaxBlockedStreams,
-    getBlockedStreams,
     tryIncreaseStreams,
     decreaseStreams,
+
+    -- * Blocked streams
+    getPossiblyBlocked,
+    insertBlockedStream,
+    deleteBlockedStream,
 
     -- * Required insert count
     getRequiredInsertCount,
@@ -86,6 +90,8 @@ import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.Set (Set)
+import qualified Data.Set as Set -- Set.size is O(1), IntSet.size is O(n)
 import Imports
 import Network.Control
 import Network.HPACK.Internal (
@@ -123,6 +129,7 @@ data CodeInfo
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
+        , possiblyBlocked     :: IORef (Set Int)
         }
     | DecodeInfo
         { huffmanDecoder :: HuffmanDecoder  -- only for encoder instruction handler
@@ -167,6 +174,7 @@ newDynamicTableForEncoding sendEI = do
         sections            <- newIORef IntMap.empty
         lruCache            <- newLRUCacheRef 0
         immediateAck        <- newIORef False
+        possiblyBlocked     <- newIORef Set.empty
         return EncodeInfo{..}
     newDynamicTable info sendEI
 {- FOURMOLU_ENABLE -}
@@ -316,13 +324,6 @@ getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
 setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
 setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
 
--- Encoder
-
-getBlockedStreams :: DynamicTable -> IO Int
-getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
-  where
-    EncodeInfo{..} = codeInfo
-
 -- Decoder
 
 tryIncreaseStreams :: DynamicTable -> IO Bool
@@ -337,6 +338,26 @@ decreaseStreams :: DynamicTable -> IO ()
 decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
   where
     DecodeInfo{..} = codeInfo
+
+----------------------------------------------------------------
+
+getPossiblyBlocked :: DynamicTable -> IO Int
+getPossiblyBlocked DynamicTable{..} =
+    Set.size <$> readIORef possiblyBlocked
+  where
+    EncodeInfo{..} = codeInfo
+
+insertBlockedStream :: DynamicTable -> StreamId -> IO ()
+insertBlockedStream DynamicTable{..} sid =
+    modifyIORef' possiblyBlocked (Set.insert sid)
+  where
+    EncodeInfo{..} = codeInfo
+
+deleteBlockedStream :: DynamicTable -> StreamId -> IO ()
+deleteBlockedStream DynamicTable{..} sid =
+    modifyIORef' possiblyBlocked (Set.delete sid)
+  where
+    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
