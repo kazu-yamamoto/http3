@@ -27,15 +27,16 @@ module Network.QPACK.Table.Dynamic (
     decreaseReference,
 
     -- * Streams
-    getBlockedStreams,
     getMaxBlockedStreams,
     setMaxBlockedStreams,
+    getBlockedStreams,
     tryIncreaseStreams,
     decreaseStreams,
 
     -- * Required insert count
     getRequiredInsertCount,
     clearRequiredInsertCount,
+    setInsersionPointToRequiredInsertCount,
     checkRequiredInsertCount,
     checkRequiredInsertCountNB,
     updateRequiredInsertCount,
@@ -43,6 +44,7 @@ module Network.QPACK.Table.Dynamic (
     -- * Known received count
     incrementKnownReceivedCount,
     updateKnownReceivedCount,
+    wouldBeBlocked,
 
     -- * Points
     getBasePoint,
@@ -302,16 +304,20 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
-getBlockedStreams :: DynamicTable -> IO Int
-getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
-  where
-    EncodeInfo{..} = codeInfo
-
 getMaxBlockedStreams :: DynamicTable -> IO Int
 getMaxBlockedStreams DynamicTable{..} = readIORef maxBlockedStreams
 
 setMaxBlockedStreams :: DynamicTable -> Int -> IO ()
 setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
+
+-- Encoder
+
+getBlockedStreams :: DynamicTable -> IO Int
+getBlockedStreams DynamicTable{..} = IntMap.size <$> readIORef sections
+  where
+    EncodeInfo{..} = codeInfo
+
+-- Decoder
 
 tryIncreaseStreams :: DynamicTable -> IO Bool
 tryIncreaseStreams DynamicTable{..} = do
@@ -335,6 +341,13 @@ getRequiredInsertCount DynamicTable{..} = readIORef requiredInsertCount
 
 clearRequiredInsertCount :: DynamicTable -> IO ()
 clearRequiredInsertCount DynamicTable{..} = writeIORef requiredInsertCount 0
+  where
+    EncodeInfo{..} = codeInfo
+
+setInsersionPointToRequiredInsertCount :: DynamicTable -> IO ()
+setInsersionPointToRequiredInsertCount dyntbl@DynamicTable{..} = do
+    InsertionPoint ai <- getInsertionPoint dyntbl
+    writeIORef requiredInsertCount $ RequiredInsertCount ai
   where
     EncodeInfo{..} = codeInfo
 
@@ -374,6 +387,13 @@ incrementKnownReceivedCount DynamicTable{..} n =
 updateKnownReceivedCount :: DynamicTable -> RequiredInsertCount -> IO ()
 updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
     atomically $ modifyTVar' knownReceivedCount $ \krc -> max reqInsCnt krc
+  where
+    EncodeInfo{..} = codeInfo
+
+wouldBeBlocked :: DynamicTable -> RequiredInsertCount -> IO Bool
+wouldBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+    ip <- readTVar knownReceivedCount
+    return (reqip <= ip)
   where
     EncodeInfo{..} = codeInfo
 
