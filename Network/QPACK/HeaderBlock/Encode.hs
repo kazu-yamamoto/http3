@@ -179,7 +179,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show dai
                 -- 4.5.3.  Indexed Field Line with Post-Base Index
                 encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                unless immACK $ increaseReference dyntbl dai
+                increaseReference dyntbl dai
                 return $ Just dai
   where
     ent = toEntryToken t val
