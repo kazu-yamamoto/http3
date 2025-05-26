@@ -1,5 +1,7 @@
 # /bin/sh
 
+rm -f *.out.*
+
 cmd=dist/build/qif-enc/qif-enc
 
 for qif in qifs/qifs/*.qif; do
@@ -12,3 +14,5 @@ for qif in qifs/qifs/*.qif; do
     done
   done
 done
+
+mv *.out.* qifs/encoded/qpack-05/haskell-quic
