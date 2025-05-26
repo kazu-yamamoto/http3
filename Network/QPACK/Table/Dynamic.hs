@@ -77,6 +77,7 @@ module Network.QPACK.Table.Dynamic (
     getDebugQPACK,
     setDebugQPACK,
     printReferences,
+    checkHIndex,
     checkAbsoluteIndex,
 
     -- * QIF
@@ -564,13 +565,36 @@ printReferences DynamicTable{..} = do
         | otherwise = return ()
     EncodeInfo{..} = codeInfo
 
+-- For decoder
+checkHIndex :: DynamicTable -> HIndex -> IO ()
+checkHIndex _ (SIndex _) = return ()
+checkHIndex DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
+    InsertionPoint ip <- readTVarIO insertionPoint
+    maxN <- readTVarIO maxNumOfEntries
+    if ip - maxN <= ai && ai < ip
+        then return ()
+        else error "checkHIndex"
+
+-- For encoder
 checkAbsoluteIndex :: DynamicTable -> AbsoluteIndex -> IO ()
 checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) = do
     InsertionPoint beg <- readTVarIO insertionPoint
     AbsoluteIndex end <- readIORef droppingPoint
+    maxN <- readTVarIO maxNumOfEntries
+    table <- readTVarIO circularTable
+    let calcSize i acc
+            | i == beg = return acc
+            | otherwise = do
+                siz <- entrySize <$> atomically (unsafeRead table (i `mod` maxN))
+                calcSize (i + 1) (acc + siz)
     if end <= ai && ai < beg
-        then return ()
-        else error "checkAbsoluteIndex"
+        then do
+            size <- calcSize end 0
+            size0 <- readTVarIO tableSize
+            when (size /= size0) $ error "checkAbsoluteIndex(1)"
+            lim <- readIORef maxTableSize
+            when (size > lim) $ error "checkAbsoluteIndex(2)"
+        else error "checkAbsoluteIndex (3)"
   where
     EncodeInfo{..} = codeInfo
 
