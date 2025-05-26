@@ -48,6 +48,7 @@ module Network.QPACK.Table.Dynamic (
     incrementKnownReceivedCount,
     updateKnownReceivedCount,
     wouldBeBlocked,
+    isBlockedOK,
     setInsersionPointToKnownReceivedCount,
 
     -- * Points
@@ -418,6 +419,13 @@ wouldBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
     return (reqip > krc)
   where
     EncodeInfo{..} = codeInfo
+
+isBlockedOK :: DynamicTable -> IO Bool
+isBlockedOK dyntbl = do
+    maxBlocked <- getMaxBlockedStreams dyntbl
+    blocked <- getPossiblyBlocked dyntbl
+    -- The next one would be blocked, so <, not <=
+    return $ blocked < maxBlocked
 
 setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
 setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do

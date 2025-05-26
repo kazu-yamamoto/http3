@@ -243,20 +243,17 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 reqInsCnt <- getRequiredInsertCount dyntbl
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
-                immAck <- getImmediateAck dyntbl
                 when (reqInsCnt /= 0) $ do
+                    blocked <- wouldBeBlocked dyntbl reqInsCnt
+                    when blocked $ insertBlockedStream dyntbl sid
                     let dais = concat daiss
-                    if immAck
-                        -- This code must be here.
-                        -- If dont' register reference, entries
-                        -- are dropped before decoder can use them.
-                        then do
-                            mapM_ (decreaseReference dyntbl) dais
-                            setInsersionPointToKnownReceivedCount dyntbl
-                        else do
-                            insertSection dyntbl sid $ Section reqInsCnt dais
-                            blocked <- wouldBeBlocked dyntbl reqInsCnt
-                            when blocked $ insertBlockedStream dyntbl sid
+                    insertSection dyntbl sid $ Section reqInsCnt dais
+                    immAck <- getImmediateAck dyntbl
+                    when immAck $ do
+                        -- The same logic of SectionAcknowledgement.
+                        updateKnownReceivedCount dyntbl reqInsCnt
+                        mapM_ (decreaseReference dyntbl) dais
+                        deleteBlockedStream dyntbl sid
                 return section
   where
     mk' (k, v) = (t, v)

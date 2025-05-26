@@ -71,11 +71,7 @@ encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
     clearWriteBuffer wbuf2
     let revidx = getRevIndex dyntbl
     ready <- isTableReady dyntbl
-    maxBlocked <- getMaxBlockedStreams dyntbl
-    blocked <- getPossiblyBlocked dyntbl
-    immACK <- getImmediateAck dyntbl
-    -- this one would be blocked, so <, not <=
-    if ready && (blocked < maxBlocked || immACK)
+    if ready
         then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0
         else encodeStatic wbuf1 wbuf2 dyntbl revidx True ts0
 
@@ -149,10 +145,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         encodeEI wbuf2 True ins
                         ai' <- duplicate dyntbl hi
                         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show ai'
-                        -- 4.5.3.  Indexed Field Line with Post-Base Index
-                        encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
-                        increaseReference dyntbl ai'
-                        return $ Just ai'
+                        useInsertedOrLiteral ai' Nothing -- fixme Nothing
                 else do
                     -- 4.5.2.  Indexed Field Line
                     encodeIndexedFieldLine wbuf1 dyntbl hi
@@ -163,20 +156,14 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             encodeEI wbuf2 True ins
             dai <- insertEntryToEncoder ent dyntbl
             qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-            -- 4.5.3.  Indexed Field Line With Post-Base Index
-            encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-            increaseReference dyntbl dai
-            return $ Just dai
+            useInsertedOrLiteral dai $ Just i
         N -> do
             tryInsert Nothing $ do
                 let ins = InsertWithLiteralName t val
                 encodeEI wbuf2 True ins
                 dai <- insertEntryToEncoder ent dyntbl
                 qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-                -- 4.5.3.  Indexed Field Line with Post-Base Index
-                encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
-                increaseReference dyntbl dai
-                return $ Just dai
+                useInsertedOrLiteral dai Nothing
   where
     ent = toEntryToken t val
     tryInsert mi action = do
@@ -210,6 +197,19 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         -- 4.5.4.  Literal Field Line With Name Reference
         encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
         return Nothing
+    useInsertedOrLiteral ai mi = do
+        ok <- isBlockedOK dyntbl
+        if ok
+            then do
+                -- 4.5.3.  Indexed Field Line with Post-Base Index
+                encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai
+                increaseReference dyntbl ai
+                return $ Just ai
+            else do
+                let mi' = case mi of
+                        Nothing -> tokenToStaticIndex t
+                        Just x -> Just x
+                defaultAction mi'
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
