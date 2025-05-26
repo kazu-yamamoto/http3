@@ -133,7 +133,6 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         printReferences dyntbl
         putStrLn $
             show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val
-    immACK <- getImmediateAck dyntbl
     case rr of
         KV hi@(SIndex _) -> do
             -- 4.5.2.  Indexed Field Line
@@ -153,13 +152,11 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
                         increaseReference dyntbl ai'
-                        when immACK $ setInsersionPointToKnownReceivedCount dyntbl
                         return $ Just ai'
                 else do
                     -- 4.5.2.  Indexed Field Line
                     encodeIndexedFieldLine wbuf1 dyntbl hi
                     increaseReference dyntbl ai
-                    when immACK $ setInsersionPointToKnownReceivedCount dyntbl
                     return $ Just ai
         K i -> tryInsert (Just i) $ do
             let ins = InsertWithNameReference (Left i) val
@@ -169,7 +166,6 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             -- 4.5.3.  Indexed Field Line With Post-Base Index
             encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
             increaseReference dyntbl dai
-            when immACK $ setInsersionPointToKnownReceivedCount dyntbl
             return $ Just dai
         N -> do
             tryInsert Nothing $ do

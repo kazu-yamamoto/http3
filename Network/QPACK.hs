@@ -250,7 +250,9 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                         -- This code must be here.
                         -- If dont' register reference, entries
                         -- are dropped before decoder can use them.
-                        then mapM_ (decreaseReference dyntbl) dais
+                        then do
+                            mapM_ (decreaseReference dyntbl) dais
+                            setInsersionPointToKnownReceivedCount dyntbl
                         else do
                             insertSection dyntbl sid $ Section reqInsCnt dais
                             blocked <- wouldBeBlocked dyntbl reqInsCnt
