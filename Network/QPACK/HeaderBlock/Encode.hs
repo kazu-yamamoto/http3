@@ -152,9 +152,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show ai'
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
-                        increaseReference dyntbl ai
+                        increaseReference dyntbl ai'
                         when immACK $ setInsersionPointToKnownReceivedCount dyntbl
-                        return $ Just ai
+                        return $ Just ai'
                 else do
                     -- 4.5.2.  Indexed Field Line
                     encodeIndexedFieldLine wbuf1 dyntbl hi
