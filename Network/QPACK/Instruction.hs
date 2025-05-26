@@ -66,7 +66,7 @@ instance Show EncoderInstruction where
             ++ "\" \""
             ++ BS8.unpack v
             ++ "\""
-    show (Duplicate (InsRelativeIndex idx)) = "Duplicate (DynRel " ++ show idx ++ ")"
+    show (Duplicate (InsRelativeIndex idx)) = "Duplicate (InsRelative " ++ show idx ++ ")"
 
 ----------------------------------------------------------------
 

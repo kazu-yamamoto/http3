@@ -495,7 +495,12 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
                     return e
                 qpackDebug dyntbl $
                     putStrLn $
-                        "DROPPED: " ++ show (entryHeaderName ent) ++ " " ++ show (entryFieldValue ent)
+                        "DROPPED (AbsoluteIndex "
+                            ++ show ai
+                            ++ ") "
+                            ++ show (entryHeaderName ent)
+                            ++ " "
+                            ++ show (entryFieldValue ent)
                 let siz = entrySize ent
                 atomically $ modifyTVar' tableSize $ subtract siz
                 modifyIORef' droppingPoint (+ 1)

@@ -149,7 +149,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         let ins = Duplicate ridx
                         encodeEI wbuf2 True ins
                         ai' <- duplicate dyntbl hi
-                        qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show ai'
+                        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show ai'
                         -- 4.5.3.  Indexed Field Line with Post-Base Index
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai'
                         increaseReference dyntbl ai'
@@ -165,7 +165,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             let ins = InsertWithNameReference (Left i) val
             encodeEI wbuf2 True ins
             dai <- insertEntryToEncoder ent dyntbl
-            qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show dai
+            qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
             -- 4.5.3.  Indexed Field Line With Post-Base Index
             encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
             increaseReference dyntbl dai
@@ -176,7 +176,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 let ins = InsertWithLiteralName t val
                 encodeEI wbuf2 True ins
                 dai <- insertEntryToEncoder ent dyntbl
-                qpackDebug dyntbl $ putStrLn $ show ins ++ " " ++ show dai
+                qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
                 -- 4.5.3.  Indexed Field Line with Post-Base Index
                 encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl dai
                 increaseReference dyntbl dai
