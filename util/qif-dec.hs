@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
@@ -10,6 +11,7 @@ import Data.IORef
 import Data.Sequence (Seq, ViewR (..), viewr, (<|))
 import qualified Data.Sequence as Seq
 import Network.QUIC (StreamId)
+import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import System.IO
@@ -19,15 +21,48 @@ import Network.QPACK.Internal
 
 import QIF
 
-----------------------------------------------------------------
+data Options = Options
+    { optDebug :: Bool
+    }
+
+defaultOptions :: Options
+defaultOptions =
+    Options
+        { optDebug = False
+        }
+
+options :: [OptDescr (Options -> Options)]
+options =
+    [ Option
+        ['d']
+        ["debug"]
+        (NoArg (\o -> o{optDebug = True}))
+        "dump encode instructions while checking"
+    ]
+
+usage :: String
+usage = "Usage: qif-dec <size> <encode-file> [<qif-file>]"
+
+showUsageAndExit :: String -> IO a
+showUsageAndExit msg = do
+    putStrLn msg
+    putStrLn $ usageInfo usage options
+    exitFailure
+
+decoderOpts :: [String] -> IO (Options, [String])
+decoderOpts argv =
+    case getOpt Permute options argv of
+        (o, n, []) -> return (foldl (flip id) defaultOptions o, n)
+        (_, _, errs) -> showUsageAndExit $ concat errs
 
 main :: IO ()
 main = do
     args <- getArgs
-    case args of
+    (Options{..}, spec) <- decoderOpts args
+    case spec of
         [size, efile] -> dump (read size) efile
-        [size, efile, qfile] -> test (read size) efile qfile
-        _ -> putStrLn "qif-dec <size> <encode-file> [<qif-file>]"
+        [size, efile, qfile] -> test (read size) efile qfile optDebug
+        _ -> showUsageAndExit "Illegal arguments"
 
 ----------------------------------------------------------------
 
@@ -76,13 +111,13 @@ data Ratio = Ratio
     , ratioHeader :: Int
     }
 
-test :: Int -> FilePath -> FilePath -> IO ()
-test size efile qfile = do
+test :: Int -> FilePath -> FilePath -> Bool -> IO ()
+test size efile qfile debug = do
     (dec, insthdr) <-
         newQDecoderS
             defaultQDecoderConfig{dcMaxTableCapacity = size}
             (\_ -> return ())
-            False
+            debug
     encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
     ref <- newIORef Seq.empty
     ratio <- newIORef $ Ratio{ratioInst = 0, ratioHeader = 0}

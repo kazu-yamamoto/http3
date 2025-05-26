@@ -552,8 +552,8 @@ qpackDebug DynamicTable{..} action = do
 getDebugQPACK :: DynamicTable -> IO Bool
 getDebugQPACK DynamicTable{..} = readIORef debugQPACK
 
-setDebugQPACK :: DynamicTable -> IO ()
-setDebugQPACK DynamicTable{..} = writeIORef debugQPACK True
+setDebugQPACK :: DynamicTable -> Bool -> IO ()
+setDebugQPACK DynamicTable{..} b = writeIORef debugQPACK b
 
 {-# NOINLINE stdoutLock #-}
 stdoutLock :: MVar ()

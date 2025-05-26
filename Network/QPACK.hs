@@ -317,8 +317,9 @@ newQEncoderS
     -> (EncodedEncoderInstruction -> IO ())
     -> Int -- blocked stream
     -> Bool -- immediate Acks
+    -> Bool -- debug
     -> IO QEncoderS
-newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
+newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck debug = do
     let bufsiz1 = ecHeaderBlockBufferSize
         bufsiz2 = ecInstructionBufferSize
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
@@ -327,6 +328,7 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck = do
     setTableCapacity dyntbl ecMaxTableCapacity
     setMaxBlockedStreams dyntbl blocked
     setImmediateAck dyntbl immediateAck
+    setDebugQPACK dyntbl debug
     lock <- newMVar ()
     let enc =
             qpackEncoderS
@@ -385,7 +387,7 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxBlockedStreams dyntbl dcBlockedSterams
-    when debug $ setDebugQPACK dyntbl
+    setDebugQPACK dyntbl debug
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dcMaxTableCapacity dyntbl
     return (dec, handler)
