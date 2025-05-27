@@ -485,8 +485,8 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
 
 tryDrop :: DynamicTable -> Int -> IO ()
 tryDrop dyntbl@DynamicTable{..} requiredSize = do
-    tblsize <- readIORef maxTableSize
-    maxtblsize <- readTVarIO tableSize
+    tblsize <- readTVarIO tableSize
+    maxtblsize <- readIORef maxTableSize
     let necessarySize = requiredSize - (maxtblsize - tblsize)
     if necessarySize <= 0
         then return () -- just in case
@@ -508,7 +508,9 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = do
                     e <- unsafeRead table i
                     unsafeWrite table i dummyEntry
                     return e
-                qpackDebug dyntbl $
+                let siz = entrySize ent
+                atomically $ modifyTVar' tableSize $ subtract siz
+                qpackDebug dyntbl $ do
                     putStrLn $
                         "DROPPED (AbsoluteIndex "
                             ++ show ai
@@ -516,8 +518,8 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = do
                             ++ show (entryHeaderName ent)
                             ++ " "
                             ++ show (entryFieldValue ent)
-                let siz = entrySize ent
-                atomically $ modifyTVar' tableSize $ subtract siz
+                    tblsiz <- readTVarIO tableSize
+                    putStrLn $ "    tblsiz: " ++ show tblsiz
                 modifyIORef' droppingPoint (+ 1)
                 deleteRevIndex revIndex ent
                 loop (n - siz)

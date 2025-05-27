@@ -91,7 +91,8 @@ decodeIndexedFieldLine rbuf dyntbl bp w8 = do
             | static = SIndex $ AbsoluteIndex i
             | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $
+    qpackDebug dyntbl $ do
+        checkHIndex dyntbl hidx
         putStrLn $
             "IndexedFieldLine (" ++ show hidx ++ ") " ++ showTokenHeader ret
     return ret
@@ -103,7 +104,8 @@ decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
-    qpackDebug dyntbl $
+    qpackDebug dyntbl $ do
+        checkHIndex dyntbl hidx
         putStrLn $
             "IndexedFieldLineWithPostBaseIndex ("
                 ++ show hidx
@@ -132,7 +134,8 @@ decodeLiteralFieldLineWithNameReference rbuf dyntbl hufdec bp w8 = do
     key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key, val)
-    qpackDebug dyntbl $
+    qpackDebug dyntbl $ do
+        checkHIndex dyntbl hidx
         putStrLn $
             "LiteralFieldLineWithNameReference ("
                 ++ show hidx
@@ -154,7 +157,8 @@ decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl hufdec bp w8 = do
     key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key, val)
-    qpackDebug dyntbl $
+    qpackDebug dyntbl $ do
+        checkHIndex dyntbl hidx
         putStrLn $
             "LiteralFieldLineWithPostBaseNameReference ("
                 ++ show hidx
