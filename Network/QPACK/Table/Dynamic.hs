@@ -510,6 +510,8 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = do
                     return e
                 let siz = entrySize ent
                 atomically $ modifyTVar' tableSize $ subtract siz
+                modifyIORef' droppingPoint (+ 1)
+                deleteRevIndex revIndex ent
                 qpackDebug dyntbl $ do
                     putStrLn $
                         "DROPPED (AbsoluteIndex "
@@ -520,8 +522,6 @@ tryDrop dyntbl@DynamicTable{..} requiredSize = do
                             ++ show (entryFieldValue ent)
                     tblsiz <- readTVarIO tableSize
                     putStrLn $ "    tblsiz: " ++ show tblsiz
-                modifyIORef' droppingPoint (+ 1)
-                deleteRevIndex revIndex ent
                 loop (n - siz)
 
 ----------------------------------------------------------------
@@ -598,8 +598,8 @@ checkHIndex DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
         else error "checkHIndex"
 
 -- For encoder
-checkAbsoluteIndex :: DynamicTable -> AbsoluteIndex -> IO ()
-checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) = do
+checkAbsoluteIndex :: DynamicTable -> AbsoluteIndex -> String -> IO ()
+checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) tag = do
     InsertionPoint beg <- readTVarIO insertionPoint
     AbsoluteIndex end <- readIORef droppingPoint
     maxN <- readTVarIO maxNumOfEntries
@@ -613,10 +613,20 @@ checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) = do
         then do
             size <- calcSize end 0
             size0 <- readTVarIO tableSize
-            when (size /= size0) $ error "checkAbsoluteIndex(1)"
+            when (size /= size0) $ error $ "checkAbsoluteIndex(1) " ++ tag
             lim <- readIORef maxTableSize
-            when (size > lim) $ error "checkAbsoluteIndex(2)"
-        else error "checkAbsoluteIndex (3)"
+            when (size > lim) $ error $ "checkAbsoluteIndex(2) " ++ tag
+            putStrLn $ "    check: tblsiz: " ++ show size ++ " " ++ show ai ++ " " ++ tag
+        else
+            error $
+                "checkAbsoluteIndex (3) "
+                    ++ tag
+                    ++ " "
+                    ++ show end
+                    ++ " "
+                    ++ show ai
+                    ++ " "
+                    ++ show beg
   where
     EncodeInfo{..} = codeInfo
 

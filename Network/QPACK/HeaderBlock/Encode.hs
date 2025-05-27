@@ -136,7 +136,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             encodeIndexedFieldLine wbuf1 dyntbl hi
             return Nothing
         KV hi@(DIndex ai) -> do
-            qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai
+            qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "KV (1)"
             draining <- isDraining dyntbl ai
             if draining
                 then do
@@ -147,7 +147,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         encodeEI wbuf2 True ins
                         ai' <- duplicate dyntbl hi
                         qpackDebug dyntbl $ do
-                            checkAbsoluteIndex dyntbl ai'
+                            checkAbsoluteIndex dyntbl ai' "KV (2)"
                             putStrLn $
                                 show ins ++ ": " ++ show ai ++ " -> " ++ show ai'
 
@@ -162,8 +162,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             encodeEI wbuf2 True ins
             dai <- insertEntryToEncoder ent dyntbl
             qpackDebug dyntbl $ do
-                checkAbsoluteIndex dyntbl dai
                 putStrLn $ show ins ++ ": " ++ show dai
+                checkAbsoluteIndex dyntbl dai "K"
             useInsertedOrLiteral dai $ Just i
         N -> do
             tryInsert Nothing $ do
@@ -171,8 +171,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeEI wbuf2 True ins
                 dai <- insertEntryToEncoder ent dyntbl
                 qpackDebug dyntbl $ do
-                    checkAbsoluteIndex dyntbl dai
                     putStrLn $ show ins ++ ": " ++ show dai
+                    checkAbsoluteIndex dyntbl dai "N"
                 useInsertedOrLiteral dai Nothing
   where
     ent = toEntryToken t val
@@ -227,7 +227,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
     (idx, set) <- case hi of
         SIndex (AbsoluteIndex i) -> return (i, set11)
         DIndex ai -> do
-            qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai
+            qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "encodeIndexedFieldLine"
             updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
             let HBRelativeIndex i = toHBRelativeIndex ai bp

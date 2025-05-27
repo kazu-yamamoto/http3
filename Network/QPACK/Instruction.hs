@@ -59,7 +59,11 @@ instance Show EncoderInstruction where
             ++ BS8.unpack v
             ++ "\""
     show (InsertWithNameReference (Right (InsRelativeIndex idx)) v) =
-        "InsertWithNameReference (DynRel " ++ show idx ++ ") \"" ++ BS8.unpack v ++ "\""
+        "InsertWithNameReference (InsRelative "
+            ++ show idx
+            ++ ") \""
+            ++ BS8.unpack v
+            ++ "\""
     show (InsertWithLiteralName t v) =
         "InsertWithLiteralName \""
             ++ BS8.unpack (foldedCase (tokenKey t))
