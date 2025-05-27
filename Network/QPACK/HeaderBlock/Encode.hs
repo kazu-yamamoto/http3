@@ -192,18 +192,18 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                             then action
                             else do
                                 qpackDebug dyntbl $ putStrLn "NO SPACE"
-                                defaultAction mi
+                                encodeLiteralFieldLine mi
             else do
                 let mi' = case mi of
                         Nothing -> tokenToStaticIndex t
                         Just x -> Just x
-                defaultAction mi'
-    defaultAction Nothing = do
+                encodeLiteralFieldLine mi'
+    encodeLiteralFieldLine Nothing = do
         -- 4.5.6.  Literal Field Line with Literal Name
         encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
         adjustDrainingPoint dyntbl
         return Nothing
-    defaultAction (Just i) = do
+    encodeLiteralFieldLine (Just i) = do
         -- 4.5.4.  Literal Field Line With Name Reference
         encodeLiteralFieldLineWithNameReference wbuf1 dyntbl i val huff
         return Nothing
@@ -219,7 +219,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 let mi' = case mi of
                         Nothing -> tokenToStaticIndex t
                         Just x -> Just x
-                defaultAction mi'
+                encodeLiteralFieldLine mi'
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
