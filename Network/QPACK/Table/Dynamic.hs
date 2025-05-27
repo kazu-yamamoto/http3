@@ -265,7 +265,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     atomically $ modifyTVar' tableSize (+ entrySize ent)
     return ai
 
-insertEntryToDecoder :: Entry -> DynamicTable -> STM ()
+insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
 insertEntryToDecoder ent DynamicTable{..} = do
     x@(InsertionPoint insp) <- readTVar insertionPoint
     writeTVar insertionPoint (x + 1)
@@ -274,6 +274,7 @@ insertEntryToDecoder ent DynamicTable{..} = do
     table <- readTVar circularTable
     unsafeWrite table i ent
     modifyTVar' tableSize (+ entrySize ent)
+    return $ AbsoluteIndex insp
 
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do

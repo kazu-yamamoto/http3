@@ -125,10 +125,11 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     rr <- lookupRevIndex t val revidx
     qpackDebug dyntbl $ do
         tblsiz <- getTableCapacity dyntbl
-        putStrLn $ "Table size: " ++ show tblsiz
+        putStrLn $ "    Table size: " ++ show tblsiz
+        putStr "    "
         printReferences dyntbl
         putStrLn $
-            show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val
+            show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val ++ ""
     case rr of
         KV hi@(SIndex _) -> do
             -- 4.5.2.  Indexed Field Line
@@ -144,7 +145,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         let ins = Duplicate ridx
                         encodeEI wbuf2 True ins
                         ai' <- duplicate dyntbl hi
-                        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show ai'
+                        qpackDebug dyntbl $
+                            putStrLn $
+                                show ins ++ ": " ++ show ai ++ " -> " ++ show ai'
                         useInsertedOrLiteral ai' Nothing -- fixme Nothing
                 else do
                     -- 4.5.2.  Indexed Field Line
@@ -155,21 +158,21 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             let ins = InsertWithNameReference (Left i) val
             encodeEI wbuf2 True ins
             dai <- insertEntryToEncoder ent dyntbl
-            qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
+            qpackDebug dyntbl $ putStrLn $ show ins ++ ": (" ++ show dai ++ ")"
             useInsertedOrLiteral dai $ Just i
         N -> do
             tryInsert Nothing $ do
                 let ins = InsertWithLiteralName t val
                 encodeEI wbuf2 True ins
                 dai <- insertEntryToEncoder ent dyntbl
-                qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
+                qpackDebug dyntbl $ putStrLn $ show ins ++ ": (" ++ show dai ++ ")"
                 useInsertedOrLiteral dai Nothing
   where
     ent = toEntryToken t val
     tryInsert mi action = do
         let lru = getLruCache dyntbl
         (_, exist) <- cached lru (tokenFoldedKey t, val) (return ())
-        qpackDebug dyntbl $ putStrLn $ if exist then "HIT" else "not HIT"
+        qpackDebug dyntbl $ putStrLn $ if exist then "    HIT" else "    not HIT"
         if exist
             then do
                 okWithoutEviction <- canInsertEntry dyntbl ent
@@ -222,7 +225,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
             let HBRelativeIndex i = toHBRelativeIndex ai bp
             return (i, set10)
     encodeI wbuf set 6 idx
-    qpackDebug dyntbl $ putStrLn "IndexedFieldLine "
+    qpackDebug dyntbl $ putStrLn $ "IndexedFieldLine (" ++ show hi ++ ")"
 
 -- 4.5.3.  Indexed Field Line With Post-Base Index
 encodeIndexedFieldLineWithPostBaseIndex
@@ -240,10 +243,12 @@ encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
 -- 4.5.4.  Literal Field Line With Name Reference
 encodeLiteralFieldLineWithNameReference
     :: WriteBuffer -> DynamicTable -> AbsoluteIndex -> ByteString -> Bool -> IO ()
-encodeLiteralFieldLineWithNameReference wbuf dyntbl (AbsoluteIndex idx) val huff = do
+encodeLiteralFieldLineWithNameReference wbuf dyntbl ai@(AbsoluteIndex idx) val huff = do
     encodeI wbuf set0101 4 idx
     encodeS wbuf huff id set1 7 val
-    qpackDebug dyntbl $ putStrLn $ "LiteralFieldLineWithNameReference "
+    qpackDebug dyntbl $
+        putStrLn $
+            "LiteralFieldLineWithNameReference (SIndex (" ++ show ai ++ "))"
 
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 -- not implemented
