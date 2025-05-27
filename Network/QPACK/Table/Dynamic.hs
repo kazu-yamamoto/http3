@@ -484,7 +484,13 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
     EncodeInfo{..} = codeInfo
 
 tryDrop :: DynamicTable -> Int -> IO ()
-tryDrop dyntbl@DynamicTable{..} requiredSize = loop requiredSize
+tryDrop dyntbl@DynamicTable{..} requiredSize = do
+    tblsize <- readIORef maxTableSize
+    maxtblsize <- readTVarIO tableSize
+    let necessarySize = requiredSize - (maxtblsize - tblsize)
+    if necessarySize <= 0
+        then return () -- just in case
+        else loop necessarySize
   where
     EncodeInfo{..} = codeInfo
     loop n | n <= 0 = return ()
