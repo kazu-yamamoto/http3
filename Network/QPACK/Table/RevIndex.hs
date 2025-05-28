@@ -41,7 +41,7 @@ data RevResult
 
 ----------------------------------------------------------------
 
-data RevIndex = RevIndex DynamicRevIndex OtherRevIdex
+data RevIndex = RevIndex DynamicRevIndex OtherRevIndex
 
 type DynamicValueMap = Map FieldValue HIndex
 
@@ -51,7 +51,7 @@ data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
-type OtherRevIdex = IORef (Map KeyValue HIndex)
+type OtherRevIndex = IORef (Map KeyValue HIndex)
 
 {-# SPECIALIZE INLINE M.lookup ::
     KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
@@ -135,14 +135,14 @@ deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
 
 ----------------------------------------------------------------
 
-newOtherRevIndex :: IO OtherRevIdex
+newOtherRevIndex :: IO OtherRevIndex
 newOtherRevIndex = newIORef M.empty
 
-renewOtherRevIndex :: OtherRevIdex -> IO ()
+renewOtherRevIndex :: OtherRevIndex -> IO ()
 renewOtherRevIndex ref = writeIORef ref M.empty
 
 {-# INLINE lookupOtherRevIndex #-}
-lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIdex -> IO RevResult
+lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIndex -> IO RevResult
 lookupOtherRevIndex (k, v) ref = do
     oth <- readIORef ref
     case M.lookup (KeyValue k v) oth of
@@ -150,13 +150,13 @@ lookupOtherRevIndex (k, v) ref = do
         Just i -> return $ KV i
 
 {-# INLINE insertOtherRevIndex #-}
-insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIdex -> IO ()
+insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIndex -> IO ()
 insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
   where
     k = tokenFoldedKey t
 
 {-# INLINE deleteOtherRevIndex #-}
-deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIdex -> IO ()
+deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIndex -> IO ()
 deleteOtherRevIndex t v ref = modifyIORef' ref $ M.delete (KeyValue k v)
   where
     k = tokenFoldedKey t
