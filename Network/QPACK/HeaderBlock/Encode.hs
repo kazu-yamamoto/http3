@@ -15,7 +15,6 @@ import Network.Control
 import Network.HPACK.Internal (
     encodeI,
     encodeS,
-    entrySize,
     toEntryToken,
  )
 import Network.HTTP.Semantics
@@ -182,17 +181,15 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         qpackDebug dyntbl $ putStrLn $ if exist then "    HIT" else "    not HIT"
         if exist
             then do
-                okWithoutEviction <- canInsertEntry dyntbl ent
-                if okWithoutEviction
-                    then action
+                ok <- canInsertEntry dyntbl ent
+                if ok
+                    then do
+                        x <- action
+                        dropIfNecessary dyntbl
+                        return x
                     else do
-                        tryDrop dyntbl $ entrySize ent
-                        okWithEviction <- canInsertEntry dyntbl ent
-                        if okWithEviction
-                            then action
-                            else do
-                                qpackDebug dyntbl $ putStrLn "NO SPACE"
-                                encodeLiteralFieldLine mi
+                        qpackDebug dyntbl $ putStrLn "NO SPACE"
+                        encodeLiteralFieldLine mi
             else do
                 let mi' = case mi of
                         Nothing -> tokenToStaticIndex t

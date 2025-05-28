@@ -14,7 +14,6 @@ module Network.QPACK.Table.Dynamic (
     getMaxNumOfEntries,
 
     -- * Entry
-    canInsertEntry,
     insertEntryToDecoder,
     insertEntryToEncoder,
     toDynamicEntry,
@@ -62,6 +61,10 @@ module Network.QPACK.Table.Dynamic (
     adjustDrainingPoint,
     duplicate,
     tryDrop,
+
+    -- * Dropping
+    canInsertEntry,
+    dropIfNecessary,
 
     -- * Accessing
     getLruCache,
@@ -242,12 +245,6 @@ getMaxNumOfEntries :: DynamicTable -> IO Int
 getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
 
 ----------------------------------------------------------------
-
-canInsertEntry :: DynamicTable -> Entry -> IO Bool
-canInsertEntry DynamicTable{..} ent = do
-    siz <- readTVarIO tableSize
-    maxsiz <- readIORef maxTableSize
-    return (siz + entrySize ent <= maxsiz)
 
 insertEntryToEncoder :: Entry -> DynamicTable -> IO AbsoluteIndex
 insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
@@ -483,46 +480,87 @@ duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
   where
     EncodeInfo{..} = codeInfo
 
-tryDrop :: DynamicTable -> Int -> IO ()
-tryDrop dyntbl@DynamicTable{..} requiredSize = do
-    tblsize <- readTVarIO tableSize
-    maxtblsize <- readIORef maxTableSize
-    let necessarySize = requiredSize - (maxtblsize - tblsize)
-    if necessarySize <= 0
-        then return () -- just in case
-        else loop necessarySize
+----------------------------------------------------------------
+
+canInsertEntry :: DynamicTable -> Entry -> IO Bool
+canInsertEntry DynamicTable{..} ent = do
+    let siz = entrySize ent
+    tblsiz <- readTVarIO tableSize
+    maxtblsiz <- readIORef maxTableSize
+    if tblsiz + siz <= maxtblsiz
+        then
+            return True
+        else do
+            AbsoluteIndex ai <- readIORef droppingPoint
+            InsertionPoint lim <- readTVarIO insertionPoint
+            loop ai lim (tblsiz + siz - maxtblsiz)
   where
     EncodeInfo{..} = codeInfo
-    loop n | n <= 0 = return ()
-    loop n = do
-        maxN <- readTVarIO maxNumOfEntries
-        AbsoluteIndex ai <- readIORef droppingPoint
-        InsertionPoint lim <- readTVarIO insertionPoint
-        when (ai < lim) $ do
+    loop ai lim requiredSize
+        | requiredSize <= 0 = return True
+        | otherwise = do
+            if ai < lim
+                then do
+                    maxN <- readTVarIO maxNumOfEntries
+                    let i = ai `mod` maxN
+                    refs <- readIORef referenceCounters
+                    refN <- unsafeRead refs i
+                    if refN == 0
+                        then do
+                            table <- readTVarIO circularTable
+                            dent <- unsafeRead table i
+                            let siz = entrySize dent
+
+                            loop (ai + 1) lim (requiredSize - siz)
+                        else return False
+                else return False
+
+dropIfNecessary :: DynamicTable -> IO ()
+dropIfNecessary dyntbl@DynamicTable{..} = loop
+  where
+    loop = do
+        tblsize <- readTVarIO tableSize
+        maxtblsize <- readIORef maxTableSize
+        unless (tblsize <= maxtblsize) $ do
+            dropped <- tryDrop dyntbl
+            if dropped then loop else error "dropIfNecessary"
+
+tryDrop :: DynamicTable -> IO Bool
+tryDrop dyntbl@DynamicTable{..} = do
+    maxN <- readTVarIO maxNumOfEntries
+    AbsoluteIndex ai <- readIORef droppingPoint
+    InsertionPoint lim <- readTVarIO insertionPoint
+    if ai < lim
+        then do
             let i = ai `mod` maxN
             refs <- readIORef referenceCounters
             refN <- unsafeRead refs i
-            when (refN == 0) $ do
-                table <- readTVarIO circularTable
-                ent <- atomically $ do
-                    e <- unsafeRead table i
-                    unsafeWrite table i dummyEntry
-                    return e
-                let siz = entrySize ent
-                atomically $ modifyTVar' tableSize $ subtract siz
-                modifyIORef' droppingPoint (+ 1)
-                deleteRevIndex revIndex ent
-                qpackDebug dyntbl $ do
-                    putStrLn $
-                        "DROPPED (AbsoluteIndex "
-                            ++ show ai
-                            ++ ") "
-                            ++ show (entryHeaderName ent)
-                            ++ " "
-                            ++ show (entryFieldValue ent)
-                    tblsiz <- readTVarIO tableSize
-                    putStrLn $ "    tblsiz: " ++ show tblsiz
-                loop (n - siz)
+            if refN == 0
+                then do
+                    table <- readTVarIO circularTable
+                    ent <- atomically $ do
+                        e <- unsafeRead table i
+                        unsafeWrite table i dummyEntry
+                        return e
+                    let siz = entrySize ent
+                    atomically $ modifyTVar' tableSize $ subtract siz
+                    modifyIORef' droppingPoint (+ 1)
+                    deleteRevIndex revIndex ent
+                    qpackDebug dyntbl $ do
+                        putStrLn $
+                            "DROPPED (AbsoluteIndex "
+                                ++ show ai
+                                ++ ") "
+                                ++ show (entryHeaderName ent)
+                                ++ " "
+                                ++ show (entryFieldValue ent)
+                        tblsiz <- readTVarIO tableSize
+                        putStrLn $ "    tblsiz: " ++ show tblsiz
+                    return True
+                else return False
+        else return False
+  where
+    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
