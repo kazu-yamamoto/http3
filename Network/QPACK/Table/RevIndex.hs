@@ -12,6 +12,7 @@ module Network.QPACK.Table.RevIndex (
     deleteRevIndex,
     deleteRevIndexList,
     tokenToStaticIndex,
+    isKeyRegistered,
 ) where
 
 import Data.Array (Array)
@@ -35,7 +36,7 @@ import Network.QPACK.Types
 
 data RevResult
     = N
-    | K AbsoluteIndex -- static table only
+    | K HIndex
     | KV HIndex
     deriving (Eq, Show)
 
@@ -43,7 +44,7 @@ data RevResult
 
 data RevIndex = RevIndex DynamicRevIndex OtherRevIndex
 
-type DynamicValueMap = Map FieldValue HIndex
+type DynamicValueMap = Map FieldValue AbsoluteIndex
 
 type DynamicRevIndex = Array Int (IORef DynamicValueMap)
 
@@ -51,7 +52,7 @@ data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
-type OtherRevIndex = IORef (Map KeyValue HIndex)
+type OtherRevIndex = IORef (Map KeyValue AbsoluteIndex) -- dynamic table only
 
 {-# SPECIALIZE INLINE M.lookup ::
     KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
@@ -92,9 +93,9 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
 {-# INLINE lookupStaticRevIndex #-}
 lookupStaticRevIndex :: Int -> FieldValue -> RevResult
 lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
-    StaticEntry i Nothing -> K i
+    StaticEntry i Nothing -> K $ SIndex i
     StaticEntry i (Just m) -> case M.lookup v m of
-        Nothing -> K i
+        Nothing -> K $ SIndex i
         Just j -> KV $ SIndex j
 
 ----------------------------------------------------------------
@@ -117,12 +118,12 @@ lookupDynamicStaticRevIndex ix v drev = do
     let ref = drev `unsafeAt` ix
     m <- readIORef ref
     case M.lookup v m of
-        Just i -> return $ KV i
+        Just i -> return $ KV $ DIndex i
         Nothing -> return $ lookupStaticRevIndex ix v
 
 {-# INLINE insertDynamicRevIndex #-}
 insertDynamicRevIndex
-    :: Token -> FieldValue -> HIndex -> DynamicRevIndex -> IO ()
+    :: Token -> FieldValue -> AbsoluteIndex -> DynamicRevIndex -> IO ()
 insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
   where
     ref = drev `unsafeAt` quicIx (tokenIx t)
@@ -146,11 +147,21 @@ lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIndex -> IO RevResult
 lookupOtherRevIndex (k, v) ref = do
     oth <- readIORef ref
     case M.lookup (KeyValue k v) oth of
-        Nothing -> return N
-        Just i -> return $ KV i
+        Just i -> return $ KV $ DIndex i
+        Nothing -> case M.lookup (KeyValue k "") oth of
+            Nothing -> return N
+            Just i -> return $ K $ DIndex i
+
+isKeyRegistered :: FieldName -> RevIndex -> IO Bool
+isKeyRegistered k (RevIndex _ ref) = do
+    oth <- readIORef ref
+    case M.lookup (KeyValue k "") oth of
+        Nothing -> return False
+        _ -> return True
 
 {-# INLINE insertOtherRevIndex #-}
-insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIndex -> IO ()
+insertOtherRevIndex
+    :: Token -> FieldValue -> AbsoluteIndex -> OtherRevIndex -> IO ()
 insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
   where
     k = tokenFoldedKey t
@@ -212,7 +223,7 @@ tokenToStaticIndex Token{..}
 ----------------------------------------------------------------
 
 {-# INLINE insertRevIndex #-}
-insertRevIndex :: Entry -> HIndex -> RevIndex -> IO ()
+insertRevIndex :: Entry -> AbsoluteIndex -> RevIndex -> IO ()
 insertRevIndex (Entry _ t v) i (RevIndex dyn oth)
     | quicIx (tokenIx t) >= 0 = insertDynamicRevIndex t v i dyn
     | otherwise = insertOtherRevIndex t v i oth

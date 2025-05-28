@@ -64,7 +64,6 @@ module Network.QPACK.Table.Dynamic (
 
     -- * Dropping
     canInsertEntry,
-    dropIfNecessary,
 
     -- * Accessing
     getLruCache,
@@ -234,7 +233,7 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
         EncodeInfo{..} -> do
             arr <- newArray (0, end) 0
             writeIORef referenceCounters arr
-            setLRUCapacity lruCache maxN
+            setLRUCapacity lruCache (maxN * 4)
         _ -> return ()
     writeIORef capaReady True
   where
@@ -258,8 +257,9 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     atomically $ unsafeWrite table i ent
     let revtbl = getRevIndex dyntbl
     let ai = AbsoluteIndex insp
-    insertRevIndex ent (DIndex ai) revtbl
+    insertRevIndex ent ai revtbl
     atomically $ modifyTVar' tableSize (+ entrySize ent)
+    dropIfNecessary dyntbl
     return ai
 
 insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
@@ -468,9 +468,8 @@ adjustDrainingPoint DynamicTable{..} = do
   where
     EncodeInfo{..} = codeInfo
 
-duplicate :: DynamicTable -> HIndex -> IO AbsoluteIndex
-duplicate _ (SIndex _) = error "duplicate"
-duplicate dyntbl@DynamicTable{..} (DIndex (AbsoluteIndex ai)) = do
+duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
+duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
@@ -651,9 +650,9 @@ checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) tag = do
         then do
             size <- calcSize end 0
             size0 <- readTVarIO tableSize
-            when (size /= size0) $ error $ "checkAbsoluteIndex(1) " ++ tag
+            when (size /= size0) $ error $ "checkAbsoluteIndex: size /= size0) " ++ tag
             lim <- readIORef maxTableSize
-            when (size > lim) $ error $ "checkAbsoluteIndex(2) " ++ tag
+            when (size > lim) $ error $ "checkAbsoluteIndex: size > lim " ++ tag
             putStrLn $ "    check: tblsiz: " ++ show size ++ " " ++ show ai ++ " " ++ tag
         else
             error $
