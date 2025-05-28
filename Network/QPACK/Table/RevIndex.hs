@@ -11,6 +11,7 @@ module Network.QPACK.Table.RevIndex (
     insertRevIndex,
     deleteRevIndex,
     deleteRevIndexList,
+    tokenToStaticIndex,
 ) where
 
 import Data.Array (Array)
@@ -32,19 +33,25 @@ import Network.QPACK.Types
 
 ----------------------------------------------------------------
 
-data RevResult = N | K HIndex | KV HIndex deriving (Eq, Show)
+data RevResult
+    = N
+    | K AbsoluteIndex -- static table only
+    | KV HIndex
+    deriving (Eq, Show)
 
 ----------------------------------------------------------------
 
-data RevIndex = RevIndex DynamicRevIndex OtherRevIdex
+data RevIndex = RevIndex DynamicRevIndex OtherRevIndex
 
-type DynamicRevIndex = Array Int (IORef ValueMap)
+type DynamicValueMap = Map FieldValue HIndex
+
+type DynamicRevIndex = Array Int (IORef DynamicValueMap)
 
 data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
-type OtherRevIdex = IORef (Map KeyValue HIndex)
+type OtherRevIndex = IORef (Map KeyValue HIndex)
 
 {-# SPECIALIZE INLINE M.lookup ::
     KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
@@ -60,9 +67,10 @@ type OtherRevIdex = IORef (Map KeyValue HIndex)
 
 type StaticRevIndex = Array Int StaticEntry
 
-data StaticEntry = StaticEntry HIndex (Maybe ValueMap) deriving (Show)
+data StaticEntry = StaticEntry AbsoluteIndex (Maybe StaticValueMap)
+    deriving (Show)
 
-type ValueMap = Map FieldValue HIndex
+type StaticValueMap = Map FieldValue AbsoluteIndex
 
 ----------------------------------------------------------------
 
@@ -78,7 +86,7 @@ staticRevIndex = A.array (minTokenIx, 51) $ map toEnt zs
       where
         lst =
             zipWith (\(k, v) i -> (k, (v, i))) staticTableList $
-                map (SIndex . AbsoluteIndex) [0 ..]
+                map AbsoluteIndex [0 ..]
         extract xs = (fst (NE.head xs), NE.map snd xs)
 
 {-# INLINE lookupStaticRevIndex #-}
@@ -87,7 +95,7 @@ lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
     StaticEntry i Nothing -> K i
     StaticEntry i (Just m) -> case M.lookup v m of
         Nothing -> K i
-        Just j -> KV j
+        Just j -> KV $ SIndex j
 
 ----------------------------------------------------------------
 
@@ -127,14 +135,14 @@ deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
 
 ----------------------------------------------------------------
 
-newOtherRevIndex :: IO OtherRevIdex
+newOtherRevIndex :: IO OtherRevIndex
 newOtherRevIndex = newIORef M.empty
 
-renewOtherRevIndex :: OtherRevIdex -> IO ()
+renewOtherRevIndex :: OtherRevIndex -> IO ()
 renewOtherRevIndex ref = writeIORef ref M.empty
 
 {-# INLINE lookupOtherRevIndex #-}
-lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIdex -> IO RevResult
+lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIndex -> IO RevResult
 lookupOtherRevIndex (k, v) ref = do
     oth <- readIORef ref
     case M.lookup (KeyValue k v) oth of
@@ -142,13 +150,13 @@ lookupOtherRevIndex (k, v) ref = do
         Just i -> return $ KV i
 
 {-# INLINE insertOtherRevIndex #-}
-insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIdex -> IO ()
+insertOtherRevIndex :: Token -> FieldValue -> HIndex -> OtherRevIndex -> IO ()
 insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
   where
     k = tokenFoldedKey t
 
 {-# INLINE deleteOtherRevIndex #-}
-deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIdex -> IO ()
+deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIndex -> IO ()
 deleteOtherRevIndex t v ref = modifyIORef' ref $ M.delete (KeyValue k v)
   where
     k = tokenFoldedKey t
@@ -192,6 +200,14 @@ lookupRevIndex' Token{..} v
     ix = quicIx tokenIx
 
 --    k = tokenFoldedKey t -- fixme
+
+tokenToStaticIndex :: Token -> Maybe AbsoluteIndex
+tokenToStaticIndex Token{..}
+    | ix >= 0 = case staticRevIndex `unsafeAt` ix of
+        StaticEntry i _ -> Just i
+    | otherwise = Nothing
+  where
+    ix = quicIx tokenIx
 
 ----------------------------------------------------------------
 

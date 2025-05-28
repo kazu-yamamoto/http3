@@ -1,61 +1,7 @@
 module Network.QPACK.Table (
-    -- * Dynamic table
-    DynamicTable,
-    newDynamicTableForEncoding,
-    newDynamicTableForDecoding,
-
-    -- * Getter and setter
-    getMaxNumOfEntries,
-    setBasePointToInsersionPoint,
-    getBasePoint,
-    getInsertionPoint,
-    getInsertionPointSTM,
-    checkRequiredInsertCount,
-    checkRequiredInsertCountNB,
-    getRequiredInsertCount,
-    updateRequiredInsertCount,
-    sendIns,
-
-    -- * Entry
-    insertEntryToEncoder,
-    insertEntryToDecoder,
+    module Network.QPACK.Table.Dynamic,
+    module Network.QPACK.Table.RevIndex,
     toIndexedEntry,
-
-    -- * Reverse index
-    RevIndex,
-    RevResult (..),
-    getRevIndex,
-    lookupRevIndex,
-
-    -- * Misc
-    getHuffmanDecoder,
-    setDebugQPACK,
-    getDebugQPACK,
-    qpackDebug,
-    setTableCapacity,
-    isTableReady,
-    setMaxBlockedStreams,
-    getMaxBlockedStreams,
-    incrementKnownReceivedCount,
-    updateKnownReceivedCount,
-    insertSection,
-    getAndDelSection,
-    Section (..),
-    increaseReference,
-    decreaseReference,
-    canInsertEntry,
-    tryDrop,
-    isDraining,
-    duplicate,
-    adjustDrainingPoint,
-    clearRequiredInsertCount,
-    getLruCache,
-    getDynamicTableSize,
-    setMaxHeaderSize,
-    getMaxHeaderSize,
-    getBlockedStreams,
-    tryIncreaseStreams,
-    decreaseStreams,
 ) where
 
 import Control.Concurrent.STM
