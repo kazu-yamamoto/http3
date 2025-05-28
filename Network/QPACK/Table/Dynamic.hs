@@ -508,7 +508,7 @@ canInsertEntry DynamicTable{..} ent = do
                     if refN == 0
                         then do
                             table <- readTVarIO circularTable
-                            dent <- unsafeRead table i
+                            dent <- atomically $ unsafeRead table i
                             let siz = entrySize dent
 
                             loop (ai + 1) lim (requiredSize - siz)
