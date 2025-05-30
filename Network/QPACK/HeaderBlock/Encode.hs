@@ -193,11 +193,14 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
 
     tryInsertKey
         | tokenToStaticIndex t == Nothing = do
-            registered <- isKeyRegistered key revidx
-            if registered
-                then encodeLiteralFieldLine
-                -- XXX use this? draining?
-                else do
+            mdai <- isKeyRegistered key revidx
+            case mdai of
+                Just dai -> do
+                    draining <- isDraining dyntbl dai
+                    if draining
+                        then encodeLiteralFieldLineStatic
+                        else encodeLiteralFieldLineDynamic dai
+                Nothing -> do
                     let val' = ""
                     (_, exist) <- cached lru (key, val') (return ())
                     qpackDebug dyntbl $
@@ -213,8 +216,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                             else return False
                     if ok
                         then newKey val' ent'
-                        else encodeLiteralFieldLine
-        | otherwise = encodeLiteralFieldLine
+                        else encodeLiteralFieldLineStatic
+        | otherwise = encodeLiteralFieldLineStatic
 
     -- call this with DIndex
     maybeDuplicate ai tag action = do
@@ -236,8 +239,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else action
 
     useInsertedOrLiteral ai = do
-        ok <- isBlockedOK dyntbl
-        if ok
+        notBlocked <- isBlockedOK dyntbl
+        if notBlocked
             then do
                 entVal <- atomically (entryFieldValue <$> toDynamicEntry dyntbl ai)
                 case entVal of
@@ -250,9 +253,22 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 increaseReference dyntbl ai
                 return $ Just ai
             else
-                encodeLiteralFieldLine
+                encodeLiteralFieldLineStatic
 
-    encodeLiteralFieldLine = do
+    encodeLiteralFieldLineDynamic dai = do
+        notBlocked <- isBlockedOK dyntbl
+        if notBlocked
+            then do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (DIndex dai) val huff
+
+                return $ Just dai
+            else do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
+                return Nothing
+
+    encodeLiteralFieldLineStatic = do
         case tokenToStaticIndex t of
             Nothing -> do
                 -- 4.5.6.  Literal Field Line with Literal Name

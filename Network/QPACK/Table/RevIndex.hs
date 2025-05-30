@@ -13,6 +13,7 @@ module Network.QPACK.Table.RevIndex (
     deleteRevIndexList,
     tokenToStaticIndex,
     isKeyRegistered,
+    lookupRevIndexS,
 ) where
 
 import Data.Array (Array)
@@ -98,6 +99,16 @@ lookupStaticRevIndex ix v = case staticRevIndex `unsafeAt` ix of
         Nothing -> K $ SIndex i
         Just j -> KV $ SIndex j
 
+lookupRevIndexS
+    :: Token
+    -> FieldValue
+    -> RevResult
+lookupRevIndexS Token{..} v
+    | ix < 0 = N
+    | otherwise = lookupStaticRevIndex ix v
+  where
+    ix = quicIx tokenIx
+
 ----------------------------------------------------------------
 
 newDynamicRevIndex :: IO DynamicRevIndex
@@ -152,12 +163,10 @@ lookupOtherRevIndex (k, v) ref = do
             Nothing -> return N
             Just i -> return $ K $ DIndex i
 
-isKeyRegistered :: FieldName -> RevIndex -> IO Bool
+isKeyRegistered :: FieldName -> RevIndex -> IO (Maybe AbsoluteIndex)
 isKeyRegistered k (RevIndex _ ref) = do
     oth <- readIORef ref
-    case M.lookup (KeyValue k "") oth of
-        Nothing -> return False
-        _ -> return True
+    return $ M.lookup (KeyValue k "") oth
 
 {-# INLINE insertOtherRevIndex #-}
 insertOtherRevIndex
