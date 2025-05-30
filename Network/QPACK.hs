@@ -244,8 +244,8 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
                 when (reqInsCnt /= 0) $ do
-                    blocked <- wouldBeBlocked dyntbl reqInsCnt
-                    when blocked $ insertBlockedStream dyntbl sid
+                    blocked <- wouldSectionBeBlocked dyntbl reqInsCnt
+                    when blocked $ insertBlockedStreamE dyntbl sid
                     let dais = concat daiss
                     insertSection dyntbl sid $ Section reqInsCnt dais
                     immAck <- getImmediateAck dyntbl
@@ -253,7 +253,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                         -- The same logic of SectionAcknowledgement.
                         updateKnownReceivedCount dyntbl reqInsCnt
                         mapM_ (decreaseReference dyntbl) dais
-                        deleteBlockedStream dyntbl sid
+                        deleteBlockedStreamE dyntbl sid
                 return section
   where
     mk' (k, v) = (t, v)
@@ -304,7 +304,7 @@ decoderInstructionHandler dyntbl recv = loop
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
-                deleteBlockedStream dyntbl sid
+                deleteBlockedStreamE dyntbl sid
     handle (StreamCancellation _n) = return () -- fixme
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError

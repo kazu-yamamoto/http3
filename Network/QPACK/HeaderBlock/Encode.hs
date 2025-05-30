@@ -239,7 +239,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else action
 
     useInsertedOrLiteral ai = do
-        notBlocked <- isBlockedOK dyntbl
+        notBlocked <- checkBlockedStreams dyntbl
         if notBlocked
             then do
                 entVal <- atomically (entryFieldValue <$> toDynamicEntry dyntbl ai)
@@ -256,7 +256,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeLiteralFieldLineStatic
 
     encodeLiteralFieldLineDynamic dai = do
-        notBlocked <- isBlockedOK dyntbl
+        notBlocked <- checkBlockedStreams dyntbl
         if notBlocked
             then do
                 -- 4.5.4.  Literal Field Line With Name Reference

@@ -32,9 +32,9 @@ module Network.QPACK.Table.Dynamic (
     decreaseStreams,
 
     -- * Blocked streams
-    getPossiblyBlocked,
-    insertBlockedStream,
-    deleteBlockedStream,
+    insertBlockedStreamE,
+    deleteBlockedStreamE,
+    checkBlockedStreams,
 
     -- * Required insert count
     getRequiredInsertCount,
@@ -46,8 +46,8 @@ module Network.QPACK.Table.Dynamic (
     -- * Known received count
     incrementKnownReceivedCount,
     updateKnownReceivedCount,
-    wouldBeBlocked,
-    isBlockedOK,
+    wouldSectionBeBlocked,
+    wouldInstructionBeBlocked,
     setInsersionPointToKnownReceivedCount,
 
     -- * Points
@@ -134,11 +134,11 @@ data CodeInfo
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
-        , possiblyBlocked     :: IORef (Set Int)
+        , blockedStreamsE     :: IORef (Set Int)
         }
     | DecodeInfo
-        { huffmanDecoder :: HuffmanDecoder  -- only for encoder instruction handler
-        , blockedStreams :: IORef Int
+        { huffmanDecoder  :: HuffmanDecoder  -- only for encoder instruction handler
+        , blockedStreamsD :: IORef Int
         }
 {- FOURMOLU_ENABLE -}
 
@@ -179,7 +179,7 @@ newDynamicTableForEncoding sendEI = do
         sections            <- newIORef IntMap.empty
         lruCache            <- newLRUCacheRef 0
         immediateAck        <- newIORef False
-        possiblyBlocked     <- newIORef Set.empty
+        blockedStreamsE     <- newIORef Set.empty
         return EncodeInfo{..}
     newDynamicTable info sendEI
 {- FOURMOLU_ENABLE -}
@@ -193,7 +193,7 @@ newDynamicTableForDecoding
 newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     let huffmanDecoder = decodeH gcbuf huftmpsiz
-    blockedStreams <- newIORef 0
+    blockedStreamsD <- newIORef 0
     newDynamicTable DecodeInfo{..} sendDI
 
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
@@ -330,35 +330,42 @@ setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
 tryIncreaseStreams :: DynamicTable -> IO Bool
 tryIncreaseStreams DynamicTable{..} = do
     lim <- readIORef maxBlockedStreams
-    curr <- atomicModifyIORef' blockedStreams (\n -> (n + 1, n + 1))
+    curr <- atomicModifyIORef' blockedStreamsD (\n -> (n + 1, n + 1))
     return (curr <= lim)
   where
     DecodeInfo{..} = codeInfo
 
 decreaseStreams :: DynamicTable -> IO ()
-decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreams (\n -> (n - 1, ()))
+decreaseStreams DynamicTable{..} = atomicModifyIORef' blockedStreamsD (\n -> (n - 1, ()))
   where
     DecodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
-getPossiblyBlocked :: DynamicTable -> IO Int
-getPossiblyBlocked DynamicTable{..} =
-    Set.size <$> readIORef possiblyBlocked
+getBlockedStreamsE :: DynamicTable -> IO Int
+getBlockedStreamsE DynamicTable{..} =
+    Set.size <$> readIORef blockedStreamsE
   where
     EncodeInfo{..} = codeInfo
 
-insertBlockedStream :: DynamicTable -> StreamId -> IO ()
-insertBlockedStream DynamicTable{..} sid =
-    modifyIORef' possiblyBlocked (Set.insert sid)
+insertBlockedStreamE :: DynamicTable -> StreamId -> IO ()
+insertBlockedStreamE DynamicTable{..} sid =
+    modifyIORef' blockedStreamsE (Set.insert sid)
   where
     EncodeInfo{..} = codeInfo
 
-deleteBlockedStream :: DynamicTable -> StreamId -> IO ()
-deleteBlockedStream DynamicTable{..} sid =
-    modifyIORef' possiblyBlocked (Set.delete sid)
+deleteBlockedStreamE :: DynamicTable -> StreamId -> IO ()
+deleteBlockedStreamE DynamicTable{..} sid =
+    modifyIORef' blockedStreamsE (Set.delete sid)
   where
     EncodeInfo{..} = codeInfo
+
+checkBlockedStreams :: DynamicTable -> IO Bool
+checkBlockedStreams dyntbl = do
+    maxBlocked <- getMaxBlockedStreams dyntbl
+    blocked <- getBlockedStreamsE dyntbl
+    -- The next one would be blocked, so <, not <=
+    return $ blocked < maxBlocked
 
 ----------------------------------------------------------------
 
@@ -411,19 +418,19 @@ updateKnownReceivedCount DynamicTable{..} (RequiredInsertCount reqInsCnt) =
   where
     EncodeInfo{..} = codeInfo
 
-wouldBeBlocked :: DynamicTable -> RequiredInsertCount -> IO Bool
-wouldBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
+wouldSectionBeBlocked :: DynamicTable -> RequiredInsertCount -> IO Bool
+wouldSectionBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
     krc <- readTVar knownReceivedCount
     return (reqip > krc)
   where
     EncodeInfo{..} = codeInfo
 
-isBlockedOK :: DynamicTable -> IO Bool
-isBlockedOK dyntbl = do
-    maxBlocked <- getMaxBlockedStreams dyntbl
-    blocked <- getPossiblyBlocked dyntbl
-    -- The next one would be blocked, so <, not <=
-    return $ blocked < maxBlocked
+wouldInstructionBeBlocked :: DynamicTable -> AbsoluteIndex -> IO Bool
+wouldInstructionBeBlocked DynamicTable{..} (AbsoluteIndex ai) = atomically $ do
+    krc <- readTVar knownReceivedCount
+    return (ai > krc)
+  where
+    EncodeInfo{..} = codeInfo
 
 setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
 setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do
