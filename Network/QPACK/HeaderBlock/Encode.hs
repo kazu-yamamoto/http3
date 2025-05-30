@@ -138,18 +138,26 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             return Nothing
         KV hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "KV (1)"
-            maybeDuplicate ai "KV (2)" $ do
-                -- 4.5.2.  Indexed Field Line
-                encodeIndexedFieldLine wbuf1 dyntbl hi
-                increaseReference dyntbl ai
-                return $ Just ai
+            blocked <- wouldInstructionBeBlocked dyntbl ai
+            canUseDynamicTable <- checkBlockedStreams dyntbl
+            if canUseDynamicTable || not blocked
+                then maybeDuplicate ai "KV (2)" $ do
+                    -- 4.5.2.  Indexed Field Line
+                    encodeIndexedFieldLine wbuf1 dyntbl hi
+                    increaseReference dyntbl ai
+                    return $ Just ai
+                else encodeLiteralFieldLineStatic
         K sidx@(SIndex i) -> tryInsert $ do
             newKeyVal (Left i) sidx
         K didx@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
-            maybeDuplicate ai "K (2)" $ tryInsert $ do
-                ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                newKeyVal (Right ridx) didx
+            blocked <- wouldInstructionBeBlocked dyntbl ai
+            canUseDynamicTable <- checkBlockedStreams dyntbl
+            if canUseDynamicTable || not blocked
+                then maybeDuplicate ai "K (2)" $ tryInsert $ do
+                    ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
+                    newKeyVal (Right ridx) didx
+                else encodeLiteralFieldLineStatic
         N -> tryInsert $ newKey val ent
   where
     ent = toEntryToken t val
@@ -256,8 +264,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeLiteralFieldLineStatic
 
     encodeLiteralFieldLineDynamic dai = do
-        notBlocked <- checkBlockedStreams dyntbl
-        if notBlocked
+        canUseDynamicTable <- checkBlockedStreams dyntbl
+        if canUseDynamicTable
             then do
                 -- 4.5.4.  Literal Field Line With Name Reference
                 encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (DIndex dai) val huff
