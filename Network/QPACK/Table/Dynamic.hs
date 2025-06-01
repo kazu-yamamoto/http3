@@ -130,7 +130,7 @@ data CodeInfo
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
         , knownReceivedCount  :: TVar Int
-        , referenceCounters   :: IORef (IOArray Index Int)
+        , referenceCounters   :: IORef (IOArray Index (Maybe Int))
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
@@ -168,7 +168,7 @@ newDynamicTableForEncoding
     :: (ByteString -> IO ())
     -> IO DynamicTable
 newDynamicTableForEncoding sendEI = do
-    arr <- newArray (0, 0) 0
+    arr <- newArray (0, 0) Nothing
     info <- do
         revIndex            <- newRevIndex
         requiredInsertCount <- newIORef 0
@@ -231,7 +231,7 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
         writeTVar circularTable tbl
     case codeInfo of
         EncodeInfo{..} -> do
-            arr <- newArray (0, end) 0
+            arr <- newArray (0, end) Nothing
             writeIORef referenceCounters arr
             setLRUCapacity lruCache (maxN * 4)
         _ -> return ()
@@ -312,7 +312,7 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     arr <- readIORef referenceCounters
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
     x <- unsafeRead arr i
-    let x' = func x
+    let x' = func <$> if x == Nothing then Just 0 else x
     unsafeWrite arr i x'
   where
     EncodeInfo{..} = codeInfo
@@ -511,7 +511,7 @@ canInsertEntry DynamicTable{..} ent = do
                     let i = ai `mod` maxN
                     refs <- readIORef referenceCounters
                     refN <- unsafeRead refs i
-                    if refN == 0
+                    if refN == Just 0
                         then do
                             table <- readTVarIO circularTable
                             dent <- atomically $ unsafeRead table i
@@ -541,7 +541,7 @@ tryDrop dyntbl@DynamicTable{..} = do
             let i = ai `mod` maxN
             refs <- readIORef referenceCounters
             refN <- unsafeRead refs i
-            if refN == 0
+            if refN == Just 0
                 then do
                     table <- readTVarIO circularTable
                     ent <- atomically $ do
@@ -622,7 +622,7 @@ printReferences DynamicTable{..} = do
     loop start end arr maxN
     putStr "\n"
   where
-    loop :: Int -> Int -> IOArray Index Int -> Int -> IO ()
+    loop :: Int -> Int -> IOArray Index (Maybe Int) -> Int -> IO ()
     loop start end arr maxN
         | start < end = do
             n <- unsafeRead arr (start `mod` maxN)
