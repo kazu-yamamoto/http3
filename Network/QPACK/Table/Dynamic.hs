@@ -260,6 +260,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     insertRevIndex ent ai revtbl
     atomically $ modifyTVar' tableSize (+ entrySize ent)
     dropIfNecessary dyntbl
+    resetReference dyntbl ai
     return ai
 
 insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
@@ -314,6 +315,15 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     x <- unsafeRead arr i
     let x' = func <$> if x == Nothing then Just 0 else x
     unsafeWrite arr i x'
+  where
+    EncodeInfo{..} = codeInfo
+
+resetReference :: DynamicTable -> AbsoluteIndex -> IO ()
+resetReference DynamicTable{..} (AbsoluteIndex idx) = do
+    maxN <- readTVarIO maxNumOfEntries
+    let i = idx `mod` maxN
+    arr <- readIORef referenceCounters
+    unsafeWrite arr i $ Nothing
   where
     EncodeInfo{..} = codeInfo
 
@@ -476,12 +486,12 @@ adjustDrainingPoint DynamicTable{..} = do
     EncodeInfo{..} = codeInfo
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
-duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
+duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
     ent <- atomically $ unsafeRead table i
-    deleteRevIndex revIndex ent
+    deleteRevIndex revIndex ent dai
     insertEntryToEncoder ent dyntbl
   where
     EncodeInfo{..} = codeInfo
@@ -534,7 +544,7 @@ dropIfNecessary dyntbl@DynamicTable{..} = loop
 tryDrop :: DynamicTable -> IO Bool
 tryDrop dyntbl@DynamicTable{..} = do
     maxN <- readTVarIO maxNumOfEntries
-    AbsoluteIndex ai <- readIORef droppingPoint
+    dai@(AbsoluteIndex ai) <- readIORef droppingPoint
     InsertionPoint lim <- readTVarIO insertionPoint
     if ai < lim
         then do
@@ -551,7 +561,6 @@ tryDrop dyntbl@DynamicTable{..} = do
                     let siz = entrySize ent
                     atomically $ modifyTVar' tableSize $ subtract siz
                     modifyIORef' droppingPoint (+ 1)
-                    deleteRevIndex revIndex ent
                     qpackDebug dyntbl $ do
                         putStrLn $
                             "DROPPED (AbsoluteIndex "
@@ -562,6 +571,7 @@ tryDrop dyntbl@DynamicTable{..} = do
                                 ++ show (entryFieldValue ent)
                         tblsiz <- readTVarIO tableSize
                         putStrLn $ "    tblsiz: " ++ show tblsiz
+                    deleteRevIndex revIndex ent dai
                     return True
                 else return False
         else return False
@@ -618,7 +628,7 @@ printReferences DynamicTable{..} = do
     InsertionPoint end <- readTVarIO insertionPoint
     maxN <- readTVarIO maxNumOfEntries
     arr <- readIORef referenceCounters
-    putStr "Refs:"
+    putStr "Refs: "
     loop start end arr maxN
     putStr "\n"
   where
@@ -626,10 +636,12 @@ printReferences DynamicTable{..} = do
     loop start end arr maxN
         | start < end = do
             n <- unsafeRead arr (start `mod` maxN)
-            putStr $ " " ++ show n
+            putStr $ show start ++ ": " ++ showJust n ++ ", "
             loop (start + 1) end arr maxN
         | otherwise = return ()
     EncodeInfo{..} = codeInfo
+    showJust Nothing = "N"
+    showJust (Just n) = show n
 
 -- For decoder
 checkHIndex :: DynamicTable -> HIndex -> IO ()

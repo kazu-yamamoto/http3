@@ -10,7 +10,6 @@ module Network.QPACK.Table.RevIndex (
     lookupRevIndex',
     insertRevIndex,
     deleteRevIndex,
-    deleteRevIndexList,
     tokenToStaticIndex,
     isKeyRegistered,
     lookupRevIndexS,
@@ -25,6 +24,8 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.OrdPSQ (OrdPSQ)
+import qualified Data.OrdPSQ as PSQ
 import Network.HPACK.Internal (Entry (..))
 import Network.HTTP.Semantics
 
@@ -53,23 +54,10 @@ type DynamicValueMap = Map FieldValue AbsoluteIndex
 
 ----------------------------------------------------------------
 
--- We always create an index for a pair of an unknown header and its value
--- in Linear{H}.
-type OtherRevIndex = IORef (Map KeyValue AbsoluteIndex) -- dynamic table only
+type OtherRevIndex = IORef (Map FieldName OtherValueMap) -- dynamic table only
 
-data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
-
-----------------------------------------------------------------
-
-{-# SPECIALIZE INLINE M.lookup ::
-    KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
-    #-}
-{-# SPECIALIZE INLINE M.delete ::
-    KeyValue -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex
-    #-}
-{-# SPECIALIZE INLINE M.insert ::
-    KeyValue -> HIndex -> M.Map KeyValue HIndex -> M.Map KeyValue HIndex
-    #-}
+-- Priority is negated AbsoluteIndex to find the largest
+type OtherValueMap = OrdPSQ FieldValue Int AbsoluteIndex
 
 ----------------------------------------------------------------
 
@@ -146,10 +134,16 @@ insertDynamicRevIndex t v i drev = modifyIORef ref $ M.insert v i
     ref = drev `unsafeAt` quicIx (tokenIx t)
 
 {-# INLINE deleteDynamicRevIndex #-}
-deleteDynamicRevIndex :: Token -> FieldValue -> DynamicRevIndex -> IO ()
-deleteDynamicRevIndex t v drev = modifyIORef ref $ M.delete v
+deleteDynamicRevIndex
+    :: Token -> FieldValue -> AbsoluteIndex -> DynamicRevIndex -> IO ()
+deleteDynamicRevIndex t v ai drev = modifyIORef ref $ M.alter adjust v
   where
     ref = drev `unsafeAt` quicIx (tokenIx t)
+    adjust Nothing = Nothing
+    adjust x@(Just ai')
+        | ai == ai' = Nothing
+        -- This previous entry is already deleted by "duplicate"
+        | otherwise = x
 
 ----------------------------------------------------------------
 
@@ -163,29 +157,63 @@ renewOtherRevIndex ref = writeIORef ref M.empty
 lookupOtherRevIndex :: (FieldName, FieldValue) -> OtherRevIndex -> IO RevResult
 lookupOtherRevIndex (k, v) ref = do
     oth <- readIORef ref
-    case M.lookup (KeyValue k v) oth of
-        Just i -> return $ KV $ DIndex i
-        Nothing -> case M.lookup (KeyValue k "") oth of
-            Nothing -> return N
-            Just i -> return $ K $ DIndex i
+    case M.lookup k oth of
+        Nothing -> return N
+        Just psq -> case PSQ.lookup v psq of
+            Nothing -> case PSQ.findMin psq of
+                Nothing -> return N
+                Just (_, _, ai) -> return $ K $ DIndex ai
+            Just (_, i) -> return $ KV $ DIndex i
 
 isKeyRegistered :: FieldName -> RevIndex -> IO (Maybe AbsoluteIndex)
 isKeyRegistered k (RevIndex _ ref) = do
     oth <- readIORef ref
-    return $ M.lookup (KeyValue k "") oth
+    return $ case M.lookup k oth of
+        Nothing -> Nothing
+        Just psq -> case PSQ.findMin psq of
+            Nothing -> Nothing
+            Just (_, _, ai) -> Just ai
 
 {-# INLINE insertOtherRevIndex #-}
 insertOtherRevIndex
     :: Token -> FieldValue -> AbsoluteIndex -> OtherRevIndex -> IO ()
-insertOtherRevIndex t v i ref = modifyIORef' ref $ M.insert (KeyValue k v) i
+insertOtherRevIndex t v ai@(AbsoluteIndex i) ref = modifyIORef' ref $ M.alter adjust k
   where
+    adjust Nothing = Just $ PSQ.singleton v (negate i) ai
+    adjust (Just psq) = Just $ PSQ.insert v (negate i) ai psq
     k = tokenFoldedKey t
 
 {-# INLINE deleteOtherRevIndex #-}
-deleteOtherRevIndex :: Token -> FieldValue -> OtherRevIndex -> IO ()
-deleteOtherRevIndex t v ref = modifyIORef' ref $ M.delete (KeyValue k v)
+deleteOtherRevIndex
+    :: Token -> FieldValue -> AbsoluteIndex -> OtherRevIndex -> IO ()
+deleteOtherRevIndex t v ai ref = modifyIORef' ref $ M.alter adjust k
   where
     k = tokenFoldedKey t
+    adjust Nothing =
+        error $
+            "deleteOtherRevIndex "
+                ++ show (tokenFoldedKey t)
+                ++ " "
+                ++ show v
+                ++ " "
+                ++ show ai
+    adjust (Just psq)
+        | PSQ.null psq' = Nothing
+        | otherwise = Just psq'
+      where
+        psq' = snd $ PSQ.alter adj v psq
+        adj x@(Just (_, ai'))
+            | ai == ai' = ((), Nothing)
+            -- This previous entry is already deleted by "duplicate"
+            | otherwise = ((), x)
+        adj Nothing =
+            error $
+                "deleteOtherRevIndex (2) "
+                    ++ show (tokenFoldedKey t)
+                    ++ " "
+                    ++ show v
+                    ++ " "
+                    ++ show ai
 
 ----------------------------------------------------------------
 
@@ -244,11 +272,7 @@ insertRevIndex (Entry _ t v) i (RevIndex dyn oth)
     | otherwise = insertOtherRevIndex t v i oth
 
 {-# INLINE deleteRevIndex #-}
-deleteRevIndex :: RevIndex -> Entry -> IO ()
-deleteRevIndex (RevIndex dyn oth) (Entry _ t v)
-    | quicIx (tokenIx t) >= 0 = deleteDynamicRevIndex t v dyn
-    | otherwise = deleteOtherRevIndex t v oth
-
-{-# INLINE deleteRevIndexList #-}
-deleteRevIndexList :: [Entry] -> RevIndex -> IO ()
-deleteRevIndexList es rev = mapM_ (deleteRevIndex rev) es
+deleteRevIndex :: RevIndex -> Entry -> AbsoluteIndex -> IO ()
+deleteRevIndex (RevIndex dyn oth) (Entry _ t v) ai
+    | quicIx (tokenIx t) >= 0 = deleteDynamicRevIndex t v ai dyn
+    | otherwise = deleteOtherRevIndex t v ai oth
