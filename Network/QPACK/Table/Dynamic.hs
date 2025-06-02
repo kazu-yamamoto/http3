@@ -628,7 +628,7 @@ printReferences DynamicTable{..} = do
     InsertionPoint end <- readTVarIO insertionPoint
     maxN <- readTVarIO maxNumOfEntries
     arr <- readIORef referenceCounters
-    putStr "Refs:"
+    putStr "Refs: "
     loop start end arr maxN
     putStr "\n"
   where
@@ -636,10 +636,12 @@ printReferences DynamicTable{..} = do
     loop start end arr maxN
         | start < end = do
             n <- unsafeRead arr (start `mod` maxN)
-            putStr $ " " ++ show n
+            putStr $ show start ++ ": " ++ showJust n ++ ", "
             loop (start + 1) end arr maxN
         | otherwise = return ()
     EncodeInfo{..} = codeInfo
+    showJust Nothing = "N"
+    showJust (Just n) = show n
 
 -- For decoder
 checkHIndex :: DynamicTable -> HIndex -> IO ()
