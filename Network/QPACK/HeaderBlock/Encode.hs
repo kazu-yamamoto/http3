@@ -258,7 +258,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             then do
                 -- 4.5.4.  Literal Field Line With Name Reference
                 encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (DIndex dai) val huff
-
+                increaseReference dyntbl dai
                 return $ Just dai
             else do
                 -- 4.5.6.  Literal Field Line with Literal Name
