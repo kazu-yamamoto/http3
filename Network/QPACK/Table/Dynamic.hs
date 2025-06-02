@@ -260,6 +260,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     insertRevIndex ent ai revtbl
     atomically $ modifyTVar' tableSize (+ entrySize ent)
     dropIfNecessary dyntbl
+    resetReference dyntbl ai
     return ai
 
 insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
@@ -314,6 +315,15 @@ modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     x <- unsafeRead arr i
     let x' = func <$> if x == Nothing then Just 0 else x
     unsafeWrite arr i x'
+  where
+    EncodeInfo{..} = codeInfo
+
+resetReference :: DynamicTable -> AbsoluteIndex -> IO ()
+resetReference DynamicTable{..} (AbsoluteIndex idx) = do
+    maxN <- readTVarIO maxNumOfEntries
+    let i = idx `mod` maxN
+    arr <- readIORef referenceCounters
+    unsafeWrite arr i $ Nothing
   where
     EncodeInfo{..} = codeInfo
 
