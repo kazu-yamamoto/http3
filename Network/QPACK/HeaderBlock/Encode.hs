@@ -143,14 +143,14 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeIndexedFieldLine wbuf1 dyntbl hi
                 increaseReference dyntbl ai
                 return $ Just ai
-        K sidx@(SIndex i) -> tryInsert $ do
-            newKeyVal (Left i) sidx
-        K didx@(DIndex ai) -> do
+        K (SIndex i) -> tryInsert $ do
+            insertWithNameReference val ent $ Left i
+        K (DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
             withDIndex ai "K (2)" $ tryInsert $ do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                newKeyVal (Right ridx) didx
-        N -> tryInsert $ newKey val ent
+                insertWithNameReference val ent $ Right ridx
+        N -> tryInsert $ insertWithLiteralName val ent
   where
     ent = toEntryToken t val
     key = tokenFoldedKey t
@@ -163,15 +163,13 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             then maybeDuplicate ai tag action
             else encodeLiteralFieldLineStatic
 
-    newKeyVal insidx hidx = do
-        let ins = InsertWithNameReference insidx val
-        encodeEI wbuf2 True ins
-        dai <- insertEntryToEncoder ent dyntbl
-        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show hidx
-        useInsertedOrLiteral dai
+    insertWithNameReference v e insidx =
+        insertWith e $ InsertWithNameReference insidx v
 
-    newKey v e = do
-        let ins = InsertWithLiteralName t v
+    insertWithLiteralName v e =
+        insertWith e $ InsertWithLiteralName t v
+
+    insertWith e ins = do
         encodeEI wbuf2 True ins
         dai <- insertEntryToEncoder e dyntbl
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
@@ -222,7 +220,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                                 return spaceOK
                             else return False
                     if ok
-                        then newKey val' ent'
+                        then insertWithLiteralName val' ent'
                         else encodeLiteralFieldLineStatic
         | otherwise = encodeLiteralFieldLineStatic
 
