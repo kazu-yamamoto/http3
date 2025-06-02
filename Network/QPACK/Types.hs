@@ -128,6 +128,7 @@ set1
     , set0100
     , set0101
     , set0010
+    , set00000
     , set00001
         :: Setter
 
@@ -145,8 +146,9 @@ set00001 = (`setBit` 3)
 
 set0, set00, set000, set0000 :: Setter
 
-set0    = id
-set00   = id
-set000  = id
-set0000 = id
+set0     = id
+set00    = id
+set000   = id
+set0000  = id
+set00000 = id
 {- FOURMOLU_ENABLE -}

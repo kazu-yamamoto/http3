@@ -28,7 +28,7 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 {- FOURMOLU_ENABLE -}
 
 data DecodeError
-    = IllegalStaticIndex
+    = IllegalStaticIndex Int
     | IllegalInsertCount
     | BlockedStreamsOverflow
     deriving (Eq, Show)

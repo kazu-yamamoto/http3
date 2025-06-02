@@ -34,7 +34,7 @@ staticTableSize = length staticTableList
 toStaticEntry :: AbsoluteIndex -> Entry
 toStaticEntry (AbsoluteIndex sidx)
     | sidx < staticTableSize = staticTable `unsafeAt` sidx
-    | otherwise = E.throw IllegalStaticIndex
+    | otherwise = E.throw $ IllegalStaticIndex sidx
 
 -- | Pre-defined static table.
 staticTable :: Array Index Entry

@@ -243,17 +243,21 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 reqInsCnt <- getRequiredInsertCount dyntbl
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
+                immAck <- getImmediateAck dyntbl
                 when (reqInsCnt /= 0) $ do
-                    blocked <- wouldBeBlocked dyntbl reqInsCnt
-                    when blocked $ insertBlockedStream dyntbl sid
+                    blocked <- wouldSectionBeBlocked dyntbl reqInsCnt
+                    when blocked $ insertBlockedStreamE dyntbl sid
                     let dais = concat daiss
                     insertSection dyntbl sid $ Section reqInsCnt dais
-                    immAck <- getImmediateAck dyntbl
                     when immAck $ do
                         -- The same logic of SectionAcknowledgement.
                         updateKnownReceivedCount dyntbl reqInsCnt
                         mapM_ (decreaseReference dyntbl) dais
-                        deleteBlockedStream dyntbl sid
+                        deleteBlockedStreamE dyntbl sid
+                -- Need to emulate InsertCountIncrement since
+                -- SectionAcknowledgement is not returned if
+                -- RequiredInsertCount is 0.
+                when immAck $ setInsersionPointToKnownReceivedCount dyntbl
                 return section
   where
     mk' (k, v) = (t, v)
@@ -304,7 +308,7 @@ decoderInstructionHandler dyntbl recv = loop
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
-                deleteBlockedStream dyntbl sid
+                deleteBlockedStreamE dyntbl sid
     handle (StreamCancellation _n) = return () -- fixme
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
@@ -421,7 +425,6 @@ encoderInstructionHandler decCapLim dyntbl recv = loop
         when (bs /= "") $ do
             encoderInstructionHandlerS decCapLim dyntbl bs
             loop
-{- FOURMOLU_DISABLE -}
 
 -- Note: dyntbl for decoder
 encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
@@ -430,14 +433,17 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
     when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
 
-    mapM_ handle ins
+    cnt <- sum <$> mapM handle ins
+    when (cnt /= 0) $
+        encodeDecoderInstructions [InsertCountIncrement cnt] >>= sendIns dyntbl
   where
     hufdec = getHuffmanDecoder dyntbl -- only for encoder instruction handler
     handle ins@(SetDynamicTableCapacity n)
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = do
-              setTableCapacity dyntbl n
-              qpackDebug dyntbl $ print ins
+            setTableCapacity dyntbl n
+            qpackDebug dyntbl $ print ins
+            return 0
     handle ins@(InsertWithNameReference ii val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -452,7 +458,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             _ <- insertEntryToDecoder ent dyntbl
             return idx
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+        return 1
     handle ins@(InsertWithLiteralName t val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -460,7 +466,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
+        return 1
     handle ins@(Duplicate ri) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -471,6 +477,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             ent <- toIndexedEntry dyntbl idx
             ai' <- insertEntryToDecoder ent dyntbl
             return (ai, ai')
-        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai ++ " -> " ++ show dai'
-        -- encodeDecoderInstructions [InsertCountIncrement 1] >>= getSendDI dyntbl
-{- FOURMOLU_ENABLE -}
+        qpackDebug dyntbl $
+            putStrLn $
+                show ins ++ ": " ++ show dai ++ " -> " ++ show dai'
+        return 1
