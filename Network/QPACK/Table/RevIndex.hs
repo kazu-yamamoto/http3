@@ -45,15 +45,21 @@ data RevResult
 
 data RevIndex = RevIndex DynamicRevIndex OtherRevIndex
 
-type DynamicValueMap = Map FieldValue AbsoluteIndex
+----------------------------------------------------------------
 
 type DynamicRevIndex = Array Int (IORef DynamicValueMap)
 
-data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
+type DynamicValueMap = Map FieldValue AbsoluteIndex
+
+----------------------------------------------------------------
 
 -- We always create an index for a pair of an unknown header and its value
 -- in Linear{H}.
 type OtherRevIndex = IORef (Map KeyValue AbsoluteIndex) -- dynamic table only
+
+data KeyValue = KeyValue FieldName FieldValue deriving (Eq, Ord)
+
+----------------------------------------------------------------
 
 {-# SPECIALIZE INLINE M.lookup ::
     KeyValue -> M.Map KeyValue HIndex -> Maybe HIndex
