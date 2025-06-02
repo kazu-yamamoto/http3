@@ -476,12 +476,12 @@ adjustDrainingPoint DynamicTable{..} = do
     EncodeInfo{..} = codeInfo
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
-duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
+duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
     ent <- atomically $ unsafeRead table i
-    deleteRevIndex revIndex ent
+    deleteRevIndex revIndex ent dai
     insertEntryToEncoder ent dyntbl
   where
     EncodeInfo{..} = codeInfo
@@ -534,7 +534,7 @@ dropIfNecessary dyntbl@DynamicTable{..} = loop
 tryDrop :: DynamicTable -> IO Bool
 tryDrop dyntbl@DynamicTable{..} = do
     maxN <- readTVarIO maxNumOfEntries
-    AbsoluteIndex ai <- readIORef droppingPoint
+    dai@(AbsoluteIndex ai) <- readIORef droppingPoint
     InsertionPoint lim <- readTVarIO insertionPoint
     if ai < lim
         then do
@@ -551,7 +551,6 @@ tryDrop dyntbl@DynamicTable{..} = do
                     let siz = entrySize ent
                     atomically $ modifyTVar' tableSize $ subtract siz
                     modifyIORef' droppingPoint (+ 1)
-                    deleteRevIndex revIndex ent
                     qpackDebug dyntbl $ do
                         putStrLn $
                             "DROPPED (AbsoluteIndex "
@@ -562,6 +561,7 @@ tryDrop dyntbl@DynamicTable{..} = do
                                 ++ show (entryFieldValue ent)
                         tblsiz <- readTVarIO tableSize
                         putStrLn $ "    tblsiz: " ++ show tblsiz
+                    deleteRevIndex revIndex ent dai
                     return True
                 else return False
         else return False

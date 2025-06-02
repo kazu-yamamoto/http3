@@ -88,6 +88,7 @@ library
         network,
         network-byte-order,
         network-control >= 0.1.7 && <0.2,
+        psqueues,
         quic >= 0.2.11 && < 0.3,
         sockaddr,
         stm,
