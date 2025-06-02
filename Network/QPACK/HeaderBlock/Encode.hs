@@ -177,21 +177,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
 
     -- directly call this with SIndex
     tryInsert action = do
-        (_, exist) <- cached lru (key, val) (return ())
-        qpackDebug dyntbl $
-            putStrLn $
-                (if exist then "    HIT" else "    not HIT")
-                    ++ " "
-                    ++ show key
-                    ++ " "
-                    ++ show val
-        ok <-
-            if exist
-                then do
-                    spaceOK <- canInsertEntry dyntbl ent
-                    unless spaceOK $ qpackDebug dyntbl $ putStrLn "    NO SPACE"
-                    return spaceOK
-                else return False
+        ok <- checkExistenceAndSpace ent key val "KeyVal"
         if ok
             then action
             else tryInsertKey
@@ -207,22 +193,28 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         else encodeLiteralFieldLineDynamic dai
                 Nothing -> do
                     let val' = ""
-                    (_, exist) <- cached lru (key, val') (return ())
-                    qpackDebug dyntbl $
-                        putStrLn $
-                            (if exist then "    HIT for Key" else "    not HIT for Key") ++ " " ++ show key
-                    let ent' = toEntryToken t val'
-                    ok <-
-                        if exist
-                            then do
-                                spaceOK <- canInsertEntry dyntbl ent'
-                                unless spaceOK $ qpackDebug dyntbl $ putStrLn "    NO SPACE for Key"
-                                return spaceOK
-                            else return False
+                        ent' = toEntryToken t val'
+                    ok <- checkExistenceAndSpace ent' key val' "Key"
                     if ok
                         then insertWithLiteralName val' ent'
                         else encodeLiteralFieldLineStatic
         | otherwise = encodeLiteralFieldLineStatic
+
+    checkExistenceAndSpace e k v tag = do
+        (_, exist) <- cached lru (k, v) (return ())
+        qpackDebug dyntbl $
+            putStrLn $
+                (if exist then "    HIT for " ++ tag else "    not HIT for " ++ tag)
+                    ++ " "
+                    ++ show k
+                    ++ " "
+                    ++ show v
+        if exist
+            then do
+                spaceOK <- canInsertEntry dyntbl e
+                unless spaceOK $ qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
+                return spaceOK
+            else return False
 
     -- call this with DIndex
     maybeDuplicate ai tag action = do
