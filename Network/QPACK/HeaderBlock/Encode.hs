@@ -138,31 +138,30 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             return Nothing
         KV hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "KV (1)"
-            blocked <- wouldInstructionBeBlocked dyntbl ai
-            canUseDynamicTable <- checkBlockedStreams dyntbl
-            if canUseDynamicTable || not blocked
-                then maybeDuplicate ai "KV (2)" $ do
-                    -- 4.5.2.  Indexed Field Line
-                    encodeIndexedFieldLine wbuf1 dyntbl hi
-                    increaseReference dyntbl ai
-                    return $ Just ai
-                else encodeLiteralFieldLineStatic
+            withDIndex ai "KV (2)" $ do
+                -- 4.5.2.  Indexed Field Line
+                encodeIndexedFieldLine wbuf1 dyntbl hi
+                increaseReference dyntbl ai
+                return $ Just ai
         K sidx@(SIndex i) -> tryInsert $ do
             newKeyVal (Left i) sidx
         K didx@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
-            blocked <- wouldInstructionBeBlocked dyntbl ai
-            canUseDynamicTable <- checkBlockedStreams dyntbl
-            if canUseDynamicTable || not blocked
-                then maybeDuplicate ai "K (2)" $ tryInsert $ do
-                    ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                    newKeyVal (Right ridx) didx
-                else encodeLiteralFieldLineStatic
+            withDIndex ai "K (2)" $ tryInsert $ do
+                ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
+                newKeyVal (Right ridx) didx
         N -> tryInsert $ newKey val ent
   where
     ent = toEntryToken t val
     key = tokenFoldedKey t
     lru = getLruCache dyntbl
+
+    withDIndex ai tag action = do
+        blocked <- wouldInstructionBeBlocked dyntbl ai
+        canUseDynamicTable <- checkBlockedStreams dyntbl
+        if canUseDynamicTable || not blocked
+            then maybeDuplicate ai tag action
+            else encodeLiteralFieldLineStatic
 
     newKeyVal insidx hidx = do
         let ins = InsertWithNameReference insidx val
