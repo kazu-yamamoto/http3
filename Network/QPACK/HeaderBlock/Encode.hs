@@ -138,7 +138,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             return Nothing
         KV hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "KV (1)"
-            withDIndex ai "KV (2)" $ do
+            withDIndex ai $ do
                 -- 4.5.2.  Indexed Field Line
                 encodeIndexedFieldLine wbuf1 dyntbl hi
                 increaseReference dyntbl ai
@@ -147,7 +147,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             insertWithNameReference val ent $ Left i
         K (DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
-            withDIndex ai "K (2)" $ tryInsert $ do
+            withDIndex ai $ tryInsert $ do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
                 insertWithNameReference val ent $ Right ridx
         N -> tryInsert $ insertWithLiteralName val ent
@@ -156,11 +156,11 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     key = tokenFoldedKey t
     lru = getLruCache dyntbl
 
-    withDIndex ai tag action = do
+    withDIndex ai action = do
         blocked <- wouldInstructionBeBlocked dyntbl ai
         canUseDynamicTable <- checkBlockedStreams dyntbl
         if canUseDynamicTable || not blocked
-            then maybeDuplicate ai tag action
+            then action
             else encodeLiteralFieldLineStatic
 
     insertWithNameReference v e insidx =
@@ -186,11 +186,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         | tokenToStaticIndex t == Nothing = do
             mdai <- isKeyRegistered key revidx
             case mdai of
-                Just dai -> do
-                    draining <- isDraining dyntbl dai
-                    if draining
-                        then encodeLiteralFieldLineStatic
-                        else encodeLiteralFieldLineDynamic dai
+                Just dai -> encodeLiteralFieldLineDynamic dai
                 Nothing -> do
                     let val' = ""
                         ent' = toEntryToken t val'
@@ -215,25 +211,6 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 unless spaceOK $ qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
                 return spaceOK
             else return False
-
-    -- call this with DIndex
-    maybeDuplicate ai tag action = do
-        draining <- isDraining dyntbl ai
-        if draining
-            then do
-                qpackDebug dyntbl $ putStrLn "DRAINING"
-                tryInsert $ do
-                    ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                    let ins = Duplicate ridx
-                    encodeEI wbuf2 True ins
-                    ai' <- duplicate dyntbl ai
-                    qpackDebug dyntbl $ do
-                        checkAbsoluteIndex dyntbl ai' tag
-                        putStrLn $
-                            show ins ++ ": " ++ show ai ++ " -> " ++ show ai'
-
-                    useInsertedOrLiteral ai'
-            else action
 
     useInsertedOrLiteral ai = do
         notBlocked <- checkBlockedStreams dyntbl
@@ -270,7 +247,6 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             Nothing -> do
                 -- 4.5.6.  Literal Field Line with Literal Name
                 encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
-                adjustDrainingPoint dyntbl
             Just i -> do
                 -- 4.5.4.  Literal Field Line With Name Reference
                 encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (SIndex i) val huff
