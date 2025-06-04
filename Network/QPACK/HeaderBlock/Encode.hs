@@ -195,10 +195,10 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else tryInsertKey
 
     tryInsertKey
-        | tokenToStaticIndex t == Nothing = do
+        | isJust (tokenToStaticIndex t) = encodeLiteralFieldLineStatic
+        | otherwise = do
             mdai <- isKeyRegistered key revidx
             case mdai of
-                Just dai -> encodeLiteralFieldLineDynamic dai
                 Nothing -> do
                     let val' = ""
                         ent' = toEntryToken t val'
@@ -206,7 +206,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     if ok
                         then insertWithLiteralName val' ent'
                         else encodeLiteralFieldLineStatic
-        | otherwise = encodeLiteralFieldLineStatic
+                Just dai -> encodeLiteralFieldLineDynamic dai
 
     checkExistenceAndSpace e k v tag = do
         (_, exist) <- cached lru (k, v) (return ())
@@ -225,8 +225,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else return False
 
     useInsertedOrLiteral ai = do
-        notBlocked <- checkBlockedStreams dyntbl
-        if notBlocked
+        canUseDynamicTable <- checkBlockedStreams dyntbl
+        if canUseDynamicTable
             then do
                 entVal <- atomically (entryFieldValue <$> toDynamicEntry dyntbl ai)
                 case entVal of
@@ -256,12 +256,12 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
 
     encodeLiteralFieldLineStatic = do
         case tokenToStaticIndex t of
-            Nothing -> do
-                -- 4.5.6.  Literal Field Line with Literal Name
-                encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
             Just i -> do
                 -- 4.5.4.  Literal Field Line With Name Reference
                 encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (SIndex i) val huff
+            Nothing -> do
+                -- 4.5.6.  Literal Field Line with Literal Name
+                encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
         return Nothing
 
 -- 4.5.2.  Indexed Field Line
