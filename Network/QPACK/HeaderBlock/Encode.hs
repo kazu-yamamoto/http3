@@ -144,12 +144,12 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 increaseReference dyntbl ai
                 return $ Just ai
         K hi@(SIndex i) -> tryInsertVal hi $ do
-            insertWithNameReference val ent $ Left i
+            insertWithNameReference val ent Nothing $ Left i
         K hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
             withDIndex ai $ tryInsertVal hi $ do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
-                insertWithNameReference val ent $ Right ridx
+                insertWithNameReference val ent (Just ai) $ Right ridx
         N -> tryInsertKeyVal $ insertWithLiteralName val ent
   where
     ent = toEntryToken t val
@@ -163,19 +163,16 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             then action
             else encodeLiteralFieldLineStatic
 
-    insertWithNameReference v e insidx =
-        insertWith e $ InsertWithNameReference insidx v
+    insertWithNameReference v e mai insidx =
+        insertWith mai e $ InsertWithNameReference insidx v
 
     insertWithLiteralName v e =
-        insertWith e $ InsertWithLiteralName t v
+        insertWith Nothing e $ InsertWithLiteralName t v
 
-    insertWith e ins = do
+    insertWith maiForKey e ins = do
         encodeEI wbuf2 True ins
-        dai <- insertEntryToEncoder e dyntbl
-        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-        useInsertedOrLiteral dai
-
-    useInsertedOrLiteral ai = do
+        ai <- insertEntryToEncoder e dyntbl
+        qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show ai
         canUseDynamicTable <- checkBlockedStreams dyntbl
         if canUseDynamicTable
             then do
@@ -189,11 +186,25 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         encodeIndexedFieldLineWithPostBaseIndex wbuf1 dyntbl ai
                 increaseReference dyntbl ai
                 return $ Just ai
-            else
-                encodeLiteralFieldLineStatic
+            else encodeLiteralValue maiForKey
+
+    encodeLiteralValue Nothing = encodeLiteralFieldLineStatic
+    encodeLiteralValue (Just ai) = do
+        blocked <- wouldInstructionBeBlocked dyntbl ai
+        canUseDynamicTable <- checkBlockedStreams dyntbl
+        if canUseDynamicTable || not blocked
+            then do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl (DIndex ai) val huff
+                increaseReference dyntbl ai
+                return $ Just ai
+            else encodeLiteralFieldLineStatic
 
     tryInsertVal hi action = do
-        ok <- checkExistenceAndSpace ent key val "Val"
+        let possiblelyDropMySelf = case hi of
+                SIndex _ -> Nothing
+                DIndex ai -> Just ai
+        ok <- checkExistenceAndSpace ent key val possiblelyDropMySelf "Val"
         if ok
             then action
             else do
@@ -206,7 +217,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         return $ Just dai
 
     tryInsertKeyVal action = do
-        ok <- checkExistenceAndSpace ent key val "KeyVal"
+        ok <- checkExistenceAndSpace ent key val Nothing "KeyVal"
         case ok of
             True -> action
             False -- trying to insert Key
@@ -217,7 +228,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                         Nothing -> do
                             let val' = ""
                                 ent' = toEntryToken t val'
-                            okK <- checkExistenceAndSpace ent' key val' "Key"
+                            okK <- checkExistenceAndSpace ent' key val' Nothing "Key"
                             if okK
                                 then insertWithLiteralName val' ent'
                                 else encodeLiteralFieldLineStatic
@@ -257,17 +268,17 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     ++ show v
         return exist
 
-    checkSpace e tag = do
-        spaceOK <- canInsertEntry dyntbl e
+    checkSpace e possiblelyDropMySelf tag = do
+        spaceOK <- canInsertEntry dyntbl e possiblelyDropMySelf
         unless spaceOK $ do
             adjustDrainingPoint dyntbl
             qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
         return spaceOK
 
-    checkExistenceAndSpace e k v tag = do
+    checkExistenceAndSpace e k v possiblelyDropMySelf tag = do
         exist <- checkExistence k v tag
         if exist
-            then checkSpace e tag
+            then checkSpace e possiblelyDropMySelf tag
             else return False
 
 -- 4.5.2.  Indexed Field Line

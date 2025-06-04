@@ -511,8 +511,8 @@ duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
 
 ----------------------------------------------------------------
 
-canInsertEntry :: DynamicTable -> Entry -> IO Bool
-canInsertEntry DynamicTable{..} ent = do
+canInsertEntry :: DynamicTable -> Entry -> Maybe (AbsoluteIndex) -> IO Bool
+canInsertEntry DynamicTable{..} ent mai = do
     let siz = entrySize ent
     tblsiz <- readTVarIO tableSize
     maxtblsiz <- readIORef maxTableSize
@@ -524,11 +524,14 @@ canInsertEntry DynamicTable{..} ent = do
             InsertionPoint lim <- readTVarIO insertionPoint
             loop ai lim (tblsiz + siz - maxtblsiz)
   where
+    myself = case mai of
+        Nothing -> -1 -- trick: this index does not exist
+        Just (AbsoluteIndex i) -> i
     EncodeInfo{..} = codeInfo
     loop ai lim requiredSize
         | requiredSize <= 0 = return True
         | otherwise = do
-            if ai < lim
+            if ai < lim && ai /= myself -- don't drop the referred entry
                 then do
                     maxN <- readTVarIO maxNumOfEntries
                     let i = ai `mod` maxN
