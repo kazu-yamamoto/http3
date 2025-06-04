@@ -258,7 +258,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         if exist
             then do
                 spaceOK <- canInsertEntry dyntbl e
-                unless spaceOK $ qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
+                unless spaceOK $ do
+                    adjustDrainingPoint dyntbl
+                    qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
                 return spaceOK
             else return False
 

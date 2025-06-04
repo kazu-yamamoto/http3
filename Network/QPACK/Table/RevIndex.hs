@@ -188,14 +188,8 @@ deleteOtherRevIndex
 deleteOtherRevIndex t v ai ref = modifyIORef' ref $ M.alter adjust k
   where
     k = tokenFoldedKey t
-    adjust Nothing =
-        error $
-            "deleteOtherRevIndex "
-                ++ show (tokenFoldedKey t)
-                ++ " "
-                ++ show v
-                ++ " "
-                ++ show ai
+    -- This previous entry is already deleted by "adjustDrainingPoint"
+    adjust Nothing = Nothing
     adjust (Just psq)
         | PSQ.null psq' = Nothing
         | otherwise = Just psq'
@@ -205,14 +199,8 @@ deleteOtherRevIndex t v ai ref = modifyIORef' ref $ M.alter adjust k
             | ai == ai' = ((), Nothing)
             -- This previous entry is already deleted by "duplicate"
             | otherwise = ((), x)
-        adj Nothing =
-            error $
-                "deleteOtherRevIndex (2) "
-                    ++ show (tokenFoldedKey t)
-                    ++ " "
-                    ++ show v
-                    ++ " "
-                    ++ show ai
+        -- This previous entry is already deleted by "adjustDrainingPoint"
+        adj Nothing = ((), Nothing)
 
 ----------------------------------------------------------------
 

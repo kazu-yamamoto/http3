@@ -484,8 +484,19 @@ adjustDrainingPoint DynamicTable{..} = do
         space = max 1 (num !>>. 4)
         end' = beg - num + space
     writeIORef drainingPoint $ AbsoluteIndex end'
+    table <- readTVarIO circularTable
+    maxN <- readTVarIO maxNumOfEntries
+    loop end end' table maxN
   where
     EncodeInfo{..} = codeInfo
+    loop :: Int -> Int -> Table -> Int -> IO ()
+    loop ai lim table maxN
+        | ai == lim = return ()
+        | otherwise = do
+            let i = ai `mod` maxN
+            ent <- atomically $ unsafeRead table i
+            deleteRevIndex revIndex ent $ AbsoluteIndex ai
+            loop (ai + 1) lim table maxN
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
 duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
