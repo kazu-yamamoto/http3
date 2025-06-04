@@ -175,55 +175,6 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
         useInsertedOrLiteral dai
 
-    tryInsertVal hi action = do
-        ok <- checkExistenceAndSpace ent key val "Val"
-        if ok
-            then action
-            else do
-                -- 4.5.4.  Literal Field Line With Name Reference
-                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
-                case hi of
-                    SIndex _ -> return Nothing
-                    DIndex dai -> do
-                        increaseReference dyntbl dai
-                        return $ Just dai
-
-    tryInsertKeyVal action = do
-        ok <- checkExistenceAndSpace ent key val "KeyVal"
-        if ok
-            then action
-            else tryInsertKey
-
-    tryInsertKey
-        | isJust (tokenToStaticIndex t) = encodeLiteralFieldLineStatic
-        | otherwise = do
-            mdai <- isKeyRegistered key revidx
-            case mdai of
-                Nothing -> do
-                    let val' = ""
-                        ent' = toEntryToken t val'
-                    ok <- checkExistenceAndSpace ent' key val' "Key"
-                    if ok
-                        then insertWithLiteralName val' ent'
-                        else encodeLiteralFieldLineStatic
-                Just dai -> encodeLiteralFieldLineDynamic dai
-
-    checkExistenceAndSpace e k v tag = do
-        (_, exist) <- cached lru (k, v) (return ())
-        qpackDebug dyntbl $
-            putStrLn $
-                (if exist then "    HIT for " ++ tag else "    not HIT for " ++ tag)
-                    ++ " "
-                    ++ show k
-                    ++ " "
-                    ++ show v
-        if exist
-            then do
-                spaceOK <- canInsertEntry dyntbl e
-                unless spaceOK $ qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
-                return spaceOK
-            else return False
-
     useInsertedOrLiteral ai = do
         canUseDynamicTable <- checkBlockedStreams dyntbl
         if canUseDynamicTable
@@ -240,6 +191,37 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 return $ Just ai
             else
                 encodeLiteralFieldLineStatic
+
+    tryInsertVal hi action = do
+        ok <- checkExistenceAndSpace ent key val "Val"
+        if ok
+            then action
+            else do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                case hi of
+                    SIndex _ -> return Nothing
+                    DIndex dai -> do
+                        increaseReference dyntbl dai
+                        return $ Just dai
+
+    tryInsertKeyVal action = do
+        ok <- checkExistenceAndSpace ent key val "KeyVal"
+        case ok of
+            True -> action
+            False -- trying to insert Key
+                | isJust (tokenToStaticIndex t) -> encodeLiteralFieldLineStatic
+                | otherwise -> do
+                    mdai <- isKeyRegistered key revidx
+                    case mdai of
+                        Nothing -> do
+                            let val' = ""
+                                ent' = toEntryToken t val'
+                            okK <- checkExistenceAndSpace ent' key val' "Key"
+                            if okK
+                                then insertWithLiteralName val' ent'
+                                else encodeLiteralFieldLineStatic
+                        Just dai -> encodeLiteralFieldLineDynamic dai
 
     encodeLiteralFieldLineDynamic dai = do
         canUseDynamicTable <- checkBlockedStreams dyntbl
@@ -263,6 +245,22 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 -- 4.5.6.  Literal Field Line with Literal Name
                 encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
         return Nothing
+
+    checkExistenceAndSpace e k v tag = do
+        (_, exist) <- cached lru (k, v) (return ())
+        qpackDebug dyntbl $
+            putStrLn $
+                (if exist then "    HIT for " ++ tag else "    not HIT for " ++ tag)
+                    ++ " "
+                    ++ show k
+                    ++ " "
+                    ++ show v
+        if exist
+            then do
+                spaceOK <- canInsertEntry dyntbl e
+                unless spaceOK $ qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
+                return spaceOK
+            else return False
 
 -- 4.5.2.  Indexed Field Line
 encodeIndexedFieldLine :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
