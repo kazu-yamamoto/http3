@@ -143,14 +143,14 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeIndexedFieldLine wbuf1 dyntbl hi
                 increaseReference dyntbl ai
                 return $ Just ai
-        K (SIndex i) -> tryInsert $ do
+        K hi@(SIndex i) -> tryInsertVal hi $ do
             insertWithNameReference val ent $ Left i
-        K (DIndex ai) -> do
+        K hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
-            withDIndex ai $ tryInsert $ do
+            withDIndex ai $ tryInsertVal hi $ do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
                 insertWithNameReference val ent $ Right ridx
-        N -> tryInsert $ insertWithLiteralName val ent
+        N -> tryInsertKeyVal $ insertWithLiteralName val ent
   where
     ent = toEntryToken t val
     key = tokenFoldedKey t
@@ -175,8 +175,20 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
         useInsertedOrLiteral dai
 
-    -- directly call this with SIndex
-    tryInsert action = do
+    tryInsertVal hi action = do
+        ok <- checkExistenceAndSpace ent key val "Val"
+        if ok
+            then action
+            else do
+                -- 4.5.4.  Literal Field Line With Name Reference
+                encodeLiteralFieldLineWithNameReference wbuf1 dyntbl hi val huff
+                case hi of
+                    SIndex _ -> return Nothing
+                    DIndex dai -> do
+                        increaseReference dyntbl dai
+                        return $ Just dai
+
+    tryInsertKeyVal action = do
         ok <- checkExistenceAndSpace ent key val "KeyVal"
         if ok
             then action
