@@ -56,7 +56,6 @@ type DynamicValueMap = Map FieldValue AbsoluteIndex
 
 type OtherRevIndex = IORef (Map FieldName OtherValueMap) -- dynamic table only
 
--- Priority is negated AbsoluteIndex to find the largest
 type OtherValueMap = OrdPSQ FieldValue Int AbsoluteIndex
 
 ----------------------------------------------------------------
@@ -179,8 +178,8 @@ insertOtherRevIndex
     :: Token -> FieldValue -> AbsoluteIndex -> OtherRevIndex -> IO ()
 insertOtherRevIndex t v ai@(AbsoluteIndex i) ref = modifyIORef' ref $ M.alter adjust k
   where
-    adjust Nothing = Just $ PSQ.singleton v (negate i) ai
-    adjust (Just psq) = Just $ PSQ.insert v (negate i) ai psq
+    adjust Nothing = Just $ PSQ.singleton v i ai
+    adjust (Just psq) = Just $ PSQ.insert v i ai psq
     k = tokenFoldedKey t
 
 {-# INLINE deleteOtherRevIndex #-}
