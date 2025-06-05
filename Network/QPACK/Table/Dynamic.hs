@@ -60,6 +60,7 @@ module Network.QPACK.Table.Dynamic (
     isDraining,
     adjustDrainingPoint,
     duplicate,
+    tryDuplicateLast,
     tryDrop,
 
     -- * Dropping
@@ -498,6 +499,25 @@ adjustDrainingPoint DynamicTable{..} = do
             ent <- atomically $ unsafeRead table i
             deleteRevIndex revIndex ent $ AbsoluteIndex ai
             loop (ai + 1) lim table maxN
+
+tryDuplicateLast :: DynamicTable -> IO (Maybe (AbsoluteIndex, AbsoluteIndex))
+tryDuplicateLast dyntbl@DynamicTable{..} = do
+    dai@(AbsoluteIndex ai) <- readIORef droppingPoint
+    arr <- readIORef referenceCounters
+    maxN <- readTVarIO maxNumOfEntries
+    let i = ai `mod` maxN
+    -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
+    Reference current total <- unsafeRead arr i
+    if current == 0 && total >= 10
+        then do
+            -- fixme
+            ndai <- duplicate dyntbl dai
+            dropIfNecessary dyntbl
+            return $ Just (dai, ndai)
+        else
+            return Nothing
+  where
+    EncodeInfo{..} = codeInfo
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
 duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
