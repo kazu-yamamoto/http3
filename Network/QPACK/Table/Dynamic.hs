@@ -121,6 +121,7 @@ import Network.QUIC (StreamId)
 
 type Table = TArray Index Entry
 data Section = Section RequiredInsertCount [AbsoluteIndex]
+data Reference = Reference Int Int deriving (Show)
 
 {- FOURMOLU_DISABLE -}
 data CodeInfo
@@ -130,7 +131,7 @@ data CodeInfo
         , droppingPoint       :: IORef AbsoluteIndex
         , drainingPoint       :: IORef AbsoluteIndex
         , knownReceivedCount  :: TVar Int
-        , referenceCounters   :: IORef (IOArray Index (Maybe Int))
+        , referenceCounters   :: IORef (IOArray Index Reference)
         , sections            :: IORef (IntMap Section)
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
@@ -168,7 +169,7 @@ newDynamicTableForEncoding
     :: (ByteString -> IO ())
     -> IO DynamicTable
 newDynamicTableForEncoding sendEI = do
-    arr <- newArray (0, 0) Nothing
+    arr <- newArray (0, 0) $ Reference 0 0
     info <- do
         revIndex            <- newRevIndex
         requiredInsertCount <- newIORef 0
@@ -231,7 +232,7 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
         writeTVar circularTable tbl
     case codeInfo of
         EncodeInfo{..} -> do
-            arr <- newArray (0, end) Nothing
+            arr <- newArray (0, end) $ Reference 0 0
             writeIORef referenceCounters arr
             setLRUCapacity lruCache (maxN * 4)
         _ -> return ()
@@ -301,19 +302,20 @@ getAndDelSection DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
     EncodeInfo{..} = codeInfo
 
 increaseReference :: DynamicTable -> AbsoluteIndex -> IO ()
-increaseReference = modifyReference (+ 1)
+increaseReference = modifyReference $ \(Reference c t) -> Reference (c + 1) (t + 1)
 
 decreaseReference :: DynamicTable -> AbsoluteIndex -> IO ()
-decreaseReference = modifyReference (subtract 1)
+decreaseReference = modifyReference $ \(Reference c t) -> Reference (c - 1) t
 
-modifyReference :: (Int -> Int) -> DynamicTable -> AbsoluteIndex -> IO ()
+modifyReference
+    :: (Reference -> Reference) -> DynamicTable -> AbsoluteIndex -> IO ()
 modifyReference func DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = idx `mod` maxN
     arr <- readIORef referenceCounters
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
     x <- unsafeRead arr i
-    let x' = func <$> if x == Nothing then Just 0 else x
+    let x' = func x
     unsafeWrite arr i x'
   where
     EncodeInfo{..} = codeInfo
@@ -323,7 +325,7 @@ resetReference DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = idx `mod` maxN
     arr <- readIORef referenceCounters
-    unsafeWrite arr i $ Nothing
+    unsafeWrite arr i $ Reference 0 0
   where
     EncodeInfo{..} = codeInfo
 
@@ -482,8 +484,19 @@ adjustDrainingPoint DynamicTable{..} = do
         space = max 1 (num !>>. 4)
         end' = beg - num + space
     writeIORef drainingPoint $ AbsoluteIndex end'
+    table <- readTVarIO circularTable
+    maxN <- readTVarIO maxNumOfEntries
+    loop end end' table maxN
   where
     EncodeInfo{..} = codeInfo
+    loop :: Int -> Int -> Table -> Int -> IO ()
+    loop ai lim table maxN
+        | ai == lim = return ()
+        | otherwise = do
+            let i = ai `mod` maxN
+            ent <- atomically $ unsafeRead table i
+            deleteRevIndex revIndex ent $ AbsoluteIndex ai
+            loop (ai + 1) lim table maxN
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
 duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
@@ -498,8 +511,8 @@ duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
 
 ----------------------------------------------------------------
 
-canInsertEntry :: DynamicTable -> Entry -> IO Bool
-canInsertEntry DynamicTable{..} ent = do
+canInsertEntry :: DynamicTable -> Entry -> Maybe (AbsoluteIndex) -> IO Bool
+canInsertEntry DynamicTable{..} ent mai = do
     let siz = entrySize ent
     tblsiz <- readTVarIO tableSize
     maxtblsiz <- readIORef maxTableSize
@@ -511,17 +524,20 @@ canInsertEntry DynamicTable{..} ent = do
             InsertionPoint lim <- readTVarIO insertionPoint
             loop ai lim (tblsiz + siz - maxtblsiz)
   where
+    myself = case mai of
+        Nothing -> -1 -- trick: this index does not exist
+        Just (AbsoluteIndex i) -> i
     EncodeInfo{..} = codeInfo
     loop ai lim requiredSize
         | requiredSize <= 0 = return True
         | otherwise = do
-            if ai < lim
+            if ai < lim && ai /= myself -- don't drop the referred entry
                 then do
                     maxN <- readTVarIO maxNumOfEntries
                     let i = ai `mod` maxN
                     refs <- readIORef referenceCounters
-                    refN <- unsafeRead refs i
-                    if refN == Just 0
+                    Reference current total <- unsafeRead refs i
+                    if current == 0 && total >= 1
                         then do
                             table <- readTVarIO circularTable
                             dent <- atomically $ unsafeRead table i
@@ -550,8 +566,8 @@ tryDrop dyntbl@DynamicTable{..} = do
         then do
             let i = ai `mod` maxN
             refs <- readIORef referenceCounters
-            refN <- unsafeRead refs i
-            if refN == Just 0
+            Reference current total <- unsafeRead refs i
+            if current == 0 && total >= 1
                 then do
                     table <- readTVarIO circularTable
                     ent <- atomically $ do
@@ -632,16 +648,15 @@ printReferences DynamicTable{..} = do
     loop start end arr maxN
     putStr "\n"
   where
-    loop :: Int -> Int -> IOArray Index (Maybe Int) -> Int -> IO ()
+    loop :: Int -> Int -> IOArray Index Reference -> Int -> IO ()
     loop start end arr maxN
         | start < end = do
-            n <- unsafeRead arr (start `mod` maxN)
-            putStr $ show start ++ ": " ++ showJust n ++ ", "
+            r <- unsafeRead arr (start `mod` maxN)
+            putStr $ show start ++ ": " ++ showReference r ++ ", "
             loop (start + 1) end arr maxN
         | otherwise = return ()
     EncodeInfo{..} = codeInfo
-    showJust Nothing = "N"
-    showJust (Just n) = show n
+    showReference (Reference c t) = show c ++ "(" ++ show t ++ ")"
 
 -- For decoder
 checkHIndex :: DynamicTable -> HIndex -> IO ()
