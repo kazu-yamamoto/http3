@@ -59,8 +59,9 @@ module Network.QPACK.Table.Dynamic (
     -- * Draining
     isDraining,
     adjustDrainingPoint,
+    checkTailDuplication,
+    tailDuplication,
     duplicate,
-    tryDuplicateLast,
     tryDrop,
 
     -- * Dropping
@@ -500,8 +501,8 @@ adjustDrainingPoint DynamicTable{..} = do
             deleteRevIndex revIndex ent $ AbsoluteIndex ai
             loop (ai + 1) lim table maxN
 
-tryDuplicateLast :: DynamicTable -> IO (Maybe (AbsoluteIndex, AbsoluteIndex))
-tryDuplicateLast dyntbl@DynamicTable{..} = do
+checkTailDuplication :: DynamicTable -> IO (Maybe AbsoluteIndex)
+checkTailDuplication DynamicTable{..} = do
     dai@(AbsoluteIndex ai) <- readIORef droppingPoint
     arr <- readIORef referenceCounters
     maxN <- readTVarIO maxNumOfEntries
@@ -509,26 +510,27 @@ tryDuplicateLast dyntbl@DynamicTable{..} = do
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
     Reference current total <- unsafeRead arr i
     if current == 0 && total >= 10
-        then do
-            -- fixme
-            ndai <- duplicate dyntbl dai
-            dropIfNecessary dyntbl
-            return $ Just (dai, ndai)
-        else
-            return Nothing
+        then return $ Just dai
+        else return Nothing
+  where
+    EncodeInfo{..} = codeInfo
+
+tailDuplication :: DynamicTable -> IO AbsoluteIndex
+tailDuplication dyntbl@DynamicTable{..} = do
+    dai <- readIORef droppingPoint
+    ndai <- duplicate dyntbl dai
+    dropIfNecessary dyntbl
+    return ndai
   where
     EncodeInfo{..} = codeInfo
 
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
-duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
+duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
     ent <- atomically $ unsafeRead table i
-    deleteRevIndex revIndex ent dai
     insertEntryToEncoder ent dyntbl
-  where
-    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
