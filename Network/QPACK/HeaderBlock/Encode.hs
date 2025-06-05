@@ -220,19 +220,21 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         ok <- checkExistenceAndSpace ent key val Nothing "KeyVal"
         case ok of
             True -> action
-            False -- trying to insert Key
-                | isJust (tokenToStaticIndex t) -> encodeLiteralFieldLineStatic
-                | otherwise -> do
-                    mdai <- isKeyRegistered key revidx
-                    case mdai of
-                        Nothing -> do
-                            let val' = ""
-                                ent' = toEntryToken t val'
-                            okK <- checkExistenceAndSpace ent' key val' Nothing "Key"
-                            if okK
-                                then insertWithLiteralName val' ent'
-                                else encodeLiteralFieldLineStatic
-                        Just dai -> encodeLiteralFieldLineDynamic dai
+            False -> tryInsertKey
+
+    tryInsertKey
+        | isJust (tokenToStaticIndex t) = encodeLiteralFieldLineStatic
+        | otherwise = do
+            mdai <- isKeyRegistered key revidx
+            case mdai of
+                Nothing -> do
+                    let val' = ""
+                        ent' = toEntryToken t val'
+                    okK <- checkExistenceAndSpace ent' key val' Nothing "Key"
+                    if okK
+                        then insertWithLiteralName val' ent'
+                        else encodeLiteralFieldLineStatic
+                Just dai -> encodeLiteralFieldLineDynamic dai
 
     encodeLiteralFieldLineDynamic dai = do
         canUseDynamicTable <- checkBlockedStreams dyntbl
