@@ -225,18 +225,19 @@ getTableCapacity DynamicTable{..} = readTVarIO tableSize
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
     qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
-    writeIORef maxTableSize maxsiz
-    tbl <- atomically $ newArray (0, end) dummyEntry
-    atomically $ do
-        writeTVar maxNumOfEntries maxN
-        writeTVar circularTable tbl
-    case codeInfo of
-        EncodeInfo{..} -> do
-            arr <- newArray (0, end) $ Reference 0 0
-            writeIORef referenceCounters arr
-            setLRUCapacity lruCache (maxN * 4)
-        _ -> return ()
-    writeIORef capaReady True
+    when (maxN >= 1) $ do
+        writeIORef maxTableSize maxsiz
+        tbl <- atomically $ newArray (0, end) dummyEntry
+        atomically $ do
+            writeTVar maxNumOfEntries maxN
+            writeTVar circularTable tbl
+        case codeInfo of
+            EncodeInfo{..} -> do
+                arr <- newArray (0, end) $ Reference 0 0
+                writeIORef referenceCounters arr
+                setLRUCapacity lruCache (maxN * 4)
+            _ -> return ()
+        writeIORef capaReady True
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
