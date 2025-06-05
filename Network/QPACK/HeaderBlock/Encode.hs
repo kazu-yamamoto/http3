@@ -246,7 +246,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
         return Nothing
 
-    checkExistenceAndSpace e k v tag = do
+    checkExistence k v tag = do
         (_, exist) <- cached lru (k, v) (return ())
         qpackDebug dyntbl $
             putStrLn $
@@ -255,13 +255,19 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                     ++ show k
                     ++ " "
                     ++ show v
+        return exist
+
+    checkSpace e tag = do
+        spaceOK <- canInsertEntry dyntbl e
+        unless spaceOK $ do
+            adjustDrainingPoint dyntbl
+            qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
+        return spaceOK
+
+    checkExistenceAndSpace e k v tag = do
+        exist <- checkExistence k v tag
         if exist
-            then do
-                spaceOK <- canInsertEntry dyntbl e
-                unless spaceOK $ do
-                    adjustDrainingPoint dyntbl
-                    qpackDebug dyntbl $ putStrLn $ "    NO SPACE for " ++ tag
-                return spaceOK
+            then checkSpace e tag
             else return False
 
 -- 4.5.2.  Indexed Field Line
