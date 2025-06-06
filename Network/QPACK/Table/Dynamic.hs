@@ -716,11 +716,11 @@ checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) tag = do
             error $
                 "checkAbsoluteIndex (3) "
                     ++ tag
-                    ++ " "
+                    ++ " <= "
                     ++ show end
                     ++ " "
                     ++ show ai
-                    ++ " "
+                    ++ " < "
                     ++ show beg
   where
     EncodeInfo{..} = codeInfo

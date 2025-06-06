@@ -201,6 +201,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else encodeLiteralFieldLineStatic
 
     tryInsertVal hi action = do
+        -- Field representation MUST not refer to a dropped entry
+        -- on insertion.
         let possiblelyDropMySelf = case hi of
                 SIndex _ -> Nothing
                 DIndex ai -> Just ai
