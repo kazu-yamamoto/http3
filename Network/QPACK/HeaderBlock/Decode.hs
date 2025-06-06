@@ -89,7 +89,7 @@ decodeIndexedFieldLine rbuf dyntbl bp w8 = do
     let static = w8 `testBit` 6
         hidx
             | static = SIndex $ AbsoluteIndex i
-            | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
+            | otherwise = DIndex $ fromPreBaseIndex (PreBaseIndex i) bp
     ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
     qpackDebug dyntbl $ do
         checkHIndex dyntbl hidx
@@ -130,7 +130,7 @@ decodeLiteralFieldLineWithNameReference rbuf dyntbl hufdec bp w8 = do
     let static = w8 `testBit` 4
         hidx
             | static = SIndex $ AbsoluteIndex i
-            | otherwise = DIndex $ fromHBRelativeIndex (HBRelativeIndex i) bp
+            | otherwise = DIndex $ fromPreBaseIndex (PreBaseIndex i) bp
     key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key, val)
