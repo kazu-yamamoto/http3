@@ -509,6 +509,7 @@ checkTailDuplication DynamicTable{..} = do
     let i = ai `mod` maxN
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
     Reference current total <- unsafeRead arr i
+    -- fixme: hard coding: >= 10
     if current == 0 && total >= 10
         then return $ Just dai
         else return Nothing
