@@ -333,6 +333,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
     encodeI wbuf set 6 idx
     qpackDebug dyntbl $ putStrLn $ "IndexedFieldLine (" ++ show hi ++ ")"
 
+{-
 -- 4.5.3.  Indexed Field Line With Post-Base Index
 encodeIndexedFieldLineWithPostBaseIndex
     :: WriteBuffer
@@ -345,6 +346,7 @@ encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
     let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
     qpackDebug dyntbl $ putStrLn "IndexedFieldLineWithPostBaseIndex "
+-}
 
 ---------------------------------------------------------------
 
@@ -392,6 +394,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hidx val huff = do
         putStrLn $
             "LiteralFieldLineWithNameReference (" ++ show hidx ++ ")"
 
+{-
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 encodeLiteralFieldLineWithPostBaseNameReference
     :: WriteBuffer
@@ -409,6 +412,7 @@ encodeLiteralFieldLineWithPostBaseNameReference wbuf dyntbl ai val huff = do
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithPostBaseNameReference (DIndex " ++ show ai ++ ")"
+-}
 
 ---------------------------------------------------------------
 
