@@ -7,7 +7,7 @@ import Imports
 
 newtype AbsoluteIndex = AbsoluteIndex Int deriving (Eq, Ord, Show, Num)
 newtype InsRelativeIndex = InsRelativeIndex Int deriving (Eq, Ord, Show, Num)
-newtype HBRelativeIndex = HBRelativeIndex Int deriving (Eq, Ord, Show, Num)
+newtype PreBaseIndex = PreBaseIndex Int deriving (Eq, Ord, Show, Num)
 newtype PostBaseIndex = PostBaseIndex Int deriving (Eq, Ord, Show, Num)
 newtype BasePoint = BasePoint Int deriving (Eq, Ord, Show, Num)
 
@@ -33,8 +33,8 @@ data HIndex
       | Entries  |             Entries             | Space  |
       +----------+---------------------------------+--------+
 |  d  |                            |n-4|n-3|n-2|n-1|          Absolute
-|n-d-1|                            | 3 | 2 | 1 | 0 |          Relative ins
-|n-d-3|                            | 1 | 0 |                  Relative HB
+|n-d-1|                            | 3 | 2 | 1 | 0 |          Ins Relative
+|n-d-3|                            | 1 | 0 |                  Pre-Base
                                            | 0 | 1 |          Post-Base
                                            ^
                                            |
@@ -42,8 +42,8 @@ data HIndex
 
                                                    ip = 100
 |  d  |                            | 96| 97| 98| 99|          Absolute
-|n-d-1|                            | 3 | 2 | 1 | 0 |          Relative ins
-|n-d-3|                            | 1 | 0 |                  Relative HB
+|n-d-1|                            | 3 | 2 | 1 | 0 |          Ins Relative
+|n-d-3|                            | 1 | 0 |                  Pre-Base
                                            | 0 | 1 |          Post-Base
                                            bp = 98
 -}
@@ -79,22 +79,22 @@ fromInsRelativeIndex (InsRelativeIndex ri) (InsertionPoint ip) =
 
 -- |
 --
--- >>> toHBRelativeIndex 96 98
--- HBRelativeIndex 1
--- >>> toHBRelativeIndex 97 98
--- HBRelativeIndex 0
-toHBRelativeIndex :: AbsoluteIndex -> BasePoint -> HBRelativeIndex
-toHBRelativeIndex (AbsoluteIndex idx) (BasePoint bp) =
-    HBRelativeIndex (bp - idx - 1)
+-- >>> toPreBaseIndex 96 98
+-- PreBaseIndex 1
+-- >>> toPreBaseIndex 97 98
+-- PreBaseIndex 0
+toPreBaseIndex :: AbsoluteIndex -> BasePoint -> PreBaseIndex
+toPreBaseIndex (AbsoluteIndex idx) (BasePoint bp) =
+    PreBaseIndex (bp - idx - 1)
 
 -- |
 --
--- >>> fromHBRelativeIndex 1 98
+-- >>> fromPreBaseIndex 1 98
 -- AbsoluteIndex 96
--- >>> fromHBRelativeIndex 0 98
+-- >>> fromPreBaseIndex 0 98
 -- AbsoluteIndex 97
-fromHBRelativeIndex :: HBRelativeIndex -> BasePoint -> AbsoluteIndex
-fromHBRelativeIndex (HBRelativeIndex ri) (BasePoint bp) =
+fromPreBaseIndex :: PreBaseIndex -> BasePoint -> AbsoluteIndex
+fromPreBaseIndex (PreBaseIndex ri) (BasePoint bp) =
     AbsoluteIndex (bp - ri - 1)
 
 -- |

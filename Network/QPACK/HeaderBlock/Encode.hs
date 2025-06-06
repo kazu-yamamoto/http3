@@ -292,7 +292,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "encodeIndexedFieldLine"
             updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
-            let HBRelativeIndex i = toHBRelativeIndex ai bp
+            let PreBaseIndex i = toPreBaseIndex ai bp
             return (i, set10)
     encodeI wbuf set 6 idx
     qpackDebug dyntbl $ putStrLn $ "IndexedFieldLine (" ++ show hi ++ ")"
@@ -319,7 +319,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hidx val huff = do
         DIndex ai -> do
             updateRequiredInsertCount dyntbl ai
             bp <- getBasePoint dyntbl
-            let HBRelativeIndex i = toHBRelativeIndex ai bp
+            let PreBaseIndex i = toPreBaseIndex ai bp
             return (i, set0100)
     encodeI wbuf set 4 idx
     encodeS wbuf huff id set1 7 val
