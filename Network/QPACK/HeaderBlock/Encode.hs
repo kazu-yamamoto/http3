@@ -125,7 +125,15 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
     rr <- lookupRevIndex t val revidx
     qpackDebug dyntbl $ do
         tblsiz <- getTableCapacity dyntbl
-        putStrLn $ "    Table size: " ++ show tblsiz
+        base <- getBasePoint dyntbl
+        insPnt <- getInsertionPoint dyntbl
+        putStrLn $
+            "    Table size: "
+                ++ show tblsiz
+                ++ " "
+                ++ show base
+                ++ " "
+                ++ show insPnt
         putStr "    "
         printReferences dyntbl
         putStrLn $ show rr ++ ": " ++ show (tokenKey t) ++ " " ++ show val ++ ""
@@ -193,6 +201,8 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else encodeLiteralFieldLineStatic
 
     tryInsertVal hi action = do
+        -- Field representation MUST not refer to a dropped entry
+        -- on insertion.
         let possiblelyDropMySelf = case hi of
                 SIndex _ -> Nothing
                 DIndex ai -> Just ai
@@ -240,6 +250,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             else do
                 -- 4.5.6.  Literal Field Line with Literal Name
                 encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
+                tryTailDuplication
                 return Nothing
 
     encodeLiteralFieldLineStatic = do
@@ -250,6 +261,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             Nothing -> do
                 -- 4.5.6.  Literal Field Line with Literal Name
                 encodeLiteralFieldLineWithLiteralName wbuf1 dyntbl t val huff
+                tryTailDuplication
         return Nothing
 
     checkExistence k v tag = do
@@ -276,7 +288,17 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
             then checkSpace e possiblelyDropMySelf tag
             else return False
 
----------------------------------------------------------------
+    tryTailDuplication = do
+        mx <- checkTailDuplication dyntbl
+        case mx of
+            Nothing -> return ()
+            Just ai -> do
+                ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
+                let ins = Duplicate ridx
+                encodeEI wbuf2 True ins
+                qpackDebug dyntbl $ putStrLn $ (show ins) ++ " = " ++ show ai
+                nai <- tailDuplication dyntbl
+                qpackDebug dyntbl $ putStrLn $ "Duplicate: " ++ show ai ++ " -> " ++ show nai
 
 -- 4.5.2/4.5.3
 encodeIndexed :: WriteBuffer -> DynamicTable -> HIndex -> IO ()
@@ -311,6 +333,7 @@ encodeIndexedFieldLine wbuf dyntbl hi = do
     encodeI wbuf set 6 idx
     qpackDebug dyntbl $ putStrLn $ "IndexedFieldLine (" ++ show hi ++ ")"
 
+{-
 -- 4.5.3.  Indexed Field Line With Post-Base Index
 encodeIndexedFieldLineWithPostBaseIndex
     :: WriteBuffer
@@ -323,6 +346,7 @@ encodeIndexedFieldLineWithPostBaseIndex wbuf dyntbl ai = do
     let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set0001 4 idx
     qpackDebug dyntbl $ putStrLn "IndexedFieldLineWithPostBaseIndex "
+-}
 
 ---------------------------------------------------------------
 
@@ -370,6 +394,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hidx val huff = do
         putStrLn $
             "LiteralFieldLineWithNameReference (" ++ show hidx ++ ")"
 
+{-
 -- 4.5.5.  Literal Field Line With Post-Base Name Reference
 encodeLiteralFieldLineWithPostBaseNameReference
     :: WriteBuffer
@@ -387,6 +412,7 @@ encodeLiteralFieldLineWithPostBaseNameReference wbuf dyntbl ai val huff = do
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithPostBaseNameReference (DIndex " ++ show ai ++ ")"
+-}
 
 ---------------------------------------------------------------
 

@@ -59,6 +59,8 @@ module Network.QPACK.Table.Dynamic (
     -- * Draining
     isDraining,
     adjustDrainingPoint,
+    checkTailDuplication,
+    tailDuplication,
     duplicate,
     tryDrop,
 
@@ -225,18 +227,19 @@ getTableCapacity DynamicTable{..} = readTVarIO tableSize
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
     qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
-    writeIORef maxTableSize maxsiz
-    tbl <- atomically $ newArray (0, end) dummyEntry
-    atomically $ do
-        writeTVar maxNumOfEntries maxN
-        writeTVar circularTable tbl
-    case codeInfo of
-        EncodeInfo{..} -> do
-            arr <- newArray (0, end) $ Reference 0 0
-            writeIORef referenceCounters arr
-            setLRUCapacity lruCache (maxN * 4)
-        _ -> return ()
-    writeIORef capaReady True
+    when (maxN >= 1) $ do
+        writeIORef maxTableSize maxsiz
+        tbl <- atomically $ newArray (0, end) dummyEntry
+        atomically $ do
+            writeTVar maxNumOfEntries maxN
+            writeTVar circularTable tbl
+        case codeInfo of
+            EncodeInfo{..} -> do
+                arr <- newArray (0, end) $ Reference 0 0
+                writeIORef referenceCounters arr
+                setLRUCapacity lruCache (maxN * 4)
+            _ -> return ()
+        writeIORef capaReady True
   where
     maxN = maxNumbers maxsiz
     end = maxN - 1
@@ -498,16 +501,37 @@ adjustDrainingPoint DynamicTable{..} = do
             deleteRevIndex revIndex ent $ AbsoluteIndex ai
             loop (ai + 1) lim table maxN
 
+checkTailDuplication :: DynamicTable -> IO (Maybe AbsoluteIndex)
+checkTailDuplication DynamicTable{..} = do
+    dai@(AbsoluteIndex ai) <- readIORef droppingPoint
+    arr <- readIORef referenceCounters
+    maxN <- readTVarIO maxNumOfEntries
+    let i = ai `mod` maxN
+    -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
+    Reference current total <- unsafeRead arr i
+    -- fixme: hard coding: >= 10
+    if current == 0 && total >= 10
+        then return $ Just dai
+        else return Nothing
+  where
+    EncodeInfo{..} = codeInfo
+
+tailDuplication :: DynamicTable -> IO AbsoluteIndex
+tailDuplication dyntbl@DynamicTable{..} = do
+    dai <- readIORef droppingPoint
+    ndai <- duplicate dyntbl dai
+    dropIfNecessary dyntbl
+    return ndai
+  where
+    EncodeInfo{..} = codeInfo
+
 duplicate :: DynamicTable -> AbsoluteIndex -> IO AbsoluteIndex
-duplicate dyntbl@DynamicTable{..} dai@(AbsoluteIndex ai) = do
+duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     table <- readTVarIO circularTable
     ent <- atomically $ unsafeRead table i
-    deleteRevIndex revIndex ent dai
     insertEntryToEncoder ent dyntbl
-  where
-    EncodeInfo{..} = codeInfo
 
 ----------------------------------------------------------------
 
@@ -692,11 +716,11 @@ checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) tag = do
             error $
                 "checkAbsoluteIndex (3) "
                     ++ tag
-                    ++ " "
+                    ++ " <= "
                     ++ show end
                     ++ " "
                     ++ show ai
-                    ++ " "
+                    ++ " < "
                     ++ show beg
   where
     EncodeInfo{..} = codeInfo
