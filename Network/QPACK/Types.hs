@@ -77,6 +77,11 @@ fromInsRelativeIndex :: InsRelativeIndex -> InsertionPoint -> AbsoluteIndex
 fromInsRelativeIndex (InsRelativeIndex ri) (InsertionPoint ip) =
     AbsoluteIndex (ip - ri - 1)
 
+toBaseIndex :: AbsoluteIndex -> BasePoint -> Either PreBaseIndex PostBaseIndex
+toBaseIndex (AbsoluteIndex idx) (BasePoint bp)
+    | idx < bp = Left $ PreBaseIndex (bp - idx - 1)
+    | otherwise = Right $ PostBaseIndex (idx - bp)
+
 -- |
 --
 -- >>> toPreBaseIndex 96 98
