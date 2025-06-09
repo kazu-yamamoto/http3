@@ -501,6 +501,9 @@ adjustDrainingPoint DynamicTable{..} = do
             deleteRevIndex revIndex ent $ AbsoluteIndex ai
             loop (ai + 1) lim table maxN
 
+tailDuplicationThreshold :: Int
+tailDuplicationThreshold = 10
+
 checkTailDuplication :: DynamicTable -> IO (Maybe AbsoluteIndex)
 checkTailDuplication DynamicTable{..} = do
     dai@(AbsoluteIndex ai) <- readIORef droppingPoint
@@ -509,8 +512,7 @@ checkTailDuplication DynamicTable{..} = do
     let i = ai `mod` maxN
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
     Reference current total <- unsafeRead arr i
-    -- fixme: hard coding: >= 10
-    if current == 0 && total >= 10
+    if current == 0 && total >= tailDuplicationThreshold
         then return $ Just dai
         else return Nothing
   where
