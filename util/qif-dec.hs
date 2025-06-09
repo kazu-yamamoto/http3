@@ -73,7 +73,7 @@ dump size efile = do
             defaultQDecoderConfig{dcMaxTableCapacity = size}
             (\_ -> return ())
             True
-    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    _ <- encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
     ref <- newIORef Seq.empty
     processBlock efile $ dumpSwitch dec insthdr ref
 
@@ -86,7 +86,7 @@ dumpSwitch
 dumpSwitch dec insthdr ref (_, blk@(Block n bs))
     | n == 0 = do
         putStrLn "---- Encoder Stream"
-        insthdr bs
+        _ <- insthdr bs
         fifo <- readIORef ref
         loop fifo
     | otherwise = do
@@ -118,7 +118,7 @@ test size efile qfile debug = do
             defaultQDecoderConfig{dcMaxTableCapacity = size}
             (\_ -> return ())
             debug
-    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    _ <- encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
     ref <- newIORef Seq.empty
     ratio <- newIORef $ Ratio{ratioInst = 0, ratioHeader = 0}
     withFile qfile ReadMode $ \h -> do
@@ -137,7 +137,7 @@ testSwitch
     -> IO ()
 testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
     | n == 0 = do
-        insthdr bs
+        _ <- insthdr bs
         modifyIORef' ratio $ \r -> r{ratioInst = ratioInst r + BS.length bs}
         fifo <- readIORef ref
         loop fifo
