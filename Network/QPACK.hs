@@ -293,7 +293,6 @@ decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
 decoderInstructionHandler dyntbl recv = loop
   where
     loop = do
-        _ <- getInsertionPoint dyntbl -- fixme
         bs <- recv 1024
         when (bs /= "") $ do
             (ins, leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
