@@ -60,7 +60,7 @@ import Network.HPACK.Internal (
     toTokenHeaderTable,
  )
 import Network.HTTP.Types
-import Network.QUIC.Internal (StreamId, stdoutLogger)
+import Network.QUIC.Internal (StreamId)
 
 import Imports
 import Network.QPACK.Error
@@ -87,7 +87,9 @@ type QDecoderS = StreamId -> EncodedFieldSection -> IO (Maybe [Header])
 type EncoderInstructionHandler = (Int -> IO EncodedEncoderInstruction) -> IO ()
 
 -- | Simple encoder instruction handler.
-type EncoderInstructionHandlerS = EncodedEncoderInstruction -> IO ()
+--   Leftover is returned.
+type EncoderInstructionHandlerS =
+    EncodedEncoderInstruction -> IO EncodedEncoderInstruction
 
 -- | Encoded decoder instruction.
 type EncodedDecoderInstruction = ByteString
@@ -290,16 +292,18 @@ qpackEncodePrefix buf1 bufsiz1 dyntbl = do
 
 -- Note: dyntbl for encoder
 decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
-decoderInstructionHandler dyntbl recv = loop
+decoderInstructionHandler dyntbl recv = loop ""
   where
-    loop = do
-        bs <- recv 1024
+    loop bs0 = do
+        bs1 <- recv 1024
+        let bs
+                | bs0 == "" = bs1
+                | otherwise = bs0 <> bs1
         when (bs /= "") $ do
-            (ins, leftover) <- decodeDecoderInstructions bs -- fixme: saving leftover
-            when (leftover /= "") $ stdoutLogger "decoderInstructionHandler: leftover"
+            (ins, leftover) <- decodeDecoderInstructions bs
             qpackDebug dyntbl $ mapM_ print ins
             mapM_ handle ins
-            loop
+            loop leftover
     handle (SectionAcknowledgement sid) = do
         msec <- getAndDelSection dyntbl sid
         case msec of
@@ -417,24 +421,26 @@ qpackDecoderS dyntbl sid bs = do
 
 -- Note: dyntbl for decoder
 encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler
-encoderInstructionHandler decCapLim dyntbl recv = loop
+encoderInstructionHandler decCapLim dyntbl recv = loop ""
   where
-    loop = do
-        bs <- recv 1024
+    loop bs0 = do
+        bs1 <- recv 1024
+        let bs
+                | bs0 == "" = bs1
+                | otherwise = bs0 <> bs1
         when (bs /= "") $ do
-            encoderInstructionHandlerS decCapLim dyntbl bs
-            loop
+            leftover <- encoderInstructionHandlerS decCapLim dyntbl bs
+            loop leftover
 
 -- Note: dyntbl for decoder
 encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
-encoderInstructionHandlerS _ _dyntbl "" = return ()
+encoderInstructionHandlerS _ _dyntbl "" = return ""
 encoderInstructionHandlerS decCapLim dyntbl bs = do
-    (ins, leftover) <- decodeEncoderInstructions hufdec bs -- fixme: saving leftover
-    when (leftover /= "") $ stdoutLogger "encoderInstructionHandler: leftover"
-
+    (ins, leftover) <- decodeEncoderInstructions hufdec bs
     cnt <- sum <$> mapM handle ins
     when (cnt /= 0) $
         encodeDecoderInstructions [InsertCountIncrement cnt] >>= sendIns dyntbl
+    return leftover
   where
     hufdec = getHuffmanDecoder dyntbl -- only for encoder instruction handler
     handle ins@(SetDynamicTableCapacity n)
