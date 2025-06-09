@@ -227,8 +227,6 @@ lookupRevIndex t@Token{..} v (RevIndex dyn oth)
     ix = quicIx tokenIx
     k = tokenFoldedKey t
 
---    ent = toEntryToken t v -- fixme
-
 {-# INLINE lookupRevIndex' #-}
 lookupRevIndex'
     :: Token
@@ -236,11 +234,9 @@ lookupRevIndex'
     -> RevResult
 lookupRevIndex' Token{..} v
     | ix >= 0 = lookupStaticRevIndex ix v
-    | otherwise = N -- fixme
+    | otherwise = N
   where
     ix = quicIx tokenIx
-
---    k = tokenFoldedKey t -- fixme
 
 tokenToStaticIndex :: Token -> Maybe AbsoluteIndex
 tokenToStaticIndex Token{..}
