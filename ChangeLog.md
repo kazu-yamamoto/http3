@@ -1,5 +1,11 @@
 # Revision history for http3
 
+## 0.1.0
+
+* QPACK encoder now supports the dynamic table.
+* Breaking change: `Config` takes 'confQEncoderConfig' and
+  `confQDecoderConfig`.
+
 ## 0.0.24
 
 * Supporting SSLKEYLOGFILE in h3-server and h3-client.
