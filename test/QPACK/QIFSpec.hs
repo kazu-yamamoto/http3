@@ -52,7 +52,7 @@ test size efile qfile = do
             defaultQDecoderConfig{dcMaxTableCapacity = size}
             (\_ -> return ())
             False
-    encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
+    _ <- encodeEncoderInstructions [SetDynamicTableCapacity size] False >>= insthdr
     ref <- newIORef Seq.empty
     withFile qfile ReadMode $ \h -> do
         processBlock efile $ testSwitch dec insthdr ref h
@@ -66,7 +66,7 @@ testSwitch
     -> IO ()
 testSwitch dec insthdr ref h (_, blk@(Block n bs))
     | n == 0 = do
-        insthdr bs
+        _ <- insthdr bs
         fifo <- readIORef ref
         loop fifo
     -- to avoid blocking by "dec", ask decoding to the other thread
