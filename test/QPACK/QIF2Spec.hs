@@ -35,22 +35,22 @@ spec = do
     describe "QIF server" $ do
         it "handles dynamic table of 0-bytes" $ do
             let size = 0
-            E.bracket (setup server size) (teardown) $
+            E.bracket (setup server size) teardown $
                 \_ -> runClient size
     describe "QIF server" $ do
         it "handles dynamic table of 256-bytes" $ do
             let size = 256
-            E.bracket (setup server size) (teardown) $
+            E.bracket (setup server size) teardown $
                 \_ -> runClient size
     describe "QIF server" $ do
         it "handles dynamic table of 512-bytes" $ do
             let size = 512
-            E.bracket (setup server size) (teardown) $
+            E.bracket (setup server size) teardown $
                 \_ -> runClient size
     describe "QIF server" $ do
         it "handles dynamic table of 4096-bytes" $ do
             let size = 4096
-            E.bracket (setup server size) (teardown) $
+            E.bracket (setup server size) teardown $
                 \_ -> runClient size
 
 runClient :: Int -> IO ()

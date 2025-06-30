@@ -296,7 +296,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
                 let ins = Duplicate ridx
                 encodeEI wbuf2 True ins
-                qpackDebug dyntbl $ putStrLn $ (show ins) ++ " = " ++ show ai
+                qpackDebug dyntbl $ putStrLn $ show ins ++ " = " ++ show ai
                 nai <- tailDuplication dyntbl
                 qpackDebug dyntbl $ putStrLn $ "Duplicate: " ++ show ai ++ " -> " ++ show nai
 

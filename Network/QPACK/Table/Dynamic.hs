@@ -537,7 +537,7 @@ duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
 
 ----------------------------------------------------------------
 
-canInsertEntry :: DynamicTable -> Entry -> Maybe (AbsoluteIndex) -> IO Bool
+canInsertEntry :: DynamicTable -> Entry -> Maybe AbsoluteIndex -> IO Bool
 canInsertEntry DynamicTable{..} ent mai = do
     let siz = entrySize ent
     tblsiz <- readTVarIO tableSize
