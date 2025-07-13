@@ -80,9 +80,7 @@ newContext conn conf = do
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
         | isAsyncException se = E.throwIO se
-        | otherwise = do
-            print se
-            abortConnection conn aerr ""
+        | otherwise = abortConnection conn aerr ""
 
 isAsyncException :: E.Exception e => e -> Bool
 isAsyncException e =
