@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.1.1
+
+* Removing a debug logging to stdout.
+
 ## 0.1.0
 
 * QPACK encoder now supports the dynamic table.
