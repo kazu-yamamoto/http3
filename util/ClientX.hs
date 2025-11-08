@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module ClientX (
-    Aux (..),
+    Misc (..),
     Cli,
     clientHQ,
     clientH3,
@@ -28,14 +28,14 @@ import Network.HTTP3.Client (
  )
 import qualified Network.HTTP3.Client as H3
 
-data Aux = Aux
-    { auxAuthority :: String
-    , auxDebug :: String -> IO ()
-    , auxShow :: ByteString -> IO ()
-    , auxCheckClose :: IO Bool
+data Misc = Misc
+    { miscAuthority :: String
+    , miscDebug :: String -> IO ()
+    , miscShow :: ByteString -> IO ()
+    , miscCheckClose :: IO Bool
     }
 
-type Cli = Aux -> [Path] -> Connection -> IO ()
+type Cli = Misc -> [Path] -> Connection -> IO ()
 
 clientHQ :: Int -> Cli
 clientHQ n = clientX n HQ.run
@@ -47,21 +47,21 @@ clientX
     :: Int
     -> (Connection -> ClientConfig -> Config -> Client () -> IO ())
     -> Cli
-clientX n0 run aux@Aux{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
-    run conn cliconf conf $ client aux n0 paths
+clientX n0 run misc@Misc{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
+    run conn cliconf conf $ client misc n0 paths
   where
     cliconf =
         H3.defaultClientConfig
-            { authority = auxAuthority
+            { authority = miscAuthority
             }
 
-client :: Aux -> Int -> [Path] -> Client ()
-client aux n0 paths sendRequest _aux =
+client :: Misc -> Int -> [Path] -> Client ()
+client misc n0 paths sendRequest _misc =
     foldr1 concurrently_ $
-        map (client' aux n0 sendRequest) paths
+        map (client' misc n0 sendRequest) paths
 
-client' :: Aux -> Int -> SendRequest -> Path -> IO ()
-client' Aux{..} n0 sendRequest path = loop n0
+client' :: Misc -> Int -> SendRequest -> Path -> IO ()
+client' Misc{..} n0 sendRequest path = loop n0
   where
     req =
         H3.requestNoBody
@@ -71,10 +71,10 @@ client' Aux{..} n0 sendRequest path = loop n0
     loop 0 = return ()
     loop n = do
         () <- sendRequest req $ \rsp -> do
-            auxDebug "GET"
-            auxShow "------------------------"
+            miscDebug "GET"
+            miscShow "------------------------"
             consume rsp
-            auxShow "------------------------"
+            miscShow "------------------------"
         when (n /= 1) $ do
             threadDelay 100000
             loop (n - 1)
@@ -82,8 +82,8 @@ client' Aux{..} n0 sendRequest path = loop n0
         bs <- H3.getResponseBodyChunk rsp
         if bs == ""
             then do
-                auxDebug "Fin received"
+                miscDebug "Fin received"
             else do
-                auxShow bs
-                auxDebug $ show (C8.length bs) ++ " bytes received"
+                miscShow bs
+                miscDebug $ show (C8.length bs) ++ " bytes received"
                 consume rsp

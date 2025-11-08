@@ -239,22 +239,22 @@ main = do
         showContent
             | optShow = C8.putStrLn
             | otherwise = \_ -> return ()
-        aux =
-            Aux
-                { auxAuthority = host
-                , auxDebug = debug
-                , auxShow = showContent
-                , auxCheckClose = do
+        misc =
+            Misc
+                { miscAuthority = host
+                , miscDebug = debug
+                , miscShow = showContent
+                , miscCheckClose = do
                     mx <- T.timeout 1000000 $ takeMVar cmvar
                     case mx of
                         Nothing -> return False
                         _ -> return True
                 }
-    runClient cc opts aux paths
+    runClient cc opts misc paths
 
-runClient :: ClientConfig -> Options -> Aux -> [H3.Path] -> IO ()
-runClient cc opts@Options{..} aux@Aux{..} paths = do
-    auxDebug "------------------------"
+runClient :: ClientConfig -> Options -> Misc -> [H3.Path] -> IO ()
+runClient cc opts@Options{..} misc@Misc{..} paths = do
+    miscDebug "------------------------"
     (info1, info2, res, mig, client') <- run cc $ \conn -> do
         i1 <- getConnectionInfo conn
         let client = case alpn i1 of
@@ -264,14 +264,14 @@ runClient cc opts@Options{..} aux@Aux{..} paths = do
             Nothing -> return False
             Just mtyp -> do
                 x <- controlConnection conn mtyp
-                auxDebug $ "Migration by " ++ show mtyp
+                miscDebug $ "Migration by " ++ show mtyp
                 return x
         t1 <- getUnixTime
         if optInteractive
             then do
-                console aux paths client conn
+                console misc paths client conn
             else do
-                client aux paths conn
+                client misc paths conn
         stats <- getConnectionStats conn
         print stats
         t2 <- getUnixTime
@@ -289,7 +289,7 @@ runClient cc opts@Options{..} aux@Aux{..} paths = do
         | optResumption -> do
             if isResumptionPossible res
                 then do
-                    info3 <- runClient2 cc opts aux paths res client'
+                    info3 <- runClient2 cc opts misc paths res client'
                     if handshakeMode info3 == PreSharedKey
                         then do
                             putStrLn "Result: (R) TLS resumption ... OK"
@@ -303,7 +303,7 @@ runClient cc opts@Options{..} aux@Aux{..} paths = do
         | opt0RTT -> do
             if is0RTTPossible res
                 then do
-                    info3 <- runClient2 cc opts aux paths res client'
+                    info3 <- runClient2 cc opts misc paths res client'
                     if handshakeMode info3 == RTT0
                         then do
                             putStrLn "Result: (Z) 0-RTT ... OK"
@@ -356,7 +356,7 @@ runClient cc opts@Options{..} aux@Aux{..} paths = do
             Nothing -> do
                 putStrLn "Result: (H) handshake ... OK"
                 putStrLn "Result: (D) stream data ... OK"
-                closeCompleted <- auxCheckClose
+                closeCompleted <- miscCheckClose
                 when closeCompleted $ putStrLn "Result: (C) close completed ... OK"
                 case alpn info1 of
                     Nothing -> return ()
@@ -368,17 +368,17 @@ runClient cc opts@Options{..} aux@Aux{..} paths = do
 runClient2
     :: ClientConfig
     -> Options
-    -> Aux
+    -> Misc
     -> [H3.Path]
     -> ResumptionInfo
     -> Cli
     -> IO ConnectionInfo
-runClient2 cc Options{..} aux@Aux{..} paths res client = do
+runClient2 cc Options{..} misc@Misc{..} paths res client = do
     threadDelay 100000
-    auxDebug "<<<< next connection >>>>"
-    auxDebug "------------------------"
+    miscDebug "<<<< next connection >>>>"
+    miscDebug "------------------------"
     run cc' $ \conn -> do
-        void $ client aux paths conn
+        void $ client misc paths conn
         getConnectionInfo conn
   where
     cc' =
@@ -407,8 +407,8 @@ printThroughput t1 t2 st =
             / 1024
             / 1024
 
-console :: Aux -> [H3.Path] -> Cli -> Connection -> IO ()
-console aux paths client conn = do
+console :: Misc -> [H3.Path] -> Cli -> Connection -> IO ()
+console misc paths client conn = do
     waitEstablished conn
     putStrLn "q -- quit"
     putStrLn "g -- get"
@@ -425,7 +425,7 @@ console aux paths client conn = do
             "q" -> putStrLn "bye"
             "g" -> do
                 mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
-                _ <- forkIO $ client aux paths conn
+                _ <- forkIO $ client misc paths conn
                 loop
             "p" -> do
                 putStrLn "Ping"
