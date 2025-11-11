@@ -26,6 +26,7 @@ module Network.HTTP3.Context (
 ) where
 
 import qualified Control.Exception as E
+import Control.Monad (void)
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HTTP.Semantics.Client
@@ -122,8 +123,8 @@ unidirectional Context{..} strm = do
     let typ = toH3StreamType $ fromIntegral w8
     ctxUniSwitch typ (recvStream strm)
 
-withHandle :: Context -> (T.Handle -> IO a) -> IO (Maybe a)
-withHandle Context{..} = T.withHandle ctxThreadManager (return ())
+withHandle :: Context -> (T.Handle -> IO ()) -> IO ()
+withHandle Context{..} action = void $ T.withHandle ctxThreadManager (return ()) action
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection

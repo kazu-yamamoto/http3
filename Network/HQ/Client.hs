@@ -42,7 +42,7 @@ import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
-import Network.QUIC.Internal (possibleMyStreams)
+import qualified Network.QUIC.Internal as QUIC
 
 import Imports
 import qualified Network.HTTP3.Client as H3
@@ -53,8 +53,9 @@ run :: Connection -> H3.ClientConfig -> H3.Config -> Client a -> IO a
 run conn _ _ client = client (sendRequest conn) aux
   where
     aux =
-        Aux
-            { auxPossibleClientStreams = possibleMyStreams conn
+        defaultAux
+            { auxPossibleClientStreams = QUIC.possibleMyStreams conn
+            , auxSendPing = QUIC.sendFrames conn QUIC.RTT1Level [QUIC.Ping]
             }
 
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a

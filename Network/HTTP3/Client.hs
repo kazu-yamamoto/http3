@@ -41,7 +41,7 @@ import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
-import Network.QUIC.Internal (possibleMyStreams)
+import qualified Network.QUIC.Internal as QUIC
 import Text.Read (readMaybe)
 
 import Imports
@@ -75,7 +75,8 @@ run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
   where
     aux =
         Aux
-            { auxPossibleClientStreams = possibleMyStreams conn
+            { auxPossibleClientStreams = QUIC.possibleMyStreams conn
+            , auxSendPing = QUIC.sendFrames conn QUIC.RTT1Level [QUIC.Ping]
             }
 
 readerClient :: Context -> IO ()

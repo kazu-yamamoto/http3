@@ -5,6 +5,7 @@
 module Main where
 
 import Control.Concurrent
+import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -414,9 +415,10 @@ console misc paths client conn = do
     putStrLn "g -- get"
     putStrLn "p -- ping"
     putStrLn "n -- NAT rebinding"
-    loop
+    mvar <- newEmptyMVar
+    loop mvar `E.catch` \(E.SomeException _) -> return ()
   where
-    loop = do
+    loop mvar = do
         hSetBuffering stdout NoBuffering
         putStr "> "
         hSetBuffering stdout LineBuffering
@@ -425,15 +427,16 @@ console misc paths client conn = do
             "q" -> putStrLn "bye"
             "g" -> do
                 mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
-                _ <- forkIO $ client misc paths conn
-                loop
+                _ <- forkIO $ client misc paths conn >> putMVar mvar ()
+                takeMVar mvar
+                loop mvar
             "p" -> do
                 putStrLn "Ping"
                 sendFrames conn RTT1Level [Ping]
-                loop
+                loop mvar
             "n" -> do
                 controlConnection conn NATRebinding >>= print
-                loop
+                loop mvar
             _ -> do
                 putStrLn "No such command"
-                loop
+                loop mvar
