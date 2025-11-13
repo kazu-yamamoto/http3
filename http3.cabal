@@ -92,7 +92,7 @@ library
         quic >= 0.2.11 && < 0.3,
         sockaddr,
         stm,
-        time-manager >= 0.2.3 && <0.3,
+        time-manager >= 0.2.3 && <0.4,
         utf8-string >=1.0 && <1.1
 
 executable h3-server
