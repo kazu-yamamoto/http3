@@ -17,6 +17,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import Network.QUIC
+import System.IO
 
 import qualified Network.HQ.Client as HQ
 import Network.HTTP3.Client (
@@ -27,12 +28,14 @@ import Network.HTTP3.Client (
     SendRequest,
  )
 import qualified Network.HTTP3.Client as H3
+import qualified Network.QUIC.Internal as QUIC
 
 data Misc = Misc
     { miscAuthority :: String
     , miscDebug :: String -> IO ()
     , miscShow :: ByteString -> IO ()
     , miscCheckClose :: IO Bool
+    , miscInteractive :: Bool
     }
 
 type Cli = Misc -> [Path] -> Connection -> IO ()
@@ -48,17 +51,23 @@ clientX
     -> (Connection -> ClientConfig -> Config -> Client () -> IO ())
     -> Cli
 clientX n0 run misc@Misc{..} paths conn = E.bracket H3.allocSimpleConfig H3.freeSimpleConfig $ \conf ->
-    run conn cliconf conf $ client misc n0 paths
+    run conn cliconf conf $ client conn misc n0 paths
   where
     cliconf =
         H3.defaultClientConfig
             { authority = miscAuthority
             }
 
-client :: Misc -> Int -> [Path] -> Client ()
-client misc n0 paths sendRequest _misc =
-    foldr1 concurrently_ $
-        map (client' misc n0 sendRequest) paths
+client :: Connection -> Misc -> Int -> [Path] -> Client ()
+client conn misc n0 paths sendRequest aux
+    | miscInteractive misc = do
+        console paths aux conn go
+        return ()
+    | otherwise = go
+  where
+    go =
+        foldr1 concurrently_ $
+            map (client' misc n0 sendRequest) paths
 
 client' :: Misc -> Int -> SendRequest -> Path -> IO ()
 client' Misc{..} n0 sendRequest path = loop n0
@@ -87,3 +96,36 @@ client' Misc{..} n0 sendRequest path = loop n0
                 miscShow bs
                 miscDebug $ show (C8.length bs) ++ " bytes received"
                 consume rsp
+
+console :: [Path] -> H3.Aux -> Connection -> IO () -> IO ()
+console paths aux conn go = do
+    waitEstablished conn
+    putStrLn "q -- quit"
+    putStrLn "g -- get"
+    putStrLn "p -- ping"
+    putStrLn "n -- NAT rebinding"
+    mvar <- newEmptyMVar
+    loop mvar `E.catch` \(E.SomeException _) -> return ()
+  where
+    loop mvar = do
+        hSetBuffering stdout NoBuffering
+        putStr "> "
+        hSetBuffering stdout LineBuffering
+        l <- getLine
+        case l of
+            "q" -> putStrLn "bye"
+            "g" -> do
+                mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
+                _ <- go >> putMVar mvar ()
+                takeMVar mvar
+                loop mvar
+            "p" -> do
+                putStrLn "Ping"
+                H3.auxSendPing aux
+                loop mvar
+            "n" -> do
+                QUIC.controlConnection conn QUIC.NATRebinding >>= print
+                loop mvar
+            _ -> do
+                putStrLn "No such command"
+                loop mvar

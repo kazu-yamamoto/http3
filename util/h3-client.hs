@@ -5,7 +5,6 @@
 module Main where
 
 import Control.Concurrent
-import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -17,7 +16,6 @@ import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
-import System.IO
 import qualified System.Timeout as T
 import Text.Printf
 
@@ -250,6 +248,7 @@ main = do
                     case mx of
                         Nothing -> return False
                         _ -> return True
+                , miscInteractive = optInteractive
                 }
     runClient cc opts misc paths
 
@@ -268,11 +267,7 @@ runClient cc opts@Options{..} misc@Misc{..} paths = do
                 miscDebug $ "Migration by " ++ show mtyp
                 return x
         t1 <- getUnixTime
-        if optInteractive
-            then do
-                console misc paths client conn
-            else do
-                client misc paths conn
+        client misc paths conn
         stats <- getConnectionStats conn
         print stats
         t2 <- getUnixTime
@@ -407,36 +402,3 @@ printThroughput t1 t2 st =
             / fromIntegral millisecs
             / 1024
             / 1024
-
-console :: Misc -> [H3.Path] -> Cli -> Connection -> IO ()
-console misc paths client conn = do
-    waitEstablished conn
-    putStrLn "q -- quit"
-    putStrLn "g -- get"
-    putStrLn "p -- ping"
-    putStrLn "n -- NAT rebinding"
-    mvar <- newEmptyMVar
-    loop mvar `E.catch` \(E.SomeException _) -> return ()
-  where
-    loop mvar = do
-        hSetBuffering stdout NoBuffering
-        putStr "> "
-        hSetBuffering stdout LineBuffering
-        l <- getLine
-        case l of
-            "q" -> putStrLn "bye"
-            "g" -> do
-                mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
-                _ <- forkIO $ client misc paths conn >> putMVar mvar ()
-                takeMVar mvar
-                loop mvar
-            "p" -> do
-                putStrLn "Ping"
-                sendFrames conn RTT1Level [Ping]
-                loop mvar
-            "n" -> do
-                controlConnection conn NATRebinding >>= print
-                loop mvar
-            _ -> do
-                putStrLn "No such command"
-                loop mvar
