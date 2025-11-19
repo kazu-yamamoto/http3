@@ -78,7 +78,12 @@ processRequest conf mysa peersa server strm
             refH <- newIORef Nothing
             let readB = readSource' src
                 req = Request $ InpObj vt Nothing readB refH
-                aux = Aux th mysa peersa
+                aux =
+                    defaultAux
+                        { auxTimeHandle = th
+                        , auxMySockAddr = mysa
+                        , auxPeerSockAddr = peersa
+                        }
             server req aux $ sendResponse conf strm
     | otherwise = return () -- fixme: should consume the data?
   where

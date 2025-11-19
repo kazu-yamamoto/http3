@@ -109,7 +109,12 @@ processRequest ctx server strm th = E.handle reset $ do
         Nothing -> QUIC.resetStream strm H3MessageError
         Just ht -> do
             req <- mkRequest ctx strm src ht
-            let aux = Aux th (getMySockAddr ctx) (getPeerSockAddr ctx)
+            let aux =
+                    defaultAux
+                        { auxTimeHandle = th
+                        , auxMySockAddr = getMySockAddr ctx
+                        , auxPeerSockAddr = getPeerSockAddr ctx
+                        }
             server req aux $ sendResponse ctx strm th
   where
     sid = QUIC.streamId strm
