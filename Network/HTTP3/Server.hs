@@ -74,6 +74,7 @@ runIO conn conf action = withContext conn conf $ \ctx -> do
                 , sioPeerSockAddr = remoteSockAddr info
                 , sioReadRequest = atomically $ readTQueue reqq
                 , sioWriteResponse = sendResponseIO ctx
+                , sioDone = return ()
                 }
         put strmreq = atomically $ writeTQueue reqq strmreq
     io <- action sio
