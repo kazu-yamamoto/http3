@@ -74,7 +74,7 @@ run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
     client (sendRequest ctx scheme authority) aux
   where
     aux =
-        Aux
+        defaultAux
             { auxPossibleClientStreams = QUIC.possibleMyStreams conn
             , auxSendPing = QUIC.sendFrames conn QUIC.RTT1Level [QUIC.Ping]
             }
