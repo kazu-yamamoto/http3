@@ -41,6 +41,7 @@ import Network.HTTP.Semantics.Server.Internal
 import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
+import Network.QUIC.Internal (mainDone)
 import qualified System.TimeManager as T
 
 import Imports
@@ -74,7 +75,7 @@ runIO conn conf action = withContext conn conf $ \ctx -> do
                 , sioPeerSockAddr = remoteSockAddr info
                 , sioReadRequest = atomically $ readTQueue reqq
                 , sioWriteResponse = sendResponseIO ctx
-                , sioDone = return ()
+                , sioDone = mainDone conn
                 }
         put strmreq = atomically $ writeTQueue reqq strmreq
     io <- action sio

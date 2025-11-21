@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.1.2
+
+* Updating dependencies.
+
 ## 0.1.1
 
 * Removing a debug logging to stdout.
