@@ -115,7 +115,7 @@ executable h3-server
         http2,
         http3,
         quic,
-        tls >=2.1.10 && <2.2,
+        tls >=2.1.10 && <2.3,
         tls-session-manager
 
     if flag(devel)
@@ -142,7 +142,7 @@ executable h3-client
         http-types,
         http3,
         quic,
-        tls >=2.1.10 && <2.2,
+        tls >=2.1.10 && <2.3,
         unix-time
 
     if flag(devel)
