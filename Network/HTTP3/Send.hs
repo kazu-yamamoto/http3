@@ -61,7 +61,10 @@ sendNext ctx strm th curr tlrmkr0 = do
     T.tickle th
     case mnext of
         Nothing -> do
-            Trailers trailers <- tlrmkr Nothing
+            tm <- tlrmkr Nothing
+            let trailers = case tm of
+                    Trailers t -> t
+                    _ -> []
             unless (null trailers) $ sendHeader ctx strm th trailers
         Just next -> sendNext ctx strm th next tlrmkr
 
@@ -90,7 +93,10 @@ newByteStringAndSend strm th tlrmkr0 action = do
         then return (signal, tlrmkr0)
         else do
             let bs = PS fp 0 len
-            NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+            tm <- tlrmkr0 $ Just bs
+            let tlrmkr1 = case tm of
+                    NextTrailersMaker t -> t
+                    _ -> defaultTrailersMaker
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
             T.tickle th
             return (signal, tlrmkr1)
@@ -131,6 +137,9 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
             newByteStringAndSend strm th tlrmkr1 writer >>= loop
         loop (B.Chunk bs writer, tlrmkr1) = do
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
-            NextTrailersMaker tlrmkr2 <- tlrmkr1 $ Just bs
+            tm2 <- tlrmkr1 $ Just bs
+            let tlrmkr2 = case tm2 of
+                    NextTrailersMaker t -> t
+                    _ -> defaultTrailersMaker
             T.tickle th
             newByteStringAndSend strm th tlrmkr2 writer >>= loop
