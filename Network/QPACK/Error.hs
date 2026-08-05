@@ -12,7 +12,7 @@ module Network.QPACK.Error (
     DecoderInstructionError (..),
 ) where
 
-import Control.Exception
+import qualified Control.Exception as E
 
 import Network.QUIC
 
@@ -38,6 +38,6 @@ data EncoderInstructionError = EncoderInstructionError
 data DecoderInstructionError = DecoderInstructionError
     deriving (Eq, Show)
 
-instance Exception DecodeError
-instance Exception EncoderInstructionError
-instance Exception DecoderInstructionError
+instance E.Exception DecodeError
+instance E.Exception EncoderInstructionError
+instance E.Exception DecoderInstructionError
