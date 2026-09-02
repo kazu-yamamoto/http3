@@ -201,7 +201,7 @@ illegalHeader0 _ = [H3Frame H3FrameHeaders "\x00\x00\xd1\xd7\xc1"]
 
 -- [(":method","GET")
 -- ,(":scheme","https")
--- ,(":autority","127.0.0.1")
+-- ,(":authority","127.0.0.1")
 -- ,(":path","/")
 -- ,(":foo","bar") -- the presence of prohibited fields or pseudo-header fields,
 -- ]
@@ -209,12 +209,12 @@ illegalHeader1 :: [H3Frame] -> [H3Frame]
 illegalHeader1 _ =
     [ H3Frame
         H3FrameHeaders
-        "\x00\x00\xd1\xd7\x27\x02\x3a\x61\x75\x74\x6f\x72\x69\x74\x79\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x24\x3a\x66\x6f\x6f\x03\x62\x61\x72"
+        "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x24\x3a\x66\x6f\x6f\x03\x62\x61\x72"
     ]
 
 -- [(":method","GET")
 -- ,(":scheme","https")
--- ,(":autority","127.0.0.1")
+-- ,(":authority","127.0.0.1")
 -- ,("foo","bar")
 -- ,(":path","/") -- pseudo-header fields after fields
 -- ]
@@ -222,7 +222,7 @@ illegalHeader2 :: [H3Frame] -> [H3Frame]
 illegalHeader2 _ =
     [ H3Frame
         H3FrameHeaders
-        "\x00\x00\xd1\xd7\x27\x02\x3a\x61\x75\x74\x6f\x72\x69\x74\x79\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\x23\x66\x6f\x6f\x03\x62\x61\x72\xc1"
+        "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\x23\x66\x6f\x6f\x03\x62\x61\x72\xc1"
     ]
 
 -- [(":method","GET")
