@@ -1,5 +1,9 @@
 # Revision history for http3
 
+## 0.1.4
+
+* adding ecUseHuffman to defaultQEncoderConfig
+
 ## 0.1.3
 
 * Using quic v0.3.
