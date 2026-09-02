@@ -113,6 +113,7 @@ data QEncoderConfig = QEncoderConfig
     { ecMaxTableCapacity :: Size
     , ecHeaderBlockBufferSize :: Size
     , ecInstructionBufferSize :: Size
+    , ecUseHuffman :: Bool
     }
     deriving (Show)
 
@@ -126,6 +127,7 @@ defaultQEncoderConfig =
         { ecMaxTableCapacity = 4096
         , ecHeaderBlockBufferSize = 4096
         , ecInstructionBufferSize = 4096
+        , ecUseHuffman = True
         }
 
 -- | Creating a new QPACK encoder.
@@ -146,6 +148,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 bufsiz1
                 gcbuf2
                 bufsiz2
+                ecUseHuffman
                 dyntbl
                 lock
         handler = decoderInstructionHandler dyntbl
@@ -192,10 +195,11 @@ qpackEncoder
     -> Int
     -> GCBuffer
     -> Int
+    -> Bool
     -> DynamicTable
     -> MVar ()
     -> QEncoder
-qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
+qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid ts =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
@@ -206,7 +210,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid ts =
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough bufsiz1 ts
-                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl) tss
+                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
                 let (hbs, daiss) = unzip his
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
@@ -224,10 +228,11 @@ qpackEncoderS
     -> Int
     -> GCBuffer
     -> Int
+    -> Bool
     -> DynamicTable
     -> MVar ()
     -> QEncoderS
-qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
+qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid hs =
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do
@@ -238,7 +243,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 dyntbl lock sid hs =
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough bufsiz1 ts
-                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl) tss
+                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
                 let (hbs, daiss) = unzip his
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
@@ -272,13 +277,14 @@ qpackEncodeHeader
     -> BufferSize
     -> Buffer
     -> BufferSize
+    -> Bool
     -> DynamicTable
     -> TokenHeaderList
     -> IO (ByteString, [AbsoluteIndex])
-qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 dyntbl ts = do
+qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl ts = do
     wbuf1 <- newWriteBuffer buf1 bufsiz1
     wbuf2 <- newWriteBuffer buf2 bufsiz2
-    dais <- encodeTokenHeader wbuf1 wbuf2 dyntbl ts
+    dais <- encodeTokenHeader wbuf1 wbuf2 huff dyntbl ts
     hb <- toByteString wbuf1
     ins <- toByteString wbuf2
     when (ins /= "") $ sendIns dyntbl ins
@@ -343,6 +349,7 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck debug = do
                 bufsiz1
                 gcbuf2
                 bufsiz2
+                ecUseHuffman
                 dyntbl
                 lock
     return enc

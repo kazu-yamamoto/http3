@@ -39,15 +39,16 @@ type EncodedEncoderInstruction = B.ByteString
 --   temporally allocated for header block, prefix and encoder instructions.
 --   If headers are too large, 'BufferOverrun' is thrown.
 encodeHeader
-    :: DynamicTable
+    :: Bool
+    -> DynamicTable
     -> [Header]
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
-encodeHeader dyntbl hs = do
+encodeHeader huff dyntbl hs = do
     setBasePointToInsersionPoint dyntbl
     clearRequiredInsertCount dyntbl
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
         withWriteBuffer 2048 $ \wbuf2 -> do
-            hs1 <- encodeTokenHeader wbuf1 wbuf2 dyntbl ts
+            hs1 <- encodeTokenHeader wbuf1 wbuf2 huff dyntbl ts
             unless (null hs1) $ E.throwIO BufferOverrun
     prefix <- withWriteBuffer 32 $ \wbuf -> encodePrefix wbuf dyntbl
     let hb = prefix `B.append` hb0
@@ -63,17 +64,19 @@ encodeTokenHeader
     -- ^ Workspace for the body of header block
     -> WriteBuffer
     -- ^ Workspace for encoder instructions
+    -> Bool
+    -- ^ Use Huffman encoding or not
     -> DynamicTable
     -> TokenHeaderList
     -> IO [AbsoluteIndex]
-encodeTokenHeader wbuf1 wbuf2 dyntbl ts0 = do
+encodeTokenHeader wbuf1 wbuf2 huff dyntbl ts0 = do
     clearWriteBuffer wbuf1
     clearWriteBuffer wbuf2
     let revidx = getRevIndex dyntbl
     ready <- isTableReady dyntbl
     if ready
-        then encodeLinear wbuf1 wbuf2 dyntbl revidx True ts0
-        else encodeStatic wbuf1 wbuf2 dyntbl revidx True ts0
+        then encodeLinear wbuf1 wbuf2 dyntbl revidx huff ts0
+        else encodeStatic wbuf1 wbuf2 dyntbl revidx huff ts0
 
 encodeStatic
     :: WriteBuffer
