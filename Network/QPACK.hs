@@ -120,7 +120,7 @@ data QEncoderConfig = QEncoderConfig
 -- | Default configuration for QPACK encoder.
 --
 -- >>> defaultQEncoderConfig
--- QEncoderConfig {ecMaxTableCapacity = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096}
+-- QEncoderConfig {ecMaxTableCapacity = 4096, ecHeaderBlockBufferSize = 4096, ecInstructionBufferSize = 4096, ecUseHuffman = True}
 defaultQEncoderConfig :: QEncoderConfig
 defaultQEncoderConfig =
     QEncoderConfig
