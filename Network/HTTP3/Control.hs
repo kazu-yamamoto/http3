@@ -54,8 +54,8 @@ setupUnidirectional conn conf@H3.Config{..} = do
 
 -- DynamicTable for Encoder
 controlStream
-    :: Connection -> TableOperation -> IORef IFrame -> InstructionHandler
-controlStream conn tblop ref recv = loop0
+    :: Connection -> Int -> TableOperation -> IORef IFrame -> InstructionHandler
+controlStream conn lim tblop ref recv = loop0
   where
     loop0 = do
         bs <- recv 1024
@@ -73,7 +73,17 @@ controlStream conn tblop ref recv = loop0
                 readIORef ref >>= parse bs >>= writeIORef ref
                 loop
     parse0 bs st0 = do
-        case parseH3Frame st0 bs of
+        case parseH3Frame lim st0 bs of
+            st1'
+                -- DATA is the one frame the cap does not cover, and it has no
+                -- business on a control stream, so refuse it before any of it
+                -- is buffered rather than after.
+                | Just H3FrameData <- frameTypeOf st1' -> do
+                    abortConnection conn H3FrameUnexpected ""
+                    return (False, IInit)
+            ITooLong _ _ -> do
+                abortConnection conn H3ExcessiveLoad ""
+                return (False, IInit)
             IDone typ payload leftover -> do
                 case typ of
                     H3FrameSettings -> checkSettings conn tblop payload
@@ -83,7 +93,14 @@ controlStream conn tblop ref recv = loop0
             st1 -> return (False, st1)
 
     parse bs st0 = do
-        case parseH3Frame st0 bs of
+        case parseH3Frame lim st0 bs of
+            st1'
+                | Just H3FrameData <- frameTypeOf st1' -> do
+                    abortConnection conn H3FrameUnexpected ""
+                    return IInit
+            ITooLong _ _ -> do
+                abortConnection conn H3ExcessiveLoad ""
+                return IInit
             IDone typ _payload leftover -> do
                 case typ of
                     H3FrameCancelPush -> return ()
