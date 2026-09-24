@@ -1,5 +1,7 @@
 module QPACK.TableSpec where
 
+import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Network.QPACK.Internal
 import Test.Hspec
 import Test.Hspec.QuickCheck
@@ -7,6 +9,21 @@ import Test.QuickCheck
 
 spec :: Spec
 spec = do
+    describe "toIndexedEntry" $ do
+        it "refuses a static index outside the table" $ do
+            dyntbl <- newDynamicTableForDecoding 2048 (\_ -> return ())
+            -- Entry has no Eq, so keep only whether it came back at all.
+            let look i = do
+                    r <-
+                        E.try $
+                            atomically (toIndexedEntry dyntbl (SIndex (AbsoluteIndex i)))
+                                >>= E.evaluate
+                    return $ either Left (const (Right ())) r
+            -- Past the end was already refused; below the start was not, and
+            -- the read behind it is unchecked.
+            look 1000 `shouldReturn` Left (IllegalStaticIndex 1000)
+            look (-1) `shouldReturn` Left (IllegalStaticIndex (-1))
+
     describe "encodeRequiredInsertCount and decodeRequiredInsertCount" $ do
         prop "duality" $ \(Triple m ei di) -> do
             let ereq = encodeRequiredInsertCount m (RequiredInsertCount ei)

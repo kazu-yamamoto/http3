@@ -160,6 +160,12 @@ h3ErrorSpec qcc cconf ms = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
         it
+            "MUST send H3_FRAME_ERROR if a SETTINGS frame stops mid-parameter [HTTP/3 7.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated truncatedSettings
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3FrameError]
+        it
             "MUST NOT stop reading settings at a reserved identifier [HTTP/3 7.2.4.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated greaseThenHttp2Setting
@@ -342,6 +348,15 @@ illegalSettings0 _ = [H3Frame H3FrameSettings "\x07\x40\x64\x01\x50\x00\x06\x80\
 -- ,(H3SettingsKey 0x2,200) -- HTTP/2 Settings
 -- ,(SettingsQpackMaxTableCapacity,4096)
 -- ,(SettingsMaxFieldSectionSize,32768)]
+-- An identifier with no value behind it.
+--
+-- Each parameter is a pair of variable-length integers; this frame stops
+-- between them, which section 7.1 makes H3_FRAME_ERROR.  Reading off the end
+-- used to raise BufferOverrun, which nothing here catches, so the peer was
+-- told nothing at all.
+truncatedSettings :: [H3Frame] -> [H3Frame]
+truncatedSettings _ = [H3Frame H3FrameSettings "\x01"]
+
 -- [(H3SettingsKey 0x21,0) -- reserved, to be ignored
 -- ,(H3SettingsKey 0x2,0)]  -- HTTP/2 Settings, which must be refused
 --

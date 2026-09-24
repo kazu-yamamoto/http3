@@ -117,8 +117,13 @@ controlStream conn lim tblop ref recv = loop0
 
 checkSettings :: Connection -> TableOperation -> ByteString -> IO ()
 checkSettings conn tblop payload = do
-    h3settings <- decodeH3Settings payload
-    loop IntSet.empty h3settings
+    mh3settings <- decodeH3Settings payload
+    case mh3settings of
+        -- RFC 9114 section 7.1: a payload that "terminates before the end of
+        -- the identified fields MUST be treated as a connection error of type
+        -- H3_FRAME_ERROR".
+        Nothing -> abortConnection conn H3FrameError ""
+        Just h3settings -> loop IntSet.empty h3settings
   where
     loop :: IntSet -> H3Settings -> IO ()
     loop _ [] = return ()
