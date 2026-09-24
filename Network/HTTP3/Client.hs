@@ -48,7 +48,6 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Error
-import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 import Network.QPACK
