@@ -14,6 +14,7 @@ module Network.HTTP3.Frame (
     frameTypeOf,
     QInt (..),
     parseQInt,
+    recvQInt,
     permittedInControlStream,
     permittedInRequestStream,
     permittedInPushStream,
@@ -161,6 +162,26 @@ requiredLen _ = 7
 
 toLen :: Word8 -> ByteString -> Int64
 toLen w0 bs = BS.foldl (\n w -> n * 256 + fromIntegral w) (fromIntegral w0) bs
+
+-- | Read one variable-length integer from a byte source.
+--
+-- The source is asked for a byte at a time and answers with an empty string at
+-- end of input, which is 'recvStream'\'s contract.  'Nothing' means the input
+-- ended before a whole integer arrived.
+--
+-- A unidirectional stream announces its type this way (RFC 9114, section 6.2),
+-- which is one, two, four or eight octets -- not the single one it is tempting
+-- to read.
+recvQInt :: (Int -> IO ByteString) -> IO (Maybe Int64)
+recvQInt recv = loop QInit
+  where
+    loop st = do
+        bs <- recv 1
+        if BS.null bs
+            then return Nothing
+            else case parseQInt st bs of
+                QDone i _ -> return $ Just i
+                st' -> loop st'
 
 data IFrame
     = -- | Parsing is about to start

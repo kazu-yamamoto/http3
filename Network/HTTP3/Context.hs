@@ -28,7 +28,6 @@ module Network.HTTP3.Context (
 
 import qualified Control.Exception as E
 import Control.Monad (void)
-import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HTTP.Semantics.Client
 import Network.QUIC
@@ -124,9 +123,17 @@ qpackDecode Context{..} = ctxQDecoder
 
 unidirectional :: Context -> Stream -> IO ()
 unidirectional Context{..} strm = do
-    w8 : _ <- BS.unpack <$> recvStream strm 1 -- fixme: variable length
-    let typ = toH3StreamType $ fromIntegral w8
-    ctxUniSwitch typ (recvStream strm)
+    -- The type is a variable-length integer (RFC 9114, section 6.2), so one,
+    -- two, four or eight octets -- not the single one it used to be read as,
+    -- which cut anything from 0x40 up in half and handed the tail of the type
+    -- to a handler as though it were the stream's contents.
+    mtyp <- recvQInt (recvStream strm)
+    case mtyp of
+        -- The peer opened a unidirectional stream and closed it without
+        -- saying what it was for.  Nothing to dispatch to; this used to be a
+        -- pattern match failure.
+        Nothing -> return ()
+        Just i -> ctxUniSwitch (toH3StreamType i) (recvStream strm)
 
 withHandle :: Context -> (T.Handle -> IO ()) -> IO ()
 withHandle Context{..} action = void $ T.withHandle ctxThreadManager (return ()) action

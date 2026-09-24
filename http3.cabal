@@ -207,6 +207,7 @@ test-suite spec
         HTTP3.Config
         HTTP3.Error
         HTTP3.ErrorSpec
+        HTTP3.FrameSpec
         HTTP3.Server
         HTTP3.ServerSpec
         QPACK.HeaderBlockSpec
