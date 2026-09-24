@@ -38,9 +38,7 @@ decodeTokenHeader dyntbl rbuf = do
         checkRequiredInsertCount dyntbl reqInsertCount
         decreaseStreams dyntbl
     checkRequiredInsertCount dyntbl reqInsertCount
-    let bufsiz = 2048
-    gcbuf <- mallocPlainForeignPtrBytes 2048
-    let hufdec = decodeH gcbuf bufsiz
+    hufdec <- newHuffmanDecoder rbuf
     tbl <- decodeSophisticated (toTokenHeader dyntbl bp hufdec) rbuf
     return (tbl, needAck)
 
@@ -53,12 +51,31 @@ decodeTokenHeaderS dyntbl rbuf = do
     ok <- checkRequiredInsertCountNB dyntbl reqInsertCount
     if ok
         then do
-            let bufsiz = 2048
-            gcbuf <- mallocPlainForeignPtrBytes 2048
-            let hufdec = decodeH gcbuf bufsiz
+            hufdec <- newHuffmanDecoder rbuf
             hs <- decodeSimple (toTokenHeader dyntbl bp hufdec) rbuf
             return $ Just (hs, needAck)
         else return Nothing
+
+-- | A Huffman decoder with room for anything the rest of this field section
+-- can decode to.
+--
+-- The scratch buffer has to hold one decoded string, and the shortest Huffman
+-- code is five bits, so an encoded string of n octets cannot come to more than
+-- 8n\/5 symbols -- and the section that contains it is itself at most what is
+-- left in the buffer.  Sizing from that means a header field is refused only
+-- when the section it is in is, rather than at a fixed 2048 that nothing
+-- announced: a 2100-octet value used to fail to decode while the section
+-- carrying it was under 1.4K, well inside the SETTINGS_MAX_FIELD_SECTION_SIZE
+-- we advertise.
+--
+-- Allocated per section rather than held on the table, because sections from
+-- different streams decode concurrently and this buffer is not shared.
+newHuffmanDecoder :: ReadBuffer -> IO HuffmanDecoder
+newHuffmanDecoder rbuf = do
+    siz <- remainingSize rbuf
+    let bufsiz = max 1 ((siz * 8) `div` 5)
+    gcbuf <- mallocPlainForeignPtrBytes bufsiz
+    return $ decodeH gcbuf bufsiz
 
 {- FOURMOLU_DISABLE -}
 toTokenHeader
