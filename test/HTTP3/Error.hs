@@ -136,6 +136,12 @@ h3ErrorSpec qcc cconf ms = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
         it
+            "MUST NOT buffer a frame longer than SETTINGS_MAX_FIELD_SECTION_SIZE [HTTP/3 7.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlStreamCreated overLongFrame
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3ExcessiveLoad]
+        it
             "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
@@ -290,6 +296,14 @@ illegalSettings1 _ =
     ]
 
 ----------------------------------------------------------------
+
+-- A GOAWAY frame announcing 2^30 octets and then sending none of them.
+--
+-- A frame length is a variable-length integer, so a peer can claim up to
+-- 2^62-1 and have the other end hold whatever it sends towards that.  Nothing
+-- has to arrive for the claim to be refused.
+overLongFrame :: Stream -> IO ()
+overLongFrame strm = sendStream strm "\x07\xc0\x00\x00\x00\x40\x00\x00\x00"
 
 -- SetDynamicTableCapacity 10000000000
 largeTableCapacity :: Stream -> IO ()

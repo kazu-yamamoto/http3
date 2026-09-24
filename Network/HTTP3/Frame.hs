@@ -11,6 +11,7 @@ module Network.HTTP3.Frame (
     decodeH3Frame,
     IFrame (..),
     parseH3Frame,
+    frameTypeOf,
     QInt (..),
     parseQInt,
     permittedInControlStream,
@@ -179,28 +180,51 @@ data IFrame
         H3FrameType
         ByteString -- Payload (entire or sentinel)
         ByteString -- Leftover
+    | -- | The frame says it is longer than we are willing to hold
+      ITooLong
+        H3FrameType
+        Int -- The length it claimed
     deriving (Eq, Show)
 
-parseH3Frame :: IFrame -> ByteString -> IFrame
-parseH3Frame st "" = st
-parseH3Frame IInit bs = case parseQInt QInit bs of
+-- | The frame type, once the parse has got far enough to know it.
+frameTypeOf :: IFrame -> Maybe H3FrameType
+frameTypeOf IInit = Nothing
+frameTypeOf (IType _) = Nothing
+frameTypeOf (ILen typ _) = Just typ
+frameTypeOf (IPay typ _ _ _) = Just typ
+frameTypeOf (IDone typ _ _) = Just typ
+frameTypeOf (ITooLong typ _) = Just typ
+
+-- | Feed bytes to a frame parse.
+--
+-- The first argument caps the payload of any frame that has to be held whole
+-- before it can be used -- everything but DATA, whose payload is handed to the
+-- caller as it arrives.  A length is a variable-length integer, so without a
+-- cap a peer can announce up to 2^62-1 octets and have us buffer whatever it
+-- then sends towards that.  DATA is exempt because a large body is a perfectly
+-- ordinary thing to send; a caller that does /not/ drain DATA must refuse it
+-- on sight instead.
+parseH3Frame :: Int -> IFrame -> ByteString -> IFrame
+parseH3Frame _ st "" = st
+parseH3Frame lim IInit bs = case parseQInt QInit bs of
     QDone i bs' ->
         let typ = toH3FrameType i
-         in parseH3Frame (ILen typ QInit) bs'
+         in parseH3Frame lim (ILen typ QInit) bs'
     ist -> IType ist
-parseH3Frame (IType ist) bs = case parseQInt ist bs of
+parseH3Frame lim (IType ist) bs = case parseQInt ist bs of
     QDone i bs' ->
         let typ = toH3FrameType i
-         in parseH3Frame (ILen typ QInit) bs'
+         in parseH3Frame lim (ILen typ QInit) bs'
     ist' -> IType ist'
-parseH3Frame (ILen typ ist) bs = case parseQInt ist bs of
-    QDone i bs' ->
-        let reqLen = fromIntegral i
-         in if reqLen == 0
-                then IDone typ "" bs'
-                else parseH3Frame (IPay typ reqLen 0 []) bs'
+parseH3Frame lim (ILen typ ist) bs = case parseQInt ist bs of
+    QDone i bs'
+        | reqLen == 0 -> IDone typ "" bs'
+        | typ /= H3FrameData && reqLen > lim -> ITooLong typ reqLen
+        | otherwise -> parseH3Frame lim (IPay typ reqLen 0 []) bs'
+      where
+        reqLen = fromIntegral i
     ist' -> ILen typ ist'
-parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
+parseH3Frame _ (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
     LT -> IPay typ reqLen len1 (bs0 : bss0)
     EQ -> IDone typ (compose bs0 bss0) ""
     GT ->
@@ -208,7 +232,7 @@ parseH3Frame (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
          in IDone typ (compose bs2 bss0) leftover
   where
     len1 = len0 + BS.length bs0
-parseH3Frame st _ = st
+parseH3Frame _ st _ = st
 
 compose :: ByteString -> [ByteString] -> ByteString
 compose bs bss = BS.concat $ reverse (bs : bss)

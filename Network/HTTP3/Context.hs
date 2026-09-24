@@ -19,6 +19,7 @@ module Network.HTTP3.Context (
     Hooks (..), -- re-export
     getMySockAddr,
     getPeerSockAddr,
+    getMaxFieldSectionSize,
     forkManaged,
     forkManagedTimeout,
     forkManagedTimeoutFinally,
@@ -52,6 +53,9 @@ data Context = Context
     , ctxHooks :: Hooks
     , ctxMySockAddr :: SockAddr
     , ctxPeerSockAddr :: SockAddr
+    , ctxMaxFieldSectionSize :: Int
+    -- ^ What we told the peer we would accept, and so the most of any one
+    -- frame we are willing to hold in memory while it arrives.
     }
 
 withContext :: Connection -> Config -> (Context -> IO a) -> IO a
@@ -65,7 +69,8 @@ newContext conn conf = do
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
-    ctl <- controlStream conn dyntblE <$> newIORef IInit
+    let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
+    ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE <$> newIORef IInit
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
@@ -155,3 +160,6 @@ getMySockAddr = ctxMySockAddr
 
 getPeerSockAddr :: Context -> SockAddr
 getPeerSockAddr = ctxPeerSockAddr
+
+getMaxFieldSectionSize :: Context -> Int
+getMaxFieldSectionSize = ctxMaxFieldSectionSize
