@@ -47,6 +47,28 @@ runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
         threadDelay 100000
         return ret
 
+-- | Like 'runC', but sending a request of our own choosing.
+runCReq
+    :: H3.Request
+    -> ClientConfig
+    -> H3.ClientConfig
+    -> H3.Config
+    -> Millisecond
+    -> IO (Maybe ())
+runCReq req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
+    info <- getConnectionInfo conn
+    case alpn info of
+        Just proto | "hq" `BS.isPrefixOf` proto -> do
+            waitEstablished conn
+            E.throwIO $ ApplicationProtocolErrorIsReceived H3InternalError ""
+        _ -> H3.run conn cconf conf client
+  where
+    us = ms * 1000
+    client sendRequest _aux = do
+        ret <- sendRequest req $ \_rsp -> return ()
+        threadDelay 100000
+        return ret
+
 h3ErrorSpec
     :: ClientConfig
     -> H3.ClientConfig
@@ -91,6 +113,16 @@ h3ErrorSpec qcc cconf ms = do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
                     qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
                 runC qcc' cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        it
+            "MUST treat content that does not match content-length as malformed [HTTP/3 4.1.2]"
+            $ \_ -> do
+                -- content-length says five octets and the request carries
+                -- none.  /drain reads the body, which is where the count is
+                -- checked; a body nobody reads is never counted.
+                let req = H3.requestNoBody methodPost "/drain" [("content-length", "5")]
+                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                runCReq req qcc' cconf conf0 ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it
             "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]"

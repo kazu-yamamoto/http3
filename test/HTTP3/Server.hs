@@ -70,6 +70,14 @@ server req aux sendResponse = case requestMethod req of
         _ -> sendResponse response404 []
     Just "POST" -> case requestPath req of
         Just "/echo" -> sendResponse (responseEcho req) []
+        -- Reads the body and says nothing about it, so that a test can be
+        -- about what reading the body does rather than about trailers.
+        Just "/drain" -> do
+            let loop = do
+                    bs <- getRequestBodyChunk req
+                    unless (B.null bs) loop
+            loop
+            sendResponse responseHello []
         _ -> sendResponse responseHello []
     _ -> sendResponse response405 []
 

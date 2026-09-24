@@ -175,12 +175,9 @@ mkRequest ctx strm src ht@(_, vt) = do
             QUIC.resetStream strm H3MessageError
             return Nothing
   where
-    -- fixme: Content-Length
     build = do
-        refI <- newIORef IInit
-        refH <- newIORef Nothing
         let sid = QUIC.streamId strm
-        let readB = recvBody ctx sid src refI refH
+        (readB, refH) <- newBodyReader ctx sid src vt
         return $ Request $ InpObj ht Nothing readB refH
 
 sendResponse
