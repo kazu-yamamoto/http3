@@ -2,6 +2,7 @@
 
 module Network.HTTP3.Settings where
 
+import qualified Control.Exception as E
 import Network.ByteOrder
 import Network.QUIC.Internal
 
@@ -36,8 +37,18 @@ encodeH3Settings kvs = withWriteBuffer 128 $ \wbuf -> do
         encodeInt' wbuf $ fromIntegral k
         encodeInt' wbuf $ fromIntegral v
 
-decodeH3Settings :: ByteString -> IO H3Settings
-decodeH3Settings bs = withReadBuffer bs $ \rbuf -> loop rbuf id
+-- | Decode a SETTINGS payload, or 'Nothing' if it stops in the middle of a
+-- parameter.
+--
+-- Each parameter is two variable-length integers, and the loop can only tell
+-- there is /something/ left, not whether there is a whole pair.  Reading off
+-- the end raises 'BufferOverrun', which no HTTP\/3 handler knows what to do
+-- with; caught here it becomes an answer the caller can turn into the
+-- H3_FRAME_ERROR that RFC 9114 section 7.1 asks for.
+decodeH3Settings :: ByteString -> IO (Maybe H3Settings)
+decodeH3Settings bs =
+    (withReadBuffer bs $ \rbuf -> Just <$> loop rbuf id)
+        `E.catch` \BufferOverrun -> return Nothing
   where
     dec rbuf = do
         k <- H3SettingsKey . fromIntegral <$> decodeInt' rbuf

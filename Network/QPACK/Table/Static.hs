@@ -33,7 +33,11 @@ staticTableSize = length staticTableList
 -- Entry 53 (Token {tokenIx = 21, shouldBeIndexed = True, isPseudo = False, tokenKey = "Content-Type"}) "image/png"
 toStaticEntry :: AbsoluteIndex -> Entry
 toStaticEntry (AbsoluteIndex sidx)
-    | sidx < staticTableSize = staticTable `unsafeAt` sidx
+    -- Both ends, since the read below is unchecked.  Nothing reaches here with
+    -- a negative index today -- http2's decodeI has been bounded since 5.4.5 --
+    -- but that is a guarantee from another package standing in front of an
+    -- unsafeAt, which is not where such a guarantee belongs.
+    | 0 <= sidx && sidx < staticTableSize = staticTable `unsafeAt` sidx
     | otherwise = E.throw $ IllegalStaticIndex sidx
 
 -- | Pre-defined static table.
