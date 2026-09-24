@@ -109,14 +109,18 @@ processRequest ctx server strm th = E.handle reset $ do
     case mvt of
         Nothing -> QUIC.resetStream strm H3MessageError
         Just ht -> do
-            req <- mkRequest ctx strm src ht
-            let aux =
-                    defaultAux
-                        { auxTimeHandle = th
-                        , auxMySockAddr = getMySockAddr ctx
-                        , auxPeerSockAddr = getPeerSockAddr ctx
-                        }
-            server req aux $ sendResponse ctx strm th
+            mreq <- mkRequest ctx strm src ht
+            case mreq of
+                -- Malformed; 'mkRequest' has reset the stream.
+                Nothing -> return ()
+                Just req -> do
+                    let aux =
+                            defaultAux
+                                { auxTimeHandle = th
+                                , auxMySockAddr = getMySockAddr ctx
+                                , auxPeerSockAddr = getPeerSockAddr ctx
+                                }
+                    server req aux $ sendResponse ctx strm th
   where
     sid = QUIC.streamId strm
     reset se
@@ -132,8 +136,10 @@ processRequestIO ctx put strm = E.handle reset $ do
     case mvt of
         Nothing -> QUIC.resetStream strm H3MessageError
         Just ht -> do
-            req <- mkRequest ctx strm src ht
-            put (strm, req)
+            mreq <- mkRequest ctx strm src ht
+            case mreq of
+                Nothing -> return ()
+                Just req -> put (strm, req)
   where
     sid = QUIC.streamId strm
     reset se
@@ -142,28 +148,40 @@ processRequestIO ctx put strm = E.handle reset $ do
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
 
+-- | Build the 'Request', or reset the stream and answer 'Nothing' when the
+-- message is malformed.
+--
+-- RFC 9114 section 4.1.2 makes a malformed request one the server "MUST treat
+-- \[...\] as malformed", responding or resetting -- either way it is not a
+-- request to serve.  The stream was being reset and then the request handed to
+-- the application regardless, so a message the server had already rejected
+-- still reached whatever was running behind it, on a stream it could no
+-- longer answer on.
 mkRequest
     :: Context
     -> Stream
     -> Source
     -> (TokenHeaderList, ValueTable)
-    -> IO Request
+    -> IO (Maybe Request)
 mkRequest ctx strm src ht@(_, vt) = do
     let mMethod = getFieldValue tokenMethod vt
         mScheme = getFieldValue tokenScheme vt
         mAuthority = getFieldValue tokenAuthority vt
         mPath = getFieldValue tokenPath vt
     case (mMethod, mScheme, mAuthority, mPath) of
-        (Just "CONNECT", _, Just _, _) -> return ()
-        (Just _, Just _, Just _, Just _) -> return ()
-        _ -> QUIC.resetStream strm H3MessageError
+        (Just "CONNECT", _, Just _, _) -> Just <$> build
+        (Just _, Just _, Just _, Just _) -> Just <$> build
+        _ -> do
+            QUIC.resetStream strm H3MessageError
+            return Nothing
+  where
     -- fixme: Content-Length
-    refI <- newIORef IInit
-    refH <- newIORef Nothing
-    let sid = QUIC.streamId strm
-    let readB = recvBody ctx sid src refI refH
-        req = Request $ InpObj ht Nothing readB refH
-    return req
+    build = do
+        refI <- newIORef IInit
+        refH <- newIORef Nothing
+        let sid = QUIC.streamId strm
+        let readB = recvBody ctx sid src refI refH
+        return $ Request $ InpObj ht Nothing readB refH
 
 sendResponse
     :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
