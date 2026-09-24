@@ -23,6 +23,8 @@ h3spec :: SpecWith a
 h3spec = do
     describe "H3 server" $ do
         it "handles normal cases" $ \_ -> runClient
+        it "tells the application the peer's address, not its own" $ \_ ->
+            runSockAddrClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -38,6 +40,31 @@ runClient = QUIC.run testClientConfig $ \conn ->
             , client2 sendRequest _aux
             , client3 sendRequest _aux
             ]
+
+-- | The server reports both addresses it was handed; they must differ.
+--
+-- Over loopback the host part is 127.0.0.1 either way, so it is the port that
+-- tells them apart: the server's is fixed, the client's is ephemeral.
+-- 'getPeerSockAddr' used to return the server's own address, which made these
+-- two identical and left every application logging or filtering on the client
+-- address looking at itself.
+runSockAddrClient :: IO ()
+runSockAddrClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            let req = C.requestNoBody methodGet "/sockaddr" []
+            sendRequest req $ \rsp -> do
+                C.responseStatus rsp `shouldBe` Just ok200
+                body <- consume rsp
+                case B.split 0x20 body of
+                    [mine, peer] -> peer `shouldNotBe` mine
+                    _ -> expectationFailure $ "unexpected body: " ++ show body
+  where
+    consume rsp = go id
+      where
+        go build = do
+            bs <- C.getResponseBodyChunk rsp
+            if B.null bs then return (B.concat (build [])) else go (build . (bs :))
 
 client0 :: C.Client ()
 client0 sendRequest _aux = do

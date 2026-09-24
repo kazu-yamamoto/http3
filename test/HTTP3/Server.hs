@@ -52,9 +52,10 @@ teardown :: ThreadId -> IO ()
 teardown tid = killThread tid
 
 server :: Server
-server req _aux sendResponse = case requestMethod req of
+server req aux sendResponse = case requestMethod req of
     Just "GET" -> case requestPath req of
         Just "/" -> sendResponse responseHello []
+        Just "/sockaddr" -> sendResponse (responseSockAddr aux) []
         _ -> sendResponse response404 []
     Just "POST" -> case requestPath req of
         Just "/echo" -> sendResponse (responseEcho req) []
@@ -66,6 +67,17 @@ responseHello = responseBuilder ok200 header body
   where
     header = [("Content-Type", "text/plain")]
     body = byteString "Hello, world!\n"
+
+-- | Hands back the two addresses the server was given, so that a test can
+-- check they are not the same one twice over.
+responseSockAddr :: Aux -> Response
+responseSockAddr aux = responseBuilder ok200 header body
+  where
+    header = [("Content-Type", "text/plain")]
+    body =
+        byteString $
+            C8.pack $
+                show (auxMySockAddr aux) ++ " " ++ show (auxPeerSockAddr aux)
 
 response404 :: Response
 response404 = responseNoBody notFound404 []
