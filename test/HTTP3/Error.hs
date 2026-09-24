@@ -160,6 +160,18 @@ h3ErrorSpec qcc cconf ms = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
         it
+            "MUST NOT stop reading settings at a reserved identifier [HTTP/3 7.2.4.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated greaseThenHttp2Setting
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
+        it
+            "treats a repeated setting identifier as an error whatever its value [HTTP/3 7.2.4.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated duplicateLargeSetting
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
+        it
             "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
@@ -330,6 +342,23 @@ illegalSettings0 _ = [H3Frame H3FrameSettings "\x07\x40\x64\x01\x50\x00\x06\x80\
 -- ,(H3SettingsKey 0x2,200) -- HTTP/2 Settings
 -- ,(SettingsQpackMaxTableCapacity,4096)
 -- ,(SettingsMaxFieldSectionSize,32768)]
+-- [(H3SettingsKey 0x21,0) -- reserved, to be ignored
+-- ,(H3SettingsKey 0x2,0)]  -- HTTP/2 Settings, which must be refused
+--
+-- 0x21 is the first of the identifiers section 7.2.4.1 reserves and tells
+-- endpoints they SHOULD send.  Reading used to stop at it, so the HTTP/2
+-- setting behind it went unseen -- along with anything else a peer put there.
+greaseThenHttp2Setting :: [H3Frame] -> [H3Frame]
+greaseThenHttp2Setting _ = [H3Frame H3FrameSettings "\x21\x00\x02\x00"]
+
+-- [(H3SettingsKey 0x40,0)
+-- ,(H3SettingsKey 0x40,0)] -- the same identifier twice
+--
+-- 64 in the two-octet form.  The duplicate check was bits in an Int, so
+-- identifiers this large repeated unnoticed.
+duplicateLargeSetting :: [H3Frame] -> [H3Frame]
+duplicateLargeSetting _ = [H3Frame H3FrameSettings "\x40\x40\x00\x40\x40\x00"]
+
 illegalSettings1 :: [H3Frame] -> [H3Frame]
 illegalSettings1 _ =
     [ H3Frame
