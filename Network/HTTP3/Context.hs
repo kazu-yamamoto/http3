@@ -154,4 +154,4 @@ getMySockAddr :: Context -> SockAddr
 getMySockAddr = ctxMySockAddr
 
 getPeerSockAddr :: Context -> SockAddr
-getPeerSockAddr = ctxMySockAddr
+getPeerSockAddr = ctxPeerSockAddr
