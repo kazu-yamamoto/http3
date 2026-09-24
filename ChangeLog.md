@@ -1,5 +1,22 @@
 # Revision history for http3
 
+## 0.1.5
+
+* Security fixes.  Requiring http2 v5.4.5, whose HPACK integer decoder is
+  bounded; QPACK decodes its integers with it.
+* Refusing a QPACK index that names nothing, at both ends of both tables.
+* Putting a ceiling on the frame payload we will hold.
+* Sizing the Huffman scratch buffer to what it has to hold.
+* Reading a unidirectional stream type as the variable-length integer it is.
+* Not handing the application a request we have already rejected.
+* Checking a message against the content-length it declared.
+* Reading the whole SETTINGS frame, noticing a repeated identifier, and
+  refusing one that stops mid-parameter.
+* Giving the application the peer's address, not our own.
+* This is a patch release, but `Network.HTTP3.Internal` and
+  `Network.QPACK.Internal` changed: `parseH3Frame` takes the payload limit,
+  `IFrame` has `ITooLong`, and `DecodeError` has `IllegalDynamicIndex`.
+
 ## 0.1.4
 
 * adding ecUseHuffman to defaultQEncoderConfig
