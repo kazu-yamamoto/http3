@@ -29,6 +29,8 @@ pattern QpackDecoderStreamError   = ApplicationProtocolError 0x202
 
 data DecodeError
     = IllegalStaticIndex Int
+    | -- | An absolute index outside the dynamic table's live window
+      IllegalDynamicIndex Int
     | IllegalInsertCount
     | BlockedStreamsOverflow
     deriving (Eq, Show)

@@ -130,6 +130,12 @@ h3ErrorSpec qcc cconf ms = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
         it
+            "MUST send QPACK_DECOMPRESSION_FAILED if a field line references a dynamic table entry that is not there [QPACK 2.1.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader5
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+        it
             "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
@@ -246,6 +252,21 @@ illegalHeader4 _ =
     [ H3Frame
         H3FrameHeaders
         "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\xff\x24"
+    ]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":authority","127.0.0.1")
+-- ,(":path","/")] ++ dynamic index 0
+--
+-- The Required Insert Count in the prefix is 0 and nothing has been inserted,
+-- so there is no entry 0 to name.  The decoder used to fold the index back
+-- into the table and hand over whatever slot it landed on.
+illegalHeader5 :: [H3Frame] -> [H3Frame]
+illegalHeader5 _ =
+    [ H3Frame
+        H3FrameHeaders
+        "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x80"
     ]
 
 {-
