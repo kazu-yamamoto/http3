@@ -112,11 +112,9 @@ sendRequest ctx scm auth (Request outobj) processResponse =
                 threadDelay 100000
                 -- just for type inference
                 E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
-            Just vt -> do
-                refI <- newIORef IInit
-                refH <- newIORef Nothing
-                let readB = recvBody ctx sid src refI refH
-                    rsp = Response $ InpObj vt Nothing readB refH
+            Just vt@(_, valtbl) -> do
+                (readB, refH) <- newBodyReader ctx sid src valtbl
+                let rsp = Response $ InpObj vt Nothing readB refH
                 processResponse rsp
   where
     hdr = outObjHeaders outobj

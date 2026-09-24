@@ -1,6 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Network.HTTP3.Error (
+    ContentLengthMismatch (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -22,7 +23,23 @@ module Network.HTTP3.Error (
     ),
 ) where
 
+import qualified Control.Exception as E
 import Network.QUIC
+
+-- | A message whose content does not match the content-length it declared.
+--
+-- RFC 9114 section 4.1.2 makes such a message malformed. The body reader
+-- raises this rather than resetting anything itself: it has no stream to hand,
+-- and the handler that wraps the application turns it into the
+-- H3_MESSAGE_ERROR reset the spec asks for -- which also stops the application
+-- working on a message the receiver has already rejected.
+data ContentLengthMismatch = ContentLengthMismatch
+    { declaredLength :: Int
+    , actualLength :: Int
+    }
+    deriving (Eq, Show)
+
+instance E.Exception ContentLengthMismatch
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError

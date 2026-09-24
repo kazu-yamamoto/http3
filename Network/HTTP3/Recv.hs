@@ -7,10 +7,12 @@ module Network.HTTP3.Recv (
     readSource,
     readSource',
     recvHeader,
-    recvBody,
+    newBodyReader,
 ) where
 
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as C8
 import Data.IORef
 import Network.QUIC
 
@@ -77,22 +79,54 @@ recvHeader ctx sid src = loop IInit
                         loop IInit -- dummy
                 st' -> loop st'
 
+-- | A body reader for one message, and the place its trailers will appear.
+--
+-- The reader counts what it hands out and checks the total against
+-- content-length when the body ends, since a message whose content does not
+-- match what it declared is malformed (RFC 9114, section 4.1.2).
+--
+-- Only what is actually read is counted, so a body the application never asks
+-- for is never checked. Answering that would mean draining it on the
+-- application's behalf, which is a different design from the one here.
+newBodyReader
+    :: Context
+    -> StreamId
+    -> Source
+    -> ValueTable
+    -> IO (IO (ByteString, Bool), IORef (Maybe TokenHeaderTable))
+newBodyReader ctx sid src vt = do
+    refI <- newIORef IInit
+    refH <- newIORef Nothing
+    refL <- newIORef 0
+    let mcl = fst <$> (getFieldValue tokenContentLength vt >>= C8.readInt)
+    return (recvBody ctx sid src refI refH mcl refL, refH)
+
 recvBody
     :: Context
     -> StreamId
     -> Source
     -> IORef IFrame
     -> IORef (Maybe TokenHeaderTable)
+    -> Maybe Int
+    -> IORef Int
     -> IO (ByteString, Bool)
-recvBody ctx sid src refI refH = do
+recvBody ctx sid src refI refH mcl refL = do
     st <- readIORef refI
     loop st
   where
     lim = getMaxFieldSectionSize ctx
+    endOfBody = do
+        forM_ mcl $ \cl -> do
+            len <- readIORef refL
+            when (cl /= len) $ E.throwIO $ ContentLengthMismatch cl len
+        return ("", True)
+    chunk bs = do
+        modifyIORef' refL (+ BS.length bs)
+        return (bs, False)
     loop st = do
         bs <- readSource src
         if bs == ""
-            then return ("", True)
+            then endOfBody
             else case parseH3Frame lim st bs of
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad
@@ -103,19 +137,18 @@ recvBody ctx sid src refI refH = do
                         then loop st'
                         else do
                             writeIORef refI st'
-                            let ret = BS.concat $ reverse bss
-                            return (ret, False)
+                            chunk $ BS.concat $ reverse bss
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         writeIORef refI IInit
                         -- pushbackSource src leftover -- fixme
                         hdr <- qpackDecode ctx sid payload
                         writeIORef refH $ Just hdr
-                        return ("", True)
+                        endOfBody
                     | typ == H3FrameData -> do
                         writeIORef refI IInit
                         pushbackSource src leftover
-                        return (payload, False)
+                        chunk payload
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
                         loop IInit
