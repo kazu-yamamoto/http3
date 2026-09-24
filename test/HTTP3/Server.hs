@@ -4,6 +4,7 @@
 module HTTP3.Server (
     setup,
     server,
+    countingServer,
     teardown,
     trailersMaker,
     firstTrailerValue,
@@ -22,6 +23,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Char8 as C8
+import Data.IORef
 import Data.IP ()
 import Network.HPACK
 import Network.HTTP.Types
@@ -50,6 +52,15 @@ setup svr siz = do
 
 teardown :: ThreadId -> IO ()
 teardown tid = killThread tid
+
+-- | 'server', but counting how many times it is handed a request.
+--
+-- A request the server has already rejected must not reach the application at
+-- all, and the only place that shows is here.
+countingServer :: IORef Int -> Server
+countingServer ref req aux sendResponse = do
+    atomicModifyIORef' ref $ \n -> (n + 1, ())
+    server req aux sendResponse
 
 server :: Server
 server req aux sendResponse = case requestMethod req of

@@ -10,6 +10,7 @@ import qualified Control.Exception as E
 import Data.ByteString ()
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
@@ -46,7 +47,11 @@ runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
         threadDelay 100000
         return ret
 
-h3ErrorSpec :: ClientConfig -> H3.ClientConfig -> Millisecond -> SpecWith a
+h3ErrorSpec
+    :: ClientConfig
+    -> H3.ClientConfig
+    -> Millisecond
+    -> SpecWith (ThreadId, IORef Int)
 h3ErrorSpec qcc cconf ms = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers" $ do
@@ -63,11 +68,16 @@ h3ErrorSpec qcc cconf ms = do
                 `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it
             "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]"
-            $ \_ -> do
+            $ \(_, served) -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
                     qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                before' <- readIORef served
                 runC qcc' cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+                -- And it must not have reached the application: the stream was
+                -- reset and then the request handed over anyway.
+                threadDelay 200000
+                readIORef served `shouldReturn` before'
         it
             "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]"
             $ \_ -> do
