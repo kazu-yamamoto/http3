@@ -115,6 +115,7 @@ import Network.HPACK.Internal (
  )
 import System.IO.Unsafe (unsafePerformIO)
 
+import Network.QPACK.Error
 import Network.QPACK.Table.RevIndex
 import Network.QPACK.Types
 import Network.QUIC (StreamId)
@@ -278,12 +279,32 @@ insertEntryToDecoder ent DynamicTable{..} = do
     modifyTVar' tableSize (+ entrySize ent)
     return $ AbsoluteIndex insp
 
+-- | Look up an entry of the dynamic table by absolute index.
+--
+-- The live window is the most recent 'maxNumOfEntries' insertions. An index
+-- outside it names nothing, and the @mod@ below would fold it back into the
+-- table and hand over whichever slot it landed on -- a header nobody sent.
+-- RFC 9204 section 2.1.2 asks for an error instead, and this one reaches the
+-- peer as QPACK_DECOMPRESSION_FAILED from a field section, or as
+-- QPACK_ENCODER_STREAM_ERROR from an encoder instruction.
+--
+-- The window is empty until a capacity has been set, which is also what keeps
+-- the @mod@ from dividing by zero: 'maxNumOfEntries' starts at 0 and a field
+-- section can reach here before the peer has sent us a capacity at all.
 toDynamicEntry :: DynamicTable -> AbsoluteIndex -> STM Entry
 toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
     maxN <- readTVar maxNumOfEntries
-    let i = idx `mod` maxN
+    InsertionPoint ip <- readTVar insertionPoint
+    -- @max 0@ because early on the table holds fewer than maxN entries and
+    -- @ip - maxN@ is negative, which would let a negative index through; the
+    -- index conversions produce those readily, since a pre-base index larger
+    -- than the base gives one.
+    let lo = max 0 (ip - maxN)
+    when (maxN == 0 || idx < lo || idx >= ip) $
+        throwSTM $
+            IllegalDynamicIndex idx
     table <- readTVar circularTable
-    unsafeRead table i
+    unsafeRead table (idx `mod` maxN)
 
 ----------------------------------------------------------------
 
