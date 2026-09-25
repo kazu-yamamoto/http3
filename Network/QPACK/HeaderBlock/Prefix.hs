@@ -40,7 +40,9 @@ encodeRequiredInsertCount maxEntries (RequiredInsertCount reqInsertCount) =
 decodeRequiredInsertCount
     :: Int -> InsertionPoint -> Int -> RequiredInsertCount
 decodeRequiredInsertCount _ _ 0 = 0
-decodeRequiredInsertCount 0 _ n = RequiredInsertCount (n - 1)
+-- With no dynamic table, nothing but 0 can be encoded (RFC 9204, section
+-- 4.5.1.1).
+decodeRequiredInsertCount 0 _ _ = E.throw IllegalInsertCount
 decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encodedInsertCount
     | encodedInsertCount > fullRange = E.throw IllegalInsertCount
     | reqInsertCount > maxValue && reqInsertCount <= fullRange =
@@ -83,7 +85,7 @@ decodeBase (RequiredInsertCount reqInsCnt) True deltaBase = BasePoint (reqInsCnt
 encodePrefix :: WriteBuffer -> DynamicTable -> IO ()
 encodePrefix wbuf dyntbl = do
     clearWriteBuffer wbuf
-    maxEntries <- getMaxNumOfEntries dyntbl
+    maxEntries <- getMaxEntries dyntbl
     baseIndex <- getBasePoint dyntbl
     reqInsCnt <- getRequiredInsertCount dyntbl
     qpackDebug dyntbl $ print reqInsCnt
@@ -101,7 +103,7 @@ encodePrefix wbuf dyntbl = do
 decodePrefix
     :: ReadBuffer -> DynamicTable -> IO (RequiredInsertCount, BasePoint, Bool)
 decodePrefix rbuf dyntbl = do
-    maxEntries <- getMaxNumOfEntries dyntbl
+    maxEntries <- getMaxEntries dyntbl
     totalNumberOfInserts <- getInsertionPoint dyntbl
     w8 <- read8 rbuf
     ric <- decodeI 8 w8 rbuf

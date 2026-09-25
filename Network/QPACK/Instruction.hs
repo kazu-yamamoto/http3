@@ -11,6 +11,7 @@ module Network.QPACK.Instruction (
     decodeEncoderInstructions',
     encodeEI,
     decodeEI,
+    encodeStr,
 
     -- * Decoder instructions
     DecoderInstruction (..),
@@ -30,9 +31,9 @@ import Network.HPACK.Internal (
     decodeI,
     decodeS,
     encodeI,
-    encodeS,
     entryHeaderName,
  )
+import qualified Network.HPACK.Internal as HPACK
 import Network.QUIC (StreamId)
 
 import Imports
@@ -85,11 +86,30 @@ encodeEI wbuf huff (InsertWithNameReference hidx v) = do
             Left (AbsoluteIndex i) -> (set11, i)
             Right (InsRelativeIndex i) -> (set1, i)
     encodeI wbuf set 6 idx
-    encodeS wbuf huff id set1 7 v
+    encodeStr wbuf huff id set1 7 v
 encodeEI wbuf huff (InsertWithLiteralName k v) = do
-    encodeS wbuf huff set01 set001 5 $ foldedCase $ tokenKey k
-    encodeS wbuf huff id set1 7 v
+    encodeStr wbuf huff set01 set001 5 $ foldedCase $ tokenKey k
+    encodeStr wbuf huff id set1 7 v
 encodeEI wbuf _ (Duplicate (InsRelativeIndex idx)) = encodeI wbuf set000 5 idx
+
+-- | 'HPACK.encodeS', but without Huffman coding for a long string.
+--
+-- http2's 'HPACK.encodeS' reserves room for the length before it knows it,
+-- and its estimate of how long that length is tops out at three octets.  A
+-- Huffman-coded string of 16K or more needs four, which then overwrite the
+-- first octet of the code: the peer sees a string that does not decode.  Up
+-- to 16383 octets nothing needs more than three whatever the prefix, and a
+-- Huffman code is only used when it is no longer than the original.
+encodeStr
+    :: WriteBuffer
+    -> Bool
+    -> (Word8 -> Word8)
+    -> (Word8 -> Word8)
+    -> Int
+    -> ByteString
+    -> IO ()
+encodeStr wbuf huff set setH n bs =
+    HPACK.encodeS wbuf (huff && BS8.length bs < 16384) set setH n bs
 
 ----------------------------------------------------------------
 

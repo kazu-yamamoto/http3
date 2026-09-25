@@ -11,7 +11,10 @@ module Network.QPACK.Table.Dynamic (
     isTableReady,
     getTableCapacity,
     setTableCapacity,
+    setDecoderTableCapacity,
     getMaxNumOfEntries,
+    getMaxEntries,
+    setMaxEntries,
 
     -- * Entry
     insertEntryToDecoder,
@@ -34,6 +37,7 @@ module Network.QPACK.Table.Dynamic (
     -- * Blocked streams
     insertBlockedStreamE,
     deleteBlockedStreamE,
+    unblockStreamsE,
     checkBlockedStreams,
 
     -- * Required insert count
@@ -97,6 +101,8 @@ import Data.Array.IO (IOArray, newArray)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.Sequence (Seq, ViewL (..), viewl, (|>))
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set -- Set.size is O(1), IntSet.size is O(n)
 import Imports
@@ -135,7 +141,7 @@ data CodeInfo
         , drainingPoint       :: IORef AbsoluteIndex
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Reference)
-        , sections            :: IORef (IntMap Section)
+        , sections            :: IORef (IntMap (Seq Section)) -- oldest first
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
         , blockedStreamsE     :: IORef (Set Int)
@@ -152,6 +158,7 @@ data DynamicTable = DynamicTable
     { codeInfo          :: CodeInfo
     , insertionPoint    :: TVar InsertionPoint
     , maxNumOfEntries   :: TVar Int
+    , maxEntries        :: IORef Int -- MaxEntries of RFC 9204 section 4.5.1.1
     , circularTable     :: TVar Table
     , basePoint         :: IORef BasePoint
     , debugQPACK        :: IORef Bool
@@ -206,6 +213,7 @@ newDynamicTable info send = do
     let codeInfo = info
     insertionPoint <- newTVarIO 0
     maxNumOfEntries <- newTVarIO 0
+    maxEntries <- newIORef 0
     circularTable <- newTVarIO tbl
     basePoint <- newIORef 0
     debugQPACK <- newIORef False
@@ -245,8 +253,46 @@ setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
     maxN = maxNumbers maxsiz
     end = maxN - 1
 
+-- | Setting the capacity of the decoder's table, as the encoder instructs.
+--
+-- The encoder may change the capacity whenever it likes, within the maximum
+-- the decoder announced (RFC 9204, section 3.2.3), and the entries in the
+-- table stay where they are.  So the ring is allocated once, for as many
+-- entries as the maximum allows ('setMaxEntries'), and a later change only
+-- moves the capacity.  Reallocating it, as 'setTableCapacity' does, emptied
+-- the table and changed what the absolute indices map onto: references to
+-- entries inserted before the change came back as a dummy entry.
+setDecoderTableCapacity :: DynamicTable -> Int -> IO ()
+setDecoderTableCapacity dyntbl@DynamicTable{..} cap = do
+    qpackDebug dyntbl $ putStrLn $ "setDecoderTableCapacity " ++ show cap
+    maxN <- readIORef maxEntries
+    allocated <- (>= 1) <$> readTVarIO maxNumOfEntries
+    when (not allocated && maxN >= 1) $ do
+        tbl <- atomically $ newArray (0, maxN - 1) dummyEntry
+        atomically $ do
+            writeTVar maxNumOfEntries maxN
+            writeTVar circularTable tbl
+    writeIORef maxTableSize cap
+    -- No entry is smaller than 32, so below that nothing can be inserted.
+    writeIORef capaReady (maxN >= 1 && maxNumbers cap >= 1)
+
 getMaxNumOfEntries :: DynamicTable -> IO Int
 getMaxNumOfEntries DynamicTable{..} = readTVarIO maxNumOfEntries
+
+-- | MaxEntries, which the Required Insert Count of a field section is
+-- encoded and decoded against (RFC 9204, section 4.5.1.1).
+--
+-- It comes from the decoder's SETTINGS_QPACK_MAX_TABLE_CAPACITY, not from the
+-- capacity the encoder actually set.  The two ends agree on the former; the
+-- latter is only the encoder's choice within it, and using it here made the
+-- two ends disagree once more than 2*MaxEntries entries had been inserted.
+getMaxEntries :: DynamicTable -> IO Int
+getMaxEntries DynamicTable{..} = readIORef maxEntries
+
+-- | Setting MaxEntries from the decoder's maximum table capacity.
+setMaxEntries :: DynamicTable -> Int -> IO ()
+setMaxEntries DynamicTable{..} maxCapacity =
+    writeIORef maxEntries $ maxNumbers maxCapacity
 
 ----------------------------------------------------------------
 
@@ -308,21 +354,33 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
 
 ----------------------------------------------------------------
 
+-- | Registering a field section which awaits acknowledgement.
+--
+-- A stream can have more than one outstanding -- headers and trailers, say --
+-- and a Section Acknowledgement is for the oldest of them (RFC 9204, section
+-- 4.4.1), so they are queued rather than keyed by the stream alone.  Keyed
+-- alone, the second replaced the first, whose references were then never
+-- released, and the second acknowledgement found nothing and was taken for a
+-- decoder stream error.
 insertSection :: DynamicTable -> StreamId -> Section -> IO ()
 insertSection DynamicTable{..} sid section = atomicModifyIORef' sections ins
   where
     ins m =
-        let m' = IntMap.insert sid section m
+        let m' = IntMap.insertWith (\_ old -> old |> section) sid (Seq.singleton section) m
          in (m', ())
     EncodeInfo{..} = codeInfo
 
+-- | Taking out the oldest outstanding field section of a stream.
 getAndDelSection :: DynamicTable -> StreamId -> IO (Maybe Section)
 getAndDelSection DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
   where
-    getAndDel m =
-        let (msec, m') = IntMap.updateLookupWithKey f sid m
-         in (m', msec)
-    f _ _ = Nothing -- delete the entry if found
+    getAndDel m = case IntMap.lookup sid m of
+        Nothing -> (m, Nothing)
+        Just q -> case viewl q of
+            EmptyL -> (IntMap.delete sid m, Nothing)
+            sec :< rest
+                | Seq.null rest -> (IntMap.delete sid m, Just sec)
+                | otherwise -> (IntMap.insert sid rest m, Just sec)
     EncodeInfo{..} = codeInfo
 
 increaseReference :: DynamicTable -> AbsoluteIndex -> IO ()
@@ -386,13 +444,31 @@ getBlockedStreamsE DynamicTable{..} =
 
 insertBlockedStreamE :: DynamicTable -> StreamId -> IO ()
 insertBlockedStreamE DynamicTable{..} sid =
-    modifyIORef' blockedStreamsE (Set.insert sid)
+    atomicModifyIORef' blockedStreamsE (\set -> (Set.insert sid set, ()))
   where
     EncodeInfo{..} = codeInfo
 
 deleteBlockedStreamE :: DynamicTable -> StreamId -> IO ()
 deleteBlockedStreamE DynamicTable{..} sid =
-    modifyIORef' blockedStreamsE (Set.delete sid)
+    atomicModifyIORef' blockedStreamsE (\set -> (Set.delete sid set, ()))
+  where
+    EncodeInfo{..} = codeInfo
+
+-- | Forgetting the blocked streams that the known received count has caught
+-- up with.
+--
+-- A stream stops being blocked once the decoder holds every entry its
+-- section refers to (RFC 9204, section 2.1.2), which an Insert Count
+-- Increment can say as well as a Section Acknowledgement.  Waiting for the
+-- acknowledgement alone would be safe but would keep a stream counted for as
+-- long as it is never acknowledged -- forever, for one that was reset.
+unblockStreamsE :: DynamicTable -> IO ()
+unblockStreamsE DynamicTable{..} = do
+    krc <- readTVarIO knownReceivedCount
+    secs <- readIORef sections
+    let blocking (Section (RequiredInsertCount ric) _) = ric > krc
+        stillBlocked sid = maybe False (any blocking) $ IntMap.lookup sid secs
+    atomicModifyIORef' blockedStreamsE (\set -> (Set.filter stillBlocked set, ()))
   where
     EncodeInfo{..} = codeInfo
 
@@ -464,7 +540,10 @@ wouldSectionBeBlocked DynamicTable{..} (RequiredInsertCount reqip) = atomically 
 wouldInstructionBeBlocked :: DynamicTable -> AbsoluteIndex -> IO Bool
 wouldInstructionBeBlocked DynamicTable{..} (AbsoluteIndex ai) = atomically $ do
     krc <- readTVar knownReceivedCount
-    return (ai > krc)
+    -- The decoder is known to hold entries 0 .. krc-1, so a reference to
+    -- krc itself is still one it may not have.  This is the same test as
+    -- 'wouldSectionBeBlocked', whose Required Insert Count is ai + 1.
+    return (ai >= krc)
   where
     EncodeInfo{..} = codeInfo
 
