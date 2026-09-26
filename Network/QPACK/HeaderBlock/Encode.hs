@@ -15,6 +15,7 @@ import Network.ByteOrder
 import Network.Control
 import Network.HPACK.Internal (
     encodeI,
+    encodeS,
     toEntryToken,
  )
 import Network.HTTP.Semantics
@@ -357,7 +358,7 @@ encodeWithNameReference
     :: WriteBuffer -> DynamicTable -> HIndex -> ByteString -> Bool -> IO ()
 encodeWithNameReference wbuf dyntbl hidx@(SIndex (AbsoluteIndex idx)) val huff = do
     encodeI wbuf set0101 4 idx
-    encodeStr wbuf huff id set1 7 val
+    encodeS wbuf huff id set1 7 val
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithNameReference (" ++ show hidx ++ ")"
@@ -368,13 +369,13 @@ encodeWithNameReference wbuf dyntbl hidx@(DIndex ai) val huff = do
     case toBaseIndex ai bp of
         Left (PreBaseIndex idx) -> do
             encodeI wbuf set0100 4 idx
-            encodeStr wbuf huff id set1 7 val
+            encodeS wbuf huff id set1 7 val
             qpackDebug dyntbl $
                 putStrLn $
                     "LiteralFieldLineWithNameReference (" ++ show hidx ++ ")"
         Right (PostBaseIndex idx) -> do
             encodeI wbuf set00000 3 idx
-            encodeStr wbuf huff id set1 7 val
+            encodeS wbuf huff id set1 7 val
             qpackDebug dyntbl $
                 putStrLn $
                     "LiteralFieldLineWithPostBaseNameReference (DIndex " ++ show ai ++ ")"
@@ -391,7 +392,7 @@ encodeLiteralFieldLineWithNameReference wbuf dyntbl hidx val huff = do
             let PreBaseIndex i = toPreBaseIndex ai bp
             return (i, set0100)
     encodeI wbuf set 4 idx
-    encodeStr wbuf huff id set1 7 val
+    encodeS wbuf huff id set1 7 val
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithNameReference (" ++ show hidx ++ ")"
@@ -410,7 +411,7 @@ encodeLiteralFieldLineWithPostBaseNameReference wbuf dyntbl ai val huff = do
     bp <- getBasePoint dyntbl
     let PostBaseIndex idx = toPostBaseIndex ai bp
     encodeI wbuf set00000 3 idx
-    encodeStr wbuf huff id set1 7 val
+    encodeS wbuf huff id set1 7 val
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithPostBaseNameReference (DIndex " ++ show ai ++ ")"
@@ -423,8 +424,8 @@ encodeLiteralFieldLineWithLiteralName
     :: WriteBuffer -> DynamicTable -> Token -> ByteString -> Bool -> IO ()
 encodeLiteralFieldLineWithLiteralName wbuf dyntbl token val huff = do
     let key = tokenFoldedKey token
-    encodeStr wbuf huff set0010 set00001 3 key
-    encodeStr wbuf huff id set1 7 val
+    encodeS wbuf huff set0010 set00001 3 key
+    encodeS wbuf huff id set1 7 val
     qpackDebug dyntbl $
         putStrLn $
             "LiteralFieldLineWithLiteralName " ++ showHeader key val
