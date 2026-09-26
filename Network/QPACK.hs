@@ -151,11 +151,14 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 ecUseHuffman
                 dyntbl
                 lock
-        handler = decoderInstructionHandler dyntbl
+        handler = decoderInstructionHandler dyntbl lock
         ctl =
             TableOperation
-                { setCapacity = \n -> do
+                { setCapacity = \n -> withMVar lock $ \_ -> do
                     -- "n" is decoder-proposed size via settings.
+                    -- It, not the capacity chosen below, determines
+                    -- MaxEntries.
+                    setMaxEntries dyntbl n
                     let tableSize = min ecMaxTableCapacity n
                     setTableCapacity dyntbl tableSize
                     ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
@@ -168,19 +171,24 @@ newQEncoder QEncoderConfig{..} sendEI = do
 tokenHeaderSize :: TokenHeader -> Int
 tokenHeaderSize (t, v) = BS.length (CI.original (tokenKey t)) + BS.length v + 8 -- adhoc overhead
 
+-- | Taking as many fields as fit in @lim@, but always at least one.
+--
+-- A field that does not fit on its own makes a chunk by itself, which
+-- 'encodeChunk' gives buffers of its own.  It used to be refused with
+-- 'BufferOverrun' -- so a value of 4K or so could not be sent at all -- and
+-- one that came to exactly @lim@ produced an empty chunk and left the rest
+-- as it was, so 'splitThrough' went round forever.
 split :: Int -> TokenHeaderList -> (TokenHeaderList, TokenHeaderList)
 split lim ts = split' 0 ts
   where
     split' _ [] = ([], [])
     split' s xxs@(x : xs)
-        | siz > lim = E.throw BufferOverrun
-        | s' < lim =
+        | s /= 0 && s' > lim = ([], xxs)
+        | otherwise =
             let (ys, zs) = split' s' xs
              in (x : ys, zs)
-        | otherwise = ([], xxs)
       where
-        siz = tokenHeaderSize x
-        s' = s + siz
+        s' = s + tokenHeaderSize x
 
 splitThrough :: Int -> TokenHeaderList -> [TokenHeaderList]
 splitThrough lim ts0 = loop ts0 id
@@ -189,6 +197,33 @@ splitThrough lim ts0 = loop ts0 id
     loop ts builder = loop ts2 (builder . (ts1 :))
       where
         (ts1, ts2) = split lim ts
+
+-- | Encoding a chunk from 'splitThrough', in the shared buffers when it fits.
+--
+-- One that does not is a single large field, and gets buffers of its own.
+-- Their size allows for Huffman coding being tried in place before it is known
+-- to be the shorter: a code is at most 30 bits, so under four octets per octet.
+encodeChunk
+    :: Buffer
+    -> BufferSize
+    -> Buffer
+    -> BufferSize
+    -> Bool
+    -> DynamicTable
+    -> TokenHeaderList
+    -> IO (ByteString, [AbsoluteIndex])
+encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl ts
+    | siz <= min bufsiz1 bufsiz2 =
+        qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl ts
+    | otherwise = do
+        let bufsiz = siz * 4 + 64
+        gcbuf1 <- mallocPlainForeignPtrBytes bufsiz
+        gcbuf2 <- mallocPlainForeignPtrBytes bufsiz
+        withForeignPtr gcbuf1 $ \b1 ->
+            withForeignPtr gcbuf2 $ \b2 ->
+                qpackEncodeHeader b1 bufsiz b2 bufsiz huff dyntbl ts
+  where
+    siz = sum $ map tokenHeaderSize ts
 
 qpackEncoder
     :: GCBuffer
@@ -209,15 +244,20 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid ts =
                         "---- Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
-                let tss = splitThrough bufsiz1 ts
-                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
+                let tss = splitThrough (min bufsiz1 bufsiz2) ts
+                his <- mapM (encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
                 let (hbs, daiss) = unzip his
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
                 reqInsCnt <- getRequiredInsertCount dyntbl
                 -- To count only blocked sections,
                 -- dont' register this section if reqInsCnt == 0.
-                when (reqInsCnt /= 0) $
+                when (reqInsCnt /= 0) $ do
+                    -- Counted against the decoder's
+                    -- SETTINGS_QPACK_BLOCKED_STREAMS, which
+                    -- 'checkBlockedStreams' consults while encoding.
+                    blocked <- wouldSectionBeBlocked dyntbl reqInsCnt
+                    when blocked $ insertBlockedStreamE dyntbl sid
                     insertSection dyntbl sid $
                         Section reqInsCnt $
                             concat daiss
@@ -242,8 +282,8 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid hs =
                         "---- Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
                 setBasePointToInsersionPoint dyntbl
                 clearRequiredInsertCount dyntbl
-                let tss = splitThrough bufsiz1 ts
-                his <- mapM (qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
+                let tss = splitThrough (min bufsiz1 bufsiz2) ts
+                his <- mapM (encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
                 let (hbs, daiss) = unzip his
                 prefix <- qpackEncodePrefix buf1 bufsiz1 dyntbl
                 let section = BS.concat (prefix : hbs)
@@ -260,6 +300,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid hs =
                         -- The same logic of SectionAcknowledgement.
                         updateKnownReceivedCount dyntbl reqInsCnt
                         mapM_ (decreaseReference dyntbl) dais
+                        _ <- getAndDelSection dyntbl sid
                         deleteBlockedStreamE dyntbl sid
                 -- Need to emulate InsertCountIncrement since
                 -- SectionAcknowledgement is not returned if
@@ -297,8 +338,15 @@ qpackEncodePrefix buf1 bufsiz1 dyntbl = do
     toByteString wbuf1
 
 -- Note: dyntbl for encoder
-decoderInstructionHandler :: DynamicTable -> DecoderInstructionHandler
-decoderInstructionHandler dyntbl recv = loop ""
+--
+-- The lock is the encoder's.  Acknowledgements change the same reference
+-- counts, sections and blocked streams that encoding reads and writes, with
+-- plain reads and writes rather than atomic ones; run beside an encoding in
+-- progress, an update could be lost and an entry either kept forever or
+-- evicted while a field section still referred to it.
+decoderInstructionHandler
+    :: DynamicTable -> MVar () -> DecoderInstructionHandler
+decoderInstructionHandler dyntbl lock recv = loop ""
   where
     loop bs0 = do
         bs1 <- recv 1024
@@ -308,7 +356,7 @@ decoderInstructionHandler dyntbl recv = loop ""
         when (bs /= "") $ do
             (ins, leftover) <- decodeDecoderInstructions bs
             qpackDebug dyntbl $ mapM_ print ins
-            mapM_ handle ins
+            withMVar lock $ \_ -> mapM_ handle ins
             loop leftover
     handle (SectionAcknowledgement sid) = do
         msec <- getAndDelSection dyntbl sid
@@ -317,11 +365,15 @@ decoderInstructionHandler dyntbl recv = loop ""
             Just (Section reqInsCnt ais) -> do
                 updateKnownReceivedCount dyntbl reqInsCnt
                 mapM_ (decreaseReference dyntbl) ais
-                deleteBlockedStreamE dyntbl sid
+                -- Not simply deleted: a later section on the same stream
+                -- may still be blocked.
+                unblockStreamsE dyntbl
     handle (StreamCancellation _n) = return () -- fixme
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
-        | otherwise = incrementKnownReceivedCount dyntbl n
+        | otherwise = do
+            incrementKnownReceivedCount dyntbl n
+            unblockStreamsE dyntbl
 
 ----------------------------------------------------------------
 
@@ -338,6 +390,7 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck debug = do
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
     dyntbl <- newDynamicTableForEncoding saveEI
+    setMaxEntries dyntbl ecMaxTableCapacity
     setTableCapacity dyntbl ecMaxTableCapacity
     setMaxBlockedStreams dyntbl blocked
     setImmediateAck dyntbl immediateAck
@@ -386,6 +439,7 @@ newQDecoder
 newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedSterams
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
@@ -400,6 +454,7 @@ newQDecoderS
 newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
+    setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedSterams
     setDebugQPACK dyntbl debug
     let dec = qpackDecoderS dyntbl
@@ -453,7 +508,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
     handle ins@(SetDynamicTableCapacity n)
         | n > decCapLim = E.throwIO EncoderInstructionError
         | otherwise = do
-            setTableCapacity dyntbl n
+            setDecoderTableCapacity dyntbl n
             qpackDebug dyntbl $ print ins
             return 0
     handle ins@(InsertWithNameReference ii val) = do
