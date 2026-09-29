@@ -152,11 +152,17 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 encodeIndexed wbuf1 dyntbl hi
                 increaseReference dyntbl ai
                 return $ Just ai
-        K hi@(SIndex i) -> tryInsertVal hi $ do
+        K hi@(SIndex i) -> tryInsertVal hi id $ do
             insertWithNameReference val ent Nothing $ Left i
         K hi@(DIndex ai) -> do
             qpackDebug dyntbl $ checkAbsoluteIndex dyntbl ai "K (1)"
-            withDIndex ai $ tryInsertVal hi $ do
+            -- Only a field line referring to the entry can block the
+            -- stream.  The insertion refers to it on the encoder stream,
+            -- which never blocks anything (RFC 9204, section 2.1.1), so it
+            -- is only the fallback that has to be guarded.  Guarding the
+            -- whole of it gave up inserting whenever the name was in an
+            -- entry not yet acknowledged and this stream could not block.
+            tryInsertVal hi (withDIndex ai) $ do
                 ridx <- toInsRelativeIndex ai <$> getInsertionPoint dyntbl
                 insertWithNameReference val ent (Just ai) $ Right ridx
         N -> tryInsertKeyVal $ insertWithLiteralName val ent
@@ -203,7 +209,9 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
                 return $ Just ai
             else encodeLiteralFieldLineStatic
 
-    tryInsertVal hi action = do
+    -- 'guardRef' wraps the fallback, a field line with a reference to the
+    -- name, which is where a reference to the dynamic table can block.
+    tryInsertVal hi guardRef action = do
         -- Field representation MUST not refer to a dropped entry
         -- on insertion.
         let possiblelyDropMySelf = case hi of
@@ -212,7 +220,7 @@ encLinear wbuf1 wbuf2 dyntbl revidx huff (t, val) = do
         ok <- checkExistenceAndSpace ent key val possiblelyDropMySelf "Val"
         if ok
             then action
-            else do
+            else guardRef $ do
                 -- 4.5.4/4.5.5
                 encodeWithNameReference wbuf1 dyntbl hi val huff
                 case hi of
