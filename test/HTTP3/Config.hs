@@ -30,6 +30,11 @@ testServerConfig :: ServerConfig
 testServerConfig =
     defaultServerConfig
         { scAddresses = [("127.0.0.1", 8003)]
+        , -- Room for more unidirectional streams than the three a client
+          -- needs, so that a test can open a second control or QPACK stream
+          -- and see it refused.  The default of three leaves no room for one.
+          scParameters =
+            (scParameters defaultServerConfig){initialMaxStreamsUni = 10}
         }
 
 testClientConfig :: ClientConfig

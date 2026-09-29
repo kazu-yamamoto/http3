@@ -37,6 +37,7 @@ import qualified System.ThreadManager as T
 
 import Network.HTTP3.Config
 import Network.HTTP3.Control
+import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.HTTP3.Stream
 import Network.QPACK
@@ -70,10 +71,11 @@ newContext conn conf = do
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE <$> newIORef IInit
+    seen <- newIORef []
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
         handleEI' recv = handleEI recv `E.catch` abortWith QpackEncoderStreamError
-        ctxUniSwitch = switch conn ctl handleEI' handleDI'
+        ctxUniSwitch = switch conn seen ctl handleEI' handleDI'
         ctxPReadMaker = confPositionReadMaker conf
         ctxHooks = confHooks conf
         ctxMySockAddr = localSockAddr info
@@ -93,18 +95,46 @@ isAsyncException e =
         Just (E.SomeAsyncException _) -> True
         Nothing -> False
 
+-- | The handler for a unidirectional stream the peer opened, by its type.
+--
+-- The control stream and the two QPACK streams are critical: a peer may open
+-- each of them only once (RFC 9114, section 6.2.1; RFC 9204, section 4.2),
+-- and may not close any of them.  The control stream handler sees to the
+-- closing itself; the QPACK ones are library code that simply returns when
+-- the stream ends.
 switch
     :: Connection
+    -> IORef [H3StreamType]
+    -- ^ The critical streams the peer has opened so far
     -> InstructionHandler
     -> InstructionHandler
     -> InstructionHandler
     -> H3StreamType
     -> InstructionHandler
-switch conn ctl handleEI handleDI styp
-    | styp == H3ControlStreams = ctl
-    | styp == QPACKEncoderStream = handleEI
-    | styp == QPACKDecoderStream = handleDI
-    | otherwise = \_ -> connDebugLog conn "switch unknown stream type"
+switch conn seen ctl handleEI handleDI styp = case styp of
+    H3ControlStreams -> once ctl
+    QPACKEncoderStream -> once $ closing handleEI
+    QPACKDecoderStream -> once $ closing handleDI
+    -- RFC 9114, section 6.2.2: "Only servers can push; if a server receives
+    -- a client-initiated push stream, this MUST be treated as a connection
+    -- error of type H3_STREAM_CREATION_ERROR."  And section 4.6: a client
+    -- "MUST treat receipt of a push stream as a connection error of type
+    -- H3_ID_ERROR when no MAX_PUSH_ID frame has been sent", which this client
+    -- never does.
+    H3PushStreams
+        | isServer conn -> \_ -> abortConnection conn H3StreamCreationError ""
+        | otherwise -> \_ -> abortConnection conn H3IdError ""
+    _ -> \_ -> connDebugLog conn "switch unknown stream type"
+  where
+    once, closing :: InstructionHandler -> InstructionHandler
+    once handler recv = do
+        dup <- atomicModifyIORef' seen $ \ts -> (styp : ts, styp `elem` ts)
+        if dup
+            then abortConnection conn H3StreamCreationError ""
+            else handler recv
+    closing handler recv = do
+        handler recv
+        abortConnection conn H3ClosedCriticalStream ""
 
 isH3Server :: Context -> Bool
 isH3Server Context{..} = isServer ctxConnection

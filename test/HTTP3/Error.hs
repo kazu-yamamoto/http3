@@ -214,6 +214,53 @@ h3ErrorSpec qcc cconf ms = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it
+            "MUST send H3_STREAM_CREATION_ERROR if a second control stream is opened [HTTP/3 6.2.1]"
+            $ \_ -> do
+                -- A stream type of 0x00, then an empty SETTINGS frame.
+                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother "\x00\x04\x00"
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+        it
+            "MUST send H3_STREAM_CREATION_ERROR if a client opens a push stream [HTTP/3 6.2.2]"
+            $ \_ -> do
+                -- A stream type of 0x01, then push ID 0.
+                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother "\x01\x00"
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+        it
+            "MUST send H3_STREAM_CREATION_ERROR if a second encoder stream is opened [QPACK 4.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnEncoderStreamCreated $ openAnother "\x02"
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+        it
+            "MUST send H3_STREAM_CREATION_ERROR if a second decoder stream is opened [QPACK 4.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnDecoderStreamCreated $ openAnother "\x03"
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+        it
+            "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream is closed [QPACK 4.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnEncoderStreamCreated closeStream
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+        it
+            "MUST send H3_CLOSED_CRITICAL_STREAM if a decoder stream is closed [QPACK 4.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnDecoderStreamCreated closeStream
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+        it
+            "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream ends inside an instruction [QPACK 4.2]"
+            $ \_ -> do
+                -- The first octet of a Set Dynamic Table Capacity that goes on.
+                let conf = addHook conf0 $ setOnEncoderStreamCreated $ \strm -> do
+                        sendStream strm "\x3f"
+                        closeStream strm
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
+        it
             "MUST send QPACK_DECODER_STREAM_ERROR if Insert Count Increment is 0 [QPACK 4.4.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnDecoderStreamCreated zeroInsertCountIncrement
@@ -382,6 +429,13 @@ illegalSettings1 _ =
     ]
 
 ----------------------------------------------------------------
+
+-- | Opening a unidirectional stream of our own next to the one given, and
+-- sending it these octets: a stream type and whatever follows it.
+openAnother :: BS.ByteString -> Stream -> IO ()
+openAnother bs strm = do
+    strm' <- unidirectionalStream $ streamConnection strm
+    sendStream strm' bs
 
 -- A GOAWAY frame announcing 2^30 octets and then sending none of them.
 --

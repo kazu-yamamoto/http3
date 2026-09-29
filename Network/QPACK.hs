@@ -348,12 +348,15 @@ decoderInstructionHandler
     :: DynamicTable -> MVar () -> DecoderInstructionHandler
 decoderInstructionHandler dyntbl lock recv = loop ""
   where
+    -- Returns when the stream ends, with an instruction cut short or not.
+    -- Going on with what was left over used to spin: the same incomplete
+    -- instruction, decoded again after every empty read.
     loop bs0 = do
         bs1 <- recv 1024
         let bs
                 | bs0 == "" = bs1
                 | otherwise = bs0 <> bs1
-        when (bs /= "") $ do
+        when (bs1 /= "") $ do
             (ins, leftover) <- decodeDecoderInstructions bs
             qpackDebug dyntbl $ mapM_ print ins
             withMVar lock $ \_ -> mapM_ handle ins
@@ -485,12 +488,13 @@ qpackDecoderS dyntbl sid bs = do
 encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler
 encoderInstructionHandler decCapLim dyntbl recv = loop ""
   where
+    -- Returns when the stream ends; see 'decoderInstructionHandler'.
     loop bs0 = do
         bs1 <- recv 1024
         let bs
                 | bs0 == "" = bs1
                 | otherwise = bs0 <> bs1
-        when (bs /= "") $ do
+        when (bs1 /= "") $ do
             leftover <- encoderInstructionHandlerS decCapLim dyntbl bs
             loop leftover
 
