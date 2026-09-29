@@ -41,6 +41,8 @@ h3spec = do
             runEmptyDataClient
         it "cancels a stream whose response it does not read to the end" $ \_ ->
             runCancelClient
+        it "answers 431 to a request header section over its limit" $ \_ ->
+            runTooLargeClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -131,6 +133,24 @@ runCancelClient = do
     -- Stream Cancellation is 01 and then the stream ID in six bits.
     B.elem 0x40 bs `shouldBe` False
     B.elem 0x44 bs `shouldBe` True
+
+-- | 150 copies of one field with a 300-octet value.  After the first two,
+-- each is a reference to the dynamic table of an octet or so, so the HEADERS
+-- frame comes to around 600 octets, well within the cap on its length.  As
+-- the limit counts them, though, they are 335 octets each, 50250 in all
+-- against the server's 32768.
+runTooLargeClient :: IO ()
+runTooLargeClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            -- One round trip first, so that the server's SETTINGS are in and
+            -- the encoder may use the dynamic table.  Without it every copy
+            -- goes as a literal and the frame is over the cap.
+            sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+            let hdr = replicate 150 ("x-a", B.replicate 300 0x62)
+                req = C.requestNoBody methodGet "/" hdr
+            sendRequest req $ \rsp ->
+                C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431
 
 -- | The client's QPACK decoder stream: its third unidirectional stream, after
 -- the control stream and the encoder stream.

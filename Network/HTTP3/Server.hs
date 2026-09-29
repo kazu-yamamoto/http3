@@ -106,10 +106,11 @@ processRequest
 processRequest ctx server strm th = E.handle reset $ do
     src <- newSource strm
     (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
-        mvt <- recvHeader ctx sid src
-        case mvt of
-            Nothing -> QUIC.resetStream strm H3MessageError
-            Just ht -> do
+        emvt <- E.try $ recvHeader ctx sid src
+        case emvt of
+            Left FieldSectionTooLarge -> refuseTooLarge ctx strm th
+            Right Nothing -> QUIC.resetStream strm H3MessageError
+            Right (Just ht) -> do
                 mreq <- mkRequest ctx strm src ht
                 case mreq of
                     -- Malformed; 'mkRequest' has reset the stream.
@@ -133,10 +134,12 @@ processRequest ctx server strm th = E.handle reset $ do
 processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
 processRequestIO ctx put strm = E.handle reset $ do
     src <- newSource strm
-    mvt <- recvHeader ctx sid src
-    case mvt of
-        Nothing -> QUIC.resetStream strm H3MessageError
-        Just ht -> do
+    emvt <- E.try $ recvHeader ctx sid src
+    case emvt of
+        Left FieldSectionTooLarge ->
+            void $ withHandle ctx $ refuseTooLarge ctx strm
+        Right Nothing -> QUIC.resetStream strm H3MessageError
+        Right (Just ht) -> do
             mreq <- mkRequest ctx strm src ht
             case mreq of
                 Nothing -> return ()
@@ -148,6 +151,19 @@ processRequestIO ctx put strm = E.handle reset $ do
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
+
+-- | Answering a request whose header section is more than we said we would
+--   take.
+--
+-- RFC 9114, section 4.2.2: "A server that receives a larger field section
+-- than it is willing to handle can send an HTTP 431 (Request Header Fields
+-- Too Large) status code".  What is left of the request is not wanted, and
+-- section 4.1.1 lets a server say so with STOP_SENDING and H3_NO_ERROR.
+refuseTooLarge :: Context -> Stream -> T.Handle -> IO ()
+refuseTooLarge ctx strm th = do
+    QUIC.stopStream strm H3NoError
+    sendHeader ctx strm th [(":status", "431")]
+    QUIC.shutdownStream strm
 
 -- | Build the 'Request', or reset the stream and answer 'Nothing' when the
 -- message is malformed.

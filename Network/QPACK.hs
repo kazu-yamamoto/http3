@@ -19,6 +19,7 @@ module Network.QPACK (
     defaultQDecoderConfig,
     QDecoder,
     newQDecoder,
+    FieldSectionTooLarge (..),
 
     -- ** Decoder for debugging
     QDecoderS,
@@ -454,6 +455,8 @@ newQDecoder QDecoderConfig{..} sendDI = do
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedSterams
+    -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
+    setMaxHeaderSize dyntbl dcMaxFieldSectionSize
     let dec = qpackDecoder dyntbl
         handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
@@ -469,6 +472,8 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedSterams
+    -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
+    setMaxHeaderSize dyntbl dcMaxFieldSectionSize
     setDebugQPACK dyntbl debug
     let dec = qpackDecoderS dyntbl
         handler = encoderInstructionHandlerS dcMaxTableCapacity dyntbl
