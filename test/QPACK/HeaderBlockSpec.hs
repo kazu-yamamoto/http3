@@ -193,6 +193,30 @@ spec = do
             drain diRef handleDI
             enc 12 hdr >>= (`shouldSatisfy` (/= 0)) . encodedInsertCount
 
+        it "refuses a section that decodes to more than the announced limit" $ do
+            -- A field line of one octet refers to a 1037-octet entry, so a
+            -- section of a few octets decodes to far more than its length.
+            -- Only the length of the frame used to be capped.
+            eiRef <- newIORef []
+            (dec, handleEI) <-
+                newQDecoder
+                    defaultQDecoderConfig{dcMaxFieldSectionSize = 2000}
+                    (\_ -> return ())
+            ins <-
+                encodeEncoderInstructions
+                    [ SetDynamicTableCapacity 4096
+                    , InsertWithLiteralName (toToken "x-foo") (C8.replicate 1000 'a')
+                    ]
+                    False
+            writeIORef eiRef [ins]
+            drain eiRef handleEI
+            -- Required Insert Count 1, Delta Base 0, then indexed field
+            -- lines for relative index 0: once, and then twice.
+            (ths, _) <- dec 0 $ BS.pack [0x02, 0x00, 0x80]
+            map fst ths `shouldBe` [toToken "x-foo"]
+            dec 4 (BS.pack [0x02, 0x00, 0x80, 0x80])
+                `shouldThrow` (== FieldSectionTooLarge)
+
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.
 drain :: IORef [BS.ByteString] -> ((Int -> IO BS.ByteString) -> IO ()) -> IO ()
@@ -216,7 +240,12 @@ roundTrip n = do
 roundTripWith :: QEncoderConfig -> Int -> IO BS.ByteString
 roundTripWith conf n = do
     (enc, _, _) <- newQEncoder conf (\_ -> return ())
-    (dec, _) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+    -- Room for the largest field here, which the default limit on a field
+    -- section is not.
+    (dec, _) <-
+        newQDecoder
+            defaultQDecoderConfig{dcMaxFieldSectionSize = 1000000}
+            (\_ -> return ())
     let val = C8.replicate n 'a'
     blk <- enc 0 [(toToken ":status", "200"), (toToken "x-big", val)]
     (ths, _) <- dec 0 blk
