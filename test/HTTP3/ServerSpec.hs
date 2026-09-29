@@ -3,15 +3,26 @@
 
 module HTTP3.ServerSpec where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
+import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
 import qualified Network.QUIC.Client as QUIC
+import Network.QUIC.Internal (
+    ClientConfig (..),
+    EncryptionLevel,
+    Frame (..),
+    Hooks (..),
+    Plain (..),
+    StreamId,
+ )
+import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
 
 import HTTP3.Config
@@ -28,6 +39,8 @@ h3spec = do
             runSockAddrClient
         it "reads a body past a DATA frame that is empty" $ \_ ->
             runEmptyDataClient
+        it "cancels a stream whose response it does not read to the end" $ \_ ->
+            runCancelClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -84,6 +97,60 @@ runEmptyDataClient = QUIC.run testClientConfig $ \conn ->
                 C.getResponseBodyChunk rsp `shouldReturn` "5"
   where
     emptyData = H3Frame H3FrameData ""
+
+-- | RFC 9204, section 4.4.2: a decoder that gives up on a stream sends a
+-- Stream Cancellation, so that the encoder stops keeping the entries the
+-- field sections it will never hear about refer to.  None was ever sent.
+--
+-- The first response is read to the end and the second is not; only the
+-- second is cancelled.  What the client writes on its decoder stream is taken
+-- from the QUIC packets it sends.
+runCancelClient :: IO ()
+runCancelClient = do
+    writeIORef sentOnDecoderStream []
+    let qcc =
+            testClientConfig
+                { ccHooks =
+                    (ccHooks testClientConfig){onPlainCreated = recordDecoderStream}
+                }
+    QUIC.run qcc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestNoBody methodGet "/" []
+                -- Stream 0, read to the end.
+                sendRequest req $ \rsp -> do
+                    let drain = do
+                            bs <- C.getResponseBodyChunk rsp
+                            unless (B.null bs) drain
+                    drain
+                -- Stream 4, not.
+                sendRequest req $ \_rsp -> return ()
+                -- Time for the cancellation to go out.
+                threadDelay 100000
+    bs <- B.concat <$> readIORef sentOnDecoderStream
+    -- Stream Cancellation is 01 and then the stream ID in six bits.
+    B.elem 0x40 bs `shouldBe` False
+    B.elem 0x44 bs `shouldBe` True
+
+-- | The client's QPACK decoder stream: its third unidirectional stream, after
+-- the control stream and the encoder stream.
+clientDecoderStream :: StreamId
+clientDecoderStream = 10
+
+{-# NOINLINE sentOnDecoderStream #-}
+sentOnDecoderStream :: IORef [B.ByteString]
+sentOnDecoderStream = unsafePerformIO $ newIORef []
+
+-- | The hook is pure, so this is the only way to see what goes out.
+{-# NOINLINE recordDecoderStream #-}
+recordDecoderStream :: EncryptionLevel -> Plain -> Plain
+recordDecoderStream _ plain = unsafePerformIO $ do
+    forM_ (plainFrames plain) $ \frame -> case frame of
+        StreamF sid _ dats _
+            | sid == clientDecoderStream ->
+                atomicModifyIORef' sentOnDecoderStream $ \xs -> (xs ++ dats, ())
+        _ -> return ()
+    return plain
 
 client0 :: C.Client ()
 client0 sendRequest _aux = do

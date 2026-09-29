@@ -5,6 +5,7 @@ module Network.HTTP3.Context (
     Context,
     withContext,
     unidirectional,
+    cancelStream,
     isH3Server,
     isH3Client,
     accept,
@@ -56,6 +57,8 @@ data Context = Context
     , ctxMaxFieldSectionSize :: Int
     -- ^ What we told the peer we would accept, and so the most of any one
     -- frame we are willing to hold in memory while it arrives.
+    , ctxCancelStream :: StreamId -> IO ()
+    -- ^ Sending a Stream Cancellation on our QPACK decoder stream
     }
 
 withContext :: Connection -> Config -> (Context -> IO a) -> IO a
@@ -80,10 +83,24 @@ newContext conn conf = do
         ctxHooks = confHooks conf
         ctxMySockAddr = localSockAddr info
         ctxPeerSockAddr = remoteSockAddr info
+    let ctxCancelStream sid
+            -- RFC 9204, section 4.4.2: "A decoder with a maximum dynamic table
+            -- capacity equal to zero MAY omit sending Stream Cancellations",
+            -- since the encoder then has nothing to release.
+            | dcMaxTableCapacity (confQDecoderConfig conf) == 0 = return ()
+            | otherwise =
+                -- The stream is being given up on, and so, quite possibly, is
+                -- the connection; there is nobody to report a failure to.
+                (encodeDecoderInstructions [StreamCancellation sid] >>= sendDI)
+                    `E.catch` ignoreSync
     ctxThreadManager <- T.newThreadManager $ confTimeoutManager conf
     let ctxConnection = conn
     return Context{..}
   where
+    ignoreSync :: E.SomeException -> IO ()
+    ignoreSync se
+        | isAsyncException se = E.throwIO se
+        | otherwise = return ()
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
         | isAsyncException se = E.throwIO se
@@ -150,6 +167,9 @@ qpackEncode Context{..} = ctxQEncoder
 
 qpackDecode :: Context -> QDecoder
 qpackDecode Context{..} = ctxQDecoder
+
+cancelStream :: Context -> StreamId -> IO ()
+cancelStream Context{..} = ctxCancelStream
 
 unidirectional :: Context -> Stream -> IO ()
 unidirectional Context{..} strm = do

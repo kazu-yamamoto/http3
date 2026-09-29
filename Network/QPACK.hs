@@ -371,7 +371,17 @@ decoderInstructionHandler dyntbl lock recv = loop ""
                 -- Not simply deleted: a later section on the same stream
                 -- may still be blocked.
                 unblockStreamsE dyntbl
-    handle (StreamCancellation _n) = return () -- fixme
+    -- The decoder will not process the rest of the stream (RFC 9204, section
+    -- 4.4.2), so its outstanding field sections will never be acknowledged.
+    -- Their references are released as an acknowledgement would release
+    -- them, but the Known Received Count stays where it is: nothing about
+    -- which insertions arrived is learnt from this.  Ignoring it used to keep
+    -- the entries those sections referred to from ever being evicted, and the
+    -- stream counted as blocked for good.
+    handle (StreamCancellation sid) = do
+        secs <- getAndDelSections dyntbl sid
+        forM_ secs $ \(Section _ ais) -> mapM_ (decreaseReference dyntbl) ais
+        unblockStreamsE dyntbl
     handle (InsertCountIncrement n)
         | n == 0 = E.throwIO DecoderInstructionError
         | otherwise = do
