@@ -99,12 +99,26 @@ readerClient ctx = loop
 
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
-sendRequest ctx scm auth (Request outobj) processResponse =
+sendRequest ctx scm auth (Request outobj) processResponse = do
+    -- RFC 9114, section 4.2.2: an endpoint "SHOULD NOT send an HTTP message
+    -- header that exceeds the indicated size".  Here, so that the caller is
+    -- the one told.
+    checkHeaderSize ctx hdr'
     E.bracket (newStream ctx) closeStream $ \strm -> do
-        forkManagedTimeout ctx "H3 client: sendRequest" $ \th -> do
-            sendHeader ctx strm th hdr'
-            sendBody ctx strm th outobj
-            QUIC.shutdownStream strm
+        forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
+            ( do
+                sendHeader ctx strm th hdr'
+                sendBody ctx strm th outobj
+                QUIC.shutdownStream strm
+            )
+                -- What goes wrong here is thrown away with the thread, and
+                -- the request would be left half sent, with the response
+                -- awaited for good.  Trailers too large for the peer are one
+                -- such thing.
+                `E.catch` \se ->
+                    if isAsyncException (se :: E.SomeException)
+                        then E.throwIO se
+                        else QUIC.resetStream strm H3RequestCancelled
         src <- newSource strm
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do

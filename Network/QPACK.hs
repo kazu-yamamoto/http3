@@ -9,6 +9,7 @@ module Network.QPACK (
     QEncoder,
     newQEncoder,
     TableOperation (..),
+    fieldSectionSize,
 
     -- ** Encoder for debugging
     QEncoderS,
@@ -20,6 +21,7 @@ module Network.QPACK (
     QDecoder,
     newQDecoder,
     FieldSectionTooLarge (..),
+    FieldSectionTooLargeForPeer (..),
 
     -- ** Decoder for debugging
     QDecoderS,
@@ -105,7 +107,18 @@ data TableOperation = TableOperation
     { setCapacity :: Int -> IO ()
     , setBlockedStreams :: Int -> IO ()
     , setHeaderSize :: Int -> IO ()
+    , getHeaderSize :: IO Int
+    -- ^ The peer's SETTINGS_MAX_FIELD_SECTION_SIZE, or 'maxBound' until it
+    -- is known
     }
+
+-- | The size of a field section as SETTINGS_MAX_FIELD_SECTION_SIZE counts
+--   it: the lengths of each name and value plus 32 for every field (RFC
+--   9114, section 4.2.2).
+fieldSectionSize :: TokenHeaderList -> Int
+fieldSectionSize = foldl' (\n (t, v) -> n + keyLength t + BS.length v + 32) 0
+  where
+    keyLength = BS.length . CI.original . tokenKey
 
 ----------------------------------------------------------------
 
@@ -166,6 +179,7 @@ newQEncoder QEncoderConfig{..} sendEI = do
                     sendIns dyntbl ins
                 , setBlockedStreams = setMaxBlockedStreams dyntbl
                 , setHeaderSize = setMaxHeaderSize dyntbl
+                , getHeaderSize = getMaxHeaderSize dyntbl
                 }
     return (enc, handler, ctl)
 
@@ -235,7 +249,11 @@ qpackEncoder
     -> DynamicTable
     -> MVar ()
     -> QEncoder
-qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid ts =
+qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid ts = do
+    -- Before anything is inserted or counted.
+    lim <- getMaxHeaderSize dyntbl
+    let siz0 = fieldSectionSize ts
+    when (siz0 > lim) $ E.throwIO $ FieldSectionTooLargeForPeer siz0 lim
     withMVar lock $ \_ ->
         withForeignPtr gcbuf1 $ \buf1 ->
             withForeignPtr gcbuf2 $ \buf2 -> do

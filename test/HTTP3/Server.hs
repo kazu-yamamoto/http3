@@ -3,6 +3,7 @@
 
 module HTTP3.Server (
     setup,
+    setupWith,
     server,
     countingServer,
     teardown,
@@ -35,7 +36,11 @@ import Test.Hspec
 import HTTP3.Config
 
 setup :: Server -> Int -> IO ThreadId
-setup svr siz = do
+setup = setupWith id
+
+-- | 'setup', with the HTTP/3 configuration changed as given.
+setupWith :: (Config -> Config) -> Server -> Int -> IO ThreadId
+setupWith modify svr siz = do
     sc <- makeTestServerConfig
     tid <- forkIO $ QUIC.run sc loop
     threadDelay 500000 -- give enough time to the server
@@ -48,7 +53,7 @@ setup svr siz = do
                     , confQDecoderConfig = defaultQDecoderConfig{dcMaxTableCapacity = siz}
                     }
 
-        run conn conf svr
+        run conn (modify conf) svr
 
 teardown :: ThreadId -> IO ()
 teardown tid = killThread tid
@@ -67,6 +72,9 @@ server req aux sendResponse = case requestMethod req of
     Just "GET" -> case requestPath req of
         Just "/" -> sendResponse responseHello []
         Just "/sockaddr" -> sendResponse (responseSockAddr aux) []
+        -- A response whose header section is some 2K.
+        Just "/bigheader" ->
+            sendResponse (responseNoBody ok200 [("x-big", B.replicate 2000 0x61)]) []
         _ -> sendResponse response404 []
     Just "POST" -> case requestPath req of
         Just "/echo" -> sendResponse (responseEcho req) []
