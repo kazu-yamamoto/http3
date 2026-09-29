@@ -1,5 +1,45 @@
 # Revision history for http3
 
+## 0.1.6
+
+* Requiring quic v0.3.9 and http2 v5.4.6.  quic v0.3.7 stops opening a
+  closed stream again for a late copy of its data, which closed the
+  connection with FLOW_CONTROL_ERROR now and then (#15); v0.3.8 tells a
+  stream that was reset from one that ended; v0.3.9 keeps the peer's open
+  streams within initial_max_streams, closes the sending part on
+  STOP_SENDING, and opens a stream for a RESET_STREAM that comes before
+  its data.
+* QPACK: fixing the dynamic table where the two ends disagreed: the
+  maximum number of entries, when a section is blocked, the blocked
+  streams, more than one outstanding section on a stream, and a change of
+  capacity.  Encoding a field larger than the encoder's buffers.
+* QPACK: stopping counting a blocked stream however its wait ends.
+* QPACK: evicting an entry nothing refers to once its insertion is
+  acknowledged.
+* QPACK: sending Stream Cancellation for a stream not read to its end or
+  reset by the peer, and acting on one received.
+* QPACK: inserting with a reference to a name not yet acknowledged.
+* Holding a field section to our SETTINGS_MAX_FIELD_SECTION_SIZE as it
+  decodes, not only the frame carrying it; a server answers a request
+  over it with 431.  The new `FieldSectionTooLarge` is thrown otherwise.
+* Keeping to the peer's SETTINGS_MAX_FIELD_SECTION_SIZE when sending.  The
+  new `FieldSectionTooLargeForPeer` is thrown by `sendRequest` and
+  `sendResponse` for a header section over it.
+* Reading on past a DATA frame that is empty.
+* Treating a message with a connection-specific field as malformed.  The
+  new `ConnectionSpecificField` is thrown for a response or trailers
+  carrying one.
+* Refusing a second control or QPACK stream, and noticing a QPACK stream
+  closing.  Refusing a push stream.
+* Stopping reading a unidirectional stream of an unknown type, and
+  refusing a server-initiated bidirectional stream.
+* A client whose request the server stops with STOP_SENDING no longer
+  resets the stream, so that a response sent after it is still read.
+* Closing a unidirectional stream we stop reading, so that it is given
+  back to the peer's limit.
+* This is a patch release, but `TableOperation` in `Network.QPACK` has a
+  new field, `getHeaderSize`.
+
 ## 0.1.5
 
 * Security fixes.  Requiring http2 v5.4.5, whose HPACK integer decoder is
