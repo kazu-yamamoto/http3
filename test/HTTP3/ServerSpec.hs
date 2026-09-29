@@ -11,8 +11,13 @@ import qualified Data.ByteString as B
 import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
+import Network.HTTP3.Internal (
+    ApplicationProtocolError (..),
+    H3Frame (..),
+    H3FrameType (..),
+ )
 import Network.HTTP3.Server
+import qualified Network.QUIC as Q
 import qualified Network.QUIC.Client as QUIC
 import Network.QUIC.Internal (
     ClientConfig (..),
@@ -43,6 +48,8 @@ h3spec = do
             runCancelClient
         it "answers 431 to a request header section over its limit" $ \_ ->
             runTooLargeClient
+        it "stops reading a unidirectional stream of an unknown type" $ \_ ->
+            runUnknownStreamClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -151,6 +158,47 @@ runTooLargeClient = QUIC.run testClientConfig $ \conn ->
                 req = C.requestNoBody methodGet "/" hdr
             sendRequest req $ \rsp ->
                 C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431
+
+-- | RFC 9114, section 6.2: the receiver of a stream of an unknown type must
+-- stop reading it or throw away what arrives on it.  The server did neither.
+--
+-- STOP_SENDING is answered with a RESET_STREAM carrying the same code, so the
+-- client sending one for its stream of a reserved type shows the server asked
+-- it to stop.  The connection goes on.
+runUnknownStreamClient :: IO ()
+runUnknownStreamClient = do
+    writeIORef sentResets []
+    let qcc =
+            testClientConfig
+                { ccHooks =
+                    (ccHooks testClientConfig){onPlainCreated = recordResets}
+                }
+    sid <- QUIC.run qcc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                -- 0x21 is the first of the reserved types, 0x1f * N + 0x21.
+                strm <- Q.unidirectionalStream conn
+                Q.sendStream strm "\x21hello"
+                let req = C.requestNoBody methodGet "/" []
+                sendRequest req $ \rsp ->
+                    C.responseStatus rsp `shouldBe` Just ok200
+                threadDelay 200000
+                return $ Q.streamId strm
+    lookup sid <$> readIORef sentResets
+        `shouldReturn` Just H3StreamCreationError
+
+{-# NOINLINE sentResets #-}
+sentResets :: IORef [(StreamId, ApplicationProtocolError)]
+sentResets = unsafePerformIO $ newIORef []
+
+{-# NOINLINE recordResets #-}
+recordResets :: EncryptionLevel -> Plain -> Plain
+recordResets _ plain = unsafePerformIO $ do
+    forM_ (plainFrames plain) $ \frame -> case frame of
+        ResetStream sid aerr _ ->
+            atomicModifyIORef' sentResets $ \xs -> ((sid, aerr) : xs, ())
+        _ -> return ()
+    return plain
 
 -- | The client's QPACK decoder stream: its third unidirectional stream, after
 -- the control stream and the encoder stream.

@@ -89,7 +89,11 @@ readerClient ctx = loop
         | QUIC.isServerInitiatedUnidirectional sid =
             forkManaged ctx "H3 client: unidirectional handler" $
                 unidirectional ctx strm
-        | otherwise = return () -- push?
+        -- Server-initiated bidirectional.  RFC 9114, section 6.1: "Clients
+        -- MUST treat receipt of a server-initiated bidirectional stream as a
+        -- connection error of type H3_STREAM_CREATION_ERROR unless such an
+        -- extension has been negotiated."
+        | otherwise = abort ctx H3StreamCreationError
       where
         sid = QUIC.streamId strm
 

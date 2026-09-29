@@ -32,7 +32,7 @@ import Control.Monad (void)
 import Data.IORef
 import Network.HTTP.Semantics.Client
 import Network.QUIC
-import Network.QUIC.Internal (connDebugLog, isClient, isServer)
+import Network.QUIC.Internal (isClient, isServer)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 
@@ -141,7 +141,8 @@ switch conn seen ctl handleEI handleDI styp = case styp of
     H3PushStreams
         | isServer conn -> \_ -> abortConnection conn H3StreamCreationError ""
         | otherwise -> \_ -> abortConnection conn H3IdError ""
-    _ -> \_ -> connDebugLog conn "switch unknown stream type"
+    -- 'unidirectional' does not get here with an unknown type.
+    H3StreamTypeUnknown _ -> \_ -> return ()
   where
     once, closing :: InstructionHandler -> InstructionHandler
     once handler recv = do
@@ -183,7 +184,15 @@ unidirectional Context{..} strm = do
         -- saying what it was for.  Nothing to dispatch to; this used to be a
         -- pattern match failure.
         Nothing -> return ()
-        Just i -> ctxUniSwitch (toH3StreamType i) (recvStream strm)
+        Just i -> case toH3StreamType i of
+            -- RFC 9114, section 6.2: "Recipients of unknown stream types MUST
+            -- either abort reading of the stream or discard incoming data
+            -- without further processing.  If reading is aborted, the
+            -- recipient SHOULD use the H3_STREAM_CREATION_ERROR error code".
+            -- Neither was done: whatever the peer sent was left where it
+            -- arrived, for as long as the connection lasted.
+            H3StreamTypeUnknown _ -> stopStream strm H3StreamCreationError
+            styp -> ctxUniSwitch styp (recvStream strm)
 
 withHandle :: Context -> (T.Handle -> IO ()) -> IO ()
 withHandle Context{..} action = void $ T.withHandle ctxThreadManager (return ()) action
