@@ -21,6 +21,7 @@ module Network.HTTP3.Context (
     getMySockAddr,
     getPeerSockAddr,
     getMaxFieldSectionSize,
+    getPeerMaxFieldSectionSize,
     forkManaged,
     forkManagedTimeout,
     forkManagedTimeoutFinally,
@@ -58,6 +59,9 @@ data Context = Context
     -- ^ What we told the peer we would accept, and so the most of any one
     -- frame we are willing to hold in memory while it arrives.
     , ctxCancelStream :: StreamId -> IO ()
+    , ctxPeerMaxFieldSectionSize :: IO Int
+    -- ^ The peer's SETTINGS_MAX_FIELD_SECTION_SIZE, or 'maxBound' until its
+    -- SETTINGS have arrived
     -- ^ Sending a Stream Cancellation on our QPACK decoder stream
     }
 
@@ -74,6 +78,7 @@ newContext conn conf = do
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE <$> newIORef IInit
+    let ctxPeerMaxFieldSectionSize = getHeaderSize dyntblE
     seen <- newIORef []
     info <- getConnectionInfo conn
     let handleDI' recv = handleDI recv `E.catch` abortWith QpackDecoderStreamError
@@ -229,3 +234,6 @@ getPeerSockAddr = ctxPeerSockAddr
 
 getMaxFieldSectionSize :: Context -> Int
 getMaxFieldSectionSize = ctxMaxFieldSectionSize
+
+getPeerMaxFieldSectionSize :: Context -> IO Int
+getPeerMaxFieldSectionSize = ctxPeerMaxFieldSectionSize

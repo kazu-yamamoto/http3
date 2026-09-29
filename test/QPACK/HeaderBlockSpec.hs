@@ -247,6 +247,22 @@ spec = do
                 (ths, _) <- dec sid blk
                 ths `shouldSatisfy` (`elem` [hdr "a", hdr "b"])
 
+        it "refuses a section more than the peer will take" $ do
+            -- RFC 9114, section 4.2.2: "SHOULD NOT send".  The peer's limit
+            -- used to be kept and never looked at.  Refused before anything
+            -- is inserted, so the encoder stream carries nothing.
+            eiRef <- newIORef []
+            (enc, _, tblop) <-
+                newQEncoder defaultQEncoderConfig (\bs -> modifyIORef' eiRef (++ [bs]))
+            setCapacity tblop 4096
+            setHeaderSize tblop 100
+            writeIORef eiRef []
+            -- 5 + 100 + 32 octets as the limit counts them.
+            enc 0 [(toToken "x-foo", C8.replicate 100 'a')]
+                `shouldThrow` (== FieldSectionTooLargeForPeer 137 100)
+            BS.concat <$> readIORef eiRef `shouldReturn` ""
+            void $ enc 4 [(toToken "x-foo", "bar")]
+
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.
 drain :: IORef [BS.ByteString] -> ((Int -> IO BS.ByteString) -> IO ()) -> IO ()

@@ -17,6 +17,10 @@ import Network.HTTP3.Internal (
     H3FrameType (..),
  )
 import Network.HTTP3.Server
+import Network.QPACK (
+    FieldSectionTooLargeForPeer (..),
+    QDecoderConfig (..),
+ )
 import qualified Network.QUIC as Q
 import qualified Network.QUIC.Client as QUIC
 import Network.QUIC.Internal (
@@ -46,10 +50,12 @@ h3spec = do
             runEmptyDataClient
         it "cancels a stream whose response it does not read to the end" $ \_ ->
             runCancelClient
-        it "answers 431 to a request header section over its limit" $ \_ ->
-            runTooLargeClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
             runUnknownStreamClient
+        it "does not send a request header section over the server's limit" $ \_ ->
+            runTooLargeForServerClient
+        it "does not send a response header section over the client's limit" $ \_ ->
+            runTooLargeForClientClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -141,24 +147,6 @@ runCancelClient = do
     B.elem 0x40 bs `shouldBe` False
     B.elem 0x44 bs `shouldBe` True
 
--- | 150 copies of one field with a 300-octet value.  After the first two,
--- each is a reference to the dynamic table of an octet or so, so the HEADERS
--- frame comes to around 600 octets, well within the cap on its length.  As
--- the limit counts them, though, they are 335 octets each, 50250 in all
--- against the server's 32768.
-runTooLargeClient :: IO ()
-runTooLargeClient = QUIC.run testClientConfig $ \conn ->
-    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
-        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
-            -- One round trip first, so that the server's SETTINGS are in and
-            -- the encoder may use the dynamic table.  Without it every copy
-            -- goes as a literal and the frame is over the cap.
-            sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
-            let hdr = replicate 150 ("x-a", B.replicate 300 0x62)
-                req = C.requestNoBody methodGet "/" hdr
-            sendRequest req $ \rsp ->
-                C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431
-
 -- | RFC 9114, section 6.2: the receiver of a stream of an unknown type must
 -- stop reading it or throw away what arrives on it.  The server did neither.
 --
@@ -199,6 +187,55 @@ recordResets _ plain = unsafePerformIO $ do
             atomicModifyIORef' sentResets $ \xs -> ((sid, aerr) : xs, ())
         _ -> return ()
     return plain
+
+-- | RFC 9114, section 4.2.2: an endpoint "SHOULD NOT send an HTTP message
+-- header that exceeds the indicated size".  The peer's limit used to be kept
+-- and never consulted.
+--
+-- 40000 octets in one field is over the server's 32768; the caller is told,
+-- and the connection goes on.
+runTooLargeForServerClient :: IO ()
+runTooLargeForServerClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            let hello = C.requestNoBody methodGet "/" []
+                ok rsp = C.responseStatus rsp `shouldBe` Just ok200
+            -- The server's SETTINGS in first, so that its limit is known.
+            sendRequest hello ok
+            let big = C.requestNoBody methodGet "/" [("x-a", B.replicate 40000 0x62)]
+                tooLarge FieldSectionTooLargeForPeer{} = True
+            sendRequest big (\_ -> return ()) `shouldThrow` tooLarge
+            sendRequest hello ok
+
+-- | The client says it takes 1000 octets, and /bigheader answers with some
+-- 2000.  The server does not send it, and resets the stream with
+-- H3_INTERNAL_ERROR: the failure is its own.
+runTooLargeForClientClient :: IO ()
+runTooLargeForClientClient = do
+    let qcc =
+            testClientConfig
+                { ccHooks =
+                    (ccHooks testClientConfig)
+                        { onResetStreamReceived = \_ aerr ->
+                            E.throwIO $ Q.ApplicationProtocolErrorIsReceived aerr ""
+                        }
+                }
+        isInternalError (Q.ApplicationProtocolErrorIsReceived aerr _) =
+            aerr == H3InternalError
+        isInternalError _ = False
+        client = QUIC.run qcc $ \conn ->
+            E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+                let conf =
+                        conf0
+                            { confQDecoderConfig =
+                                defaultQDecoderConfig{dcMaxFieldSectionSize = 1000}
+                            }
+                C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                    -- Our SETTINGS in at the server first.
+                    sendRequest (C.requestNoBody methodGet "/" []) $ \rsp ->
+                        C.responseStatus rsp `shouldBe` Just ok200
+                    sendRequest (C.requestNoBody methodGet "/bigheader" []) (\_ -> return ())
+    client `shouldThrow` isInternalError
 
 -- | The client's QPACK decoder stream: its third unidirectional stream, after
 -- the control stream and the encoder stream.

@@ -9,6 +9,7 @@ module Network.QPACK.Error (
     ),
     DecodeError (..),
     FieldSectionTooLarge (..),
+    FieldSectionTooLargeForPeer (..),
     EncoderInstructionError (..),
     DecoderInstructionError (..),
 ) where
@@ -45,6 +46,16 @@ data DecodeError
 data FieldSectionTooLarge = FieldSectionTooLarge
     deriving (Eq, Show)
 
+-- | A field section more than the peer's SETTINGS_MAX_FIELD_SECTION_SIZE,
+--   which "SHOULD NOT" be sent (RFC 9114, section 4.2.2).  Thrown by the
+--   encoder before it touches anything, so nothing has been sent or changed.
+data FieldSectionTooLargeForPeer = FieldSectionTooLargeForPeer
+    { sectionSize :: Int
+    -- ^ As the limit counts it
+    , peerLimit :: Int
+    }
+    deriving (Eq, Show)
+
 data EncoderInstructionError = EncoderInstructionError
     deriving (Eq, Show)
 data DecoderInstructionError = DecoderInstructionError
@@ -52,5 +63,6 @@ data DecoderInstructionError = DecoderInstructionError
 
 instance E.Exception DecodeError
 instance E.Exception FieldSectionTooLarge
+instance E.Exception FieldSectionTooLargeForPeer
 instance E.Exception EncoderInstructionError
 instance E.Exception DecoderInstructionError

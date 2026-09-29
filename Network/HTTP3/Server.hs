@@ -127,6 +127,10 @@ processRequest ctx server strm th = E.handle reset $ do
         | isAsyncException se = E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
+        -- The response was more than the client will take, and the
+        -- application did nothing about it.  Our failure, not the client's.
+        | Just (_ :: FieldSectionTooLargeForPeer) <- E.fromException se =
+            QUIC.resetStream strm H3InternalError
         | otherwise = QUIC.resetStream strm H3MessageError
 
 processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()

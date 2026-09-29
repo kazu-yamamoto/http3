@@ -3,6 +3,7 @@
 
 module Network.HTTP3.Send (
     sendHeader,
+    checkHeaderSize,
     sendBody,
 ) where
 
@@ -11,7 +12,6 @@ import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
-import Network.HPACK.Internal (toTokenHeaderTable)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.IO
 import qualified Network.HTTP.Types as HT
@@ -21,6 +21,19 @@ import qualified System.TimeManager as T
 import Imports
 import Network.HTTP3.Context
 import Network.HTTP3.Frame
+import Network.QPACK
+
+-- | Refusing a header section the peer said it would not take, before
+--   anything is opened or sent.
+--
+-- The encoder refuses it too, but on a client that happens in the thread
+-- sending the request, which has nobody to tell.
+checkHeaderSize :: Context -> HT.RequestHeaders -> IO ()
+checkHeaderSize ctx hdrs = do
+    (ths, _) <- toTokenHeaderTable hdrs
+    lim <- getPeerMaxFieldSectionSize ctx
+    let siz = fieldSectionSize ths
+    when (siz > lim) $ E.throwIO $ FieldSectionTooLargeForPeer siz lim
 
 sendHeader :: Context -> Stream -> T.Handle -> HT.ResponseHeaders -> IO ()
 sendHeader ctx strm th hdrs = do
