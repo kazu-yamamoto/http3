@@ -32,6 +32,7 @@ import Network.QUIC.Internal (
     StreamId,
  )
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 import Test.Hspec
 
 import HTTP3.Config
@@ -54,6 +55,8 @@ h3spec = do
             runResetCancelClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
             runUnknownStreamClient
+        it "gives back what a stream of an unknown type took of the limit" $ \_ ->
+            runManyUnknownStreamsClient
         it "does not send a request header section over the server's limit" $ \_ ->
             runTooLargeForServerClient
         it "does not send a response header section over the client's limit" $ \_ ->
@@ -176,6 +179,23 @@ runUnknownStreamClient = do
                 return $ Q.streamId strm
     lookup sid <$> readIORef sentResets
         `shouldReturn` Just H3StreamCreationError
+
+-- | The test server lets a client have 10 unidirectional streams, and the
+-- control and QPACK streams take 3.  Opening 15 more, one after another,
+-- needs the server to give each back once it is done with it: quic counts a
+-- stream as done with only when it is closed, and the server used to stop
+-- reading one of an unknown type and never close it.  The eighth then waited
+-- for room that never came.
+runManyUnknownStreamsClient :: IO ()
+runManyUnknownStreamsClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \_sendRequest _aux -> do
+            opened <- newIORef (0 :: Int)
+            _ <- timeout 3000000 $ forM_ [1 .. 15 :: Int] $ \_ -> do
+                strm <- Q.unidirectionalStream conn
+                Q.sendStream strm "\x21hello"
+                modifyIORef' opened (+ 1)
+            readIORef opened `shouldReturn` 15
 
 {-# NOINLINE sentResets #-}
 sentResets :: IORef [(StreamId, ApplicationProtocolError)]

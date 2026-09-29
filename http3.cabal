@@ -89,7 +89,7 @@ library
         network-byte-order,
         network-control >= 0.1.7 && <0.2,
         psqueues,
-        quic >= 0.3.8 && < 0.4,
+        quic >= 0.3.9 && < 0.4,
         sockaddr,
         stm,
         time-manager >= 0.2.3 && <0.4,
