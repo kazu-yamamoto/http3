@@ -22,7 +22,7 @@ import Crypto.Hash (Context, SHA1)
 import qualified Crypto.Hash as CH
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Data.ByteString.Builder (byteString)
+import Data.ByteString.Builder (Builder, byteString)
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
 import Data.IP ()
@@ -72,6 +72,10 @@ server req aux sendResponse = case requestMethod req of
     Just "GET" -> case requestPath req of
         Just "/" -> sendResponse responseHello []
         Just "/sockaddr" -> sendResponse (responseSockAddr aux) []
+        -- A response that is reset after one DATA frame, between two
+        -- frames: the body throws, and the stream is reset.
+        Just "/reset" ->
+            sendResponse (responseStreaming ok200 [] resetAfterOne) []
         -- A response whose header section is some 2K.
         Just "/bigheader" ->
             sendResponse (responseNoBody ok200 [("x-big", B.replicate 2000 0x61)]) []
@@ -101,6 +105,15 @@ responseLength n = responseBuilder ok200 header body
   where
     header = [("Content-Type", "text/plain")]
     body = byteString $ C8.pack $ show n
+
+resetAfterOne :: (Builder -> IO ()) -> IO () -> IO ()
+resetAfterOne write flush = do
+    write $ byteString "partial"
+    flush
+    -- A RESET_STREAM can go out ahead of stream data queued before it, and
+    -- then the client sees neither HEADERS nor DATA.  Let them arrive first.
+    threadDelay 200000
+    E.throwIO $ userError "reset after one DATA frame"
 
 responseHello :: Response
 responseHello = responseBuilder ok200 header body
