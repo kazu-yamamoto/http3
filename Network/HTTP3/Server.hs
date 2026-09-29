@@ -33,7 +33,6 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
-import Data.IORef
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
@@ -48,7 +47,6 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Context
 import Network.HTTP3.Error
-import Network.HTTP3.Frame
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 import Network.QPACK

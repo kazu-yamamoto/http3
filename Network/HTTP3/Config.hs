@@ -57,5 +57,9 @@ allocSimpleConfig =
         <$> T.initialize (30 * 1000000)
 
 -- | Freeing a simple configration.
+--
+-- Nothing to free: since time-manager 0.3.0 a timeout manager holds no
+-- thread of its own.  Kept so that code written against 'allocSimpleConfig'
+-- goes on compiling.
 freeSimpleConfig :: Config -> IO ()
-freeSimpleConfig conf = T.killManager $ confTimeoutManager conf
+freeSimpleConfig _ = return ()

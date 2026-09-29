@@ -35,7 +35,6 @@ module Network.HTTP3.Client (
 import Control.Concurrent
 import qualified Control.Exception as E
 import qualified Data.ByteString.UTF8 as UTF8
-import Data.IORef
 import Data.IP (IPv6)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
