@@ -217,6 +217,36 @@ spec = do
             dec 4 (BS.pack [0x02, 0x00, 0x80, 0x80])
                 `shouldThrow` (== FieldSectionTooLarge)
 
+        it "inserts with a reference to a name not yet acknowledged" $ do
+            -- No stream may block, and nothing is acknowledged.  x-foo is in
+            -- the table, unacknowledged, so a field line may not refer to it;
+            -- but an insertion may, on the encoder stream, and x-foo: b is
+            -- inserted so.  The encoder used to give that up and insert
+            -- nothing, since it guarded the insertion as though it were a
+            -- field line.
+            eiRef <- newIORef []
+            (enc, _, tblop) <-
+                newQEncoder defaultQEncoderConfig (\bs -> modifyIORef' eiRef (++ [bs]))
+            (dec, handleEI) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+            setCapacity tblop 4096
+            setBlockedStreams tblop 0
+            let hdr v = [(toToken "x-foo", v)]
+            -- Twice each, since a field is only inserted the second time it
+            -- is seen.
+            blks1 <- forM [0, 4] $ \sid -> enc sid (hdr "a")
+            eis1 <- readIORef eiRef
+            writeIORef eiRef []
+            blks2 <- forM [8, 12] $ \sid -> enc sid (hdr "b")
+            eis2 <- readIORef eiRef
+            BS.concat eis2 `shouldSatisfy` (not . BS.null)
+            -- And what went out still decodes.
+            eiQ <- newIORef [BS.concat (eis1 ++ eis2)]
+            drain eiQ handleEI
+            forM_ (zip [0, 4, 8, 12] (blks1 ++ blks2)) $ \(sid, blk) -> do
+                encodedInsertCount blk `shouldBe` 0
+                (ths, _) <- dec sid blk
+                ths `shouldSatisfy` (`elem` [hdr "a", hdr "b"])
+
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.
 drain :: IORef [BS.ByteString] -> ((Int -> IO BS.ByteString) -> IO ()) -> IO ()
