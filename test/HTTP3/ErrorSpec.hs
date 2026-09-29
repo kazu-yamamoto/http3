@@ -14,8 +14,9 @@ spec :: Spec
 spec =
     beforeAll start $
         afterAll (teardown . fst) $
-            h3ErrorSpec testClientConfig testH3ClientConfig 2000 -- 2 seconds
+            h3ErrorSpec testClientConfig testH3ClientConfig 2000 served -- 2 seconds
   where
+    served (_, ref) = Just $ readIORef ref
     start = do
         ref <- newIORef 0
         tid <- setup (countingServer ref) 4096

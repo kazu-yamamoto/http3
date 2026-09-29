@@ -71,12 +71,20 @@ runCReq req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
         threadDelay 100000
         return ret
 
+-- | The error cases for an HTTP/3 server.
+--
+-- These also make h3spec, which runs them against a server somewhere else.
+-- The last argument says how, from what the spec is run with, to read how
+-- many requests the server has handed its application.  Only a server in the
+-- same process can say; given 'Nothing', a test does not check that a
+-- request the server refused never got that far.
 h3ErrorSpec
     :: ClientConfig
     -> H3.ClientConfig
     -> Millisecond
-    -> SpecWith (ThreadId, IORef Int)
-h3ErrorSpec qcc cconf ms = do
+    -> (a -> Maybe (IO Int))
+    -> SpecWith a
+h3ErrorSpec qcc cconf ms served = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers" $ do
         it
@@ -92,16 +100,12 @@ h3ErrorSpec qcc cconf ms = do
                 `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it
             "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]"
-            $ \(_, served) -> do
+            $ \x -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
                     qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
-                before' <- readIORef served
-                runC qcc' cconf conf ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-                -- And it must not have reached the application: the stream was
-                -- reset and then the request handed over anyway.
-                threadDelay 200000
-                readIORef served `shouldReturn` before'
+                refusedNotServed (served x) $
+                    runC qcc' cconf conf ms
+                        `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it
             "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]"
             $ \_ -> do
@@ -132,14 +136,12 @@ h3ErrorSpec qcc cconf ms = do
                     ++ C8.unpack (CI.original name)
                     ++ " as malformed [HTTP/3 4.2]"
                 )
-                $ \(_, served) -> do
+                $ \x -> do
                     let req = H3.requestNoBody methodGet "/" [field]
                         qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
-                    before' <- readIORef served
-                    runCReq req qcc' cconf conf0 ms
-                        `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-                    threadDelay 200000
-                    readIORef served `shouldReturn` before'
+                    refusedNotServed (served x) $
+                        runCReq req qcc' cconf conf0 ms
+                            `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it
             "MUST treat a request whose trailers carry connection as malformed [HTTP/3 4.2]"
             $ \_ -> do
@@ -245,28 +247,28 @@ h3ErrorSpec qcc cconf ms = do
             "MUST send H3_STREAM_CREATION_ERROR if a second control stream is opened [HTTP/3 6.2.1]"
             $ \_ -> do
                 -- A stream type of 0x00, then an empty SETTINGS frame.
-                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother "\x00\x04\x00"
-                runC qcc cconf conf ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+                opened <- newIORef False
+                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother opened "\x00\x04\x00"
+                expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
         it
             "MUST send H3_STREAM_CREATION_ERROR if a client opens a push stream [HTTP/3 6.2.2]"
             $ \_ -> do
                 -- A stream type of 0x01, then push ID 0.
-                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother "\x01\x00"
-                runC qcc cconf conf ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+                opened <- newIORef False
+                let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother opened "\x01\x00"
+                expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
         it
             "MUST send H3_STREAM_CREATION_ERROR if a second encoder stream is opened [QPACK 4.2]"
             $ \_ -> do
-                let conf = addHook conf0 $ setOnEncoderStreamCreated $ openAnother "\x02"
-                runC qcc cconf conf ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+                opened <- newIORef False
+                let conf = addHook conf0 $ setOnEncoderStreamCreated $ openAnother opened "\x02"
+                expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
         it
             "MUST send H3_STREAM_CREATION_ERROR if a second decoder stream is opened [QPACK 4.2]"
             $ \_ -> do
-                let conf = addHook conf0 $ setOnDecoderStreamCreated $ openAnother "\x03"
-                runC qcc cconf conf ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3StreamCreationError]
+                opened <- newIORef False
+                let conf = addHook conf0 $ setOnDecoderStreamCreated $ openAnother opened "\x03"
+                expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
         it
             "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream is closed [QPACK 4.2]"
             $ \_ -> do
@@ -296,6 +298,17 @@ h3ErrorSpec qcc cconf ms = do
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecoderStreamError]
 
 ----------------------------------------------------------------
+
+-- | Making a request the server must refuse and, where we can see what the
+-- server hands its application, checking that it handed over nothing: a
+-- stream used to be reset and the request handed over anyway.
+refusedNotServed :: Maybe (IO Int) -> IO () -> IO ()
+refusedNotServed Nothing refused = refused
+refusedNotServed (Just count) refused = do
+    before' <- count
+    refused
+    threadDelay 200000
+    count `shouldReturn` before'
 
 addHook :: H3.Config -> (H3.Hooks -> H3.Hooks) -> H3.Config
 addHook conf modify = conf'
@@ -477,10 +490,36 @@ connectionTrailer (Just _) = return $ H3.NextTrailersMaker connectionTrailer
 
 -- | Opening a unidirectional stream of our own next to the one given, and
 -- sending it these octets: a stream type and whatever follows it.
-openAnother :: BS.ByteString -> Stream -> IO ()
-openAnother bs strm = do
-    strm' <- unidirectionalStream $ streamConnection strm
-    sendStream strm' bs
+--
+-- A client needs three unidirectional streams, and a server may let it have
+-- no more than that: quic's default does.  Then the stream cannot be opened
+-- at all, and this gives up after a tenth of a second rather than waiting
+-- for room that will not come, saying so in the 'IORef'.
+openAnother :: IORef Bool -> BS.ByteString -> Stream -> IO ()
+openAnother opened bs strm = do
+    mstrm <- timeout 100000 $ unidirectionalStream $ streamConnection strm
+    forM_ mstrm $ \strm' -> do
+        sendStream strm' bs
+        writeIORef opened True
+
+-- | Expecting one of the errors when 'openAnother' could open its stream,
+-- and leaving the test pending when it could not: against a server that
+-- lets a client have only the streams it needs, a second control or QPACK
+-- stream cannot be opened, and there is nothing to check.
+expectIfOpened
+    :: IORef Bool -> IO (Maybe ()) -> [ApplicationProtocolError] -> IO ()
+expectIfOpened opened action errs = do
+    r <- E.try action
+    ok <- readIORef opened
+    if not ok
+        then
+            pendingWith
+                "the server allows no unidirectional stream beyond the three a client needs"
+        else case r of
+            Left e
+                | applicationProtocolErrorsIn errs e -> return ()
+                | otherwise -> expectationFailure $ "unexpected exception: " ++ show e
+            Right _ -> expectationFailure "did not get expected exception"
 
 -- A GOAWAY frame announcing 2^30 octets and then sending none of them.
 --
