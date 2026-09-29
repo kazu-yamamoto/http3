@@ -202,6 +202,7 @@ runTooLargeForServerClient = QUIC.run testClientConfig $ \conn ->
                 ok rsp = C.responseStatus rsp `shouldBe` Just ok200
             -- The server's SETTINGS in first, so that its limit is known.
             sendRequest hello ok
+            waitForSettings
             let big = C.requestNoBody methodGet "/" [("x-a", B.replicate 40000 0x62)]
                 tooLarge FieldSectionTooLargeForPeer{} = True
             sendRequest big (\_ -> return ()) `shouldThrow` tooLarge
@@ -234,6 +235,7 @@ runTooLargeForClientClient = do
                     -- Our SETTINGS in at the server first.
                     sendRequest (C.requestNoBody methodGet "/" []) $ \rsp ->
                         C.responseStatus rsp `shouldBe` Just ok200
+                    waitForSettings
                     sendRequest (C.requestNoBody methodGet "/bigheader" []) (\_ -> return ())
     client `shouldThrow` isInternalError
 
