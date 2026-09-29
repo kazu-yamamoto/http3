@@ -115,10 +115,17 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                 -- the request would be left half sent, with the response
                 -- awaited for good.  Trailers too large for the peer are one
                 -- such thing.
-                `E.catch` \se ->
-                    if isAsyncException (se :: E.SomeException)
-                        then E.throwIO se
-                        else QUIC.resetStream strm H3RequestCancelled
+                `E.catch` \se -> case E.fromException se of
+                    _ | isAsyncException se -> E.throwIO se
+                    -- The sending part is closed: the server asked us with
+                    -- STOP_SENDING to stop, and it has had its RESET_STREAM
+                    -- for that already, or we are done with the stream.
+                    -- The response may be on its way yet, and resetting
+                    -- here takes the stream out of the table, after which
+                    -- whatever arrives for it is thrown away: the response
+                    -- would be awaited for good.
+                    Just QUIC.StreamIsClosed -> return ()
+                    _ -> QUIC.resetStream strm H3RequestCancelled
         src <- newSource strm
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
