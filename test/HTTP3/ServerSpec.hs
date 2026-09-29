@@ -50,6 +50,8 @@ h3spec = do
             runEmptyDataClient
         it "cancels a stream whose response it does not read to the end" $ \_ ->
             runCancelClient
+        it "cancels a stream reset between two frames" $ \_ ->
+            runResetCancelClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
             runUnknownStreamClient
         it "does not send a request header section over the server's limit" $ \_ ->
@@ -238,6 +240,32 @@ runTooLargeForClientClient = do
                     waitForSettings
                     sendRequest (C.requestNoBody methodGet "/bigheader" []) (\_ -> return ())
     client `shouldThrow` isInternalError
+
+-- | A response reset right after a DATA frame reads, to the body reader,
+-- just like one that ended there.  It is not one, and the client has to send
+-- a Stream Cancellation for it all the same; it used to take the reset for
+-- the end and send none.
+runResetCancelClient :: IO ()
+runResetCancelClient = do
+    writeIORef sentOnDecoderStream []
+    let qcc =
+            testClientConfig
+                { ccHooks =
+                    (ccHooks testClientConfig){onPlainCreated = recordDecoderStream}
+                }
+    QUIC.run qcc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestNoBody methodGet "/reset" []
+                -- Stream 0, read to what looks like its end.
+                sendRequest req $ \rsp -> do
+                    let drain = do
+                            bs <- C.getResponseBodyChunk rsp
+                            unless (B.null bs) drain
+                    drain
+                threadDelay 100000
+    bs <- B.concat <$> readIORef sentOnDecoderStream
+    B.elem 0x40 bs `shouldBe` True
 
 -- | The client's QPACK decoder stream: its third unidirectional stream, after
 -- the control stream and the encoder stream.

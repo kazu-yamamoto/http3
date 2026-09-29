@@ -24,7 +24,8 @@ import Network.HTTP3.Error
 import Network.HTTP3.Frame
 
 data Source = Source
-    { sourceRead :: IO ByteString
+    { sourceStream :: Stream
+    , sourceRead :: IO ByteString
     , sourcePending :: IORef (Maybe ByteString)
     , sourceReadToEnd :: IORef Bool
     -- ^ Whether the body reader has come to the end of the stream between two
@@ -32,19 +33,22 @@ data Source = Source
     }
 
 newSource :: Stream -> IO Source
-newSource strm = Source (recvStream strm 1024) <$> newIORef Nothing <*> newIORef False
+newSource strm =
+    Source strm (recvStream strm 1024) <$> newIORef Nothing <*> newIORef False
 
 -- | Telling the peer's QPACK encoder, unless the stream has been read to its
 --   end, that the field sections left on it will never be processed (RFC 9204,
 --   section 4.4.2): until it is told, it keeps the entries they refer to.
 --
--- Also sent when a stream was reset, which cannot be told apart from its end
--- here unless it came in the middle of a frame; nothing is lost by telling an
--- encoder about a stream it has nothing outstanding on.
+-- A stream the peer reset has not been read to its end, even if it looks so:
+-- the reset reads as an end, and one that lands between two frames used to
+-- be taken for the real thing.  Nothing is lost by telling an encoder about a
+-- stream it has nothing outstanding on.
 cancelUnlessReadToEnd :: Context -> StreamId -> Source -> IO ()
 cancelUnlessReadToEnd ctx sid Source{..} = do
     done <- readIORef sourceReadToEnd
-    unless done $ cancelStream ctx sid
+    reset <- isJust <$> resetReceived sourceStream
+    when (not done || reset) $ cancelStream ctx sid
 
 readSource :: Source -> IO ByteString
 readSource Source{..} = do
