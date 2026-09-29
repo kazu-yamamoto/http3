@@ -612,8 +612,10 @@ checkTailDuplication DynamicTable{..} = do
     maxN <- readTVarIO maxNumOfEntries
     let i = ai `mod` maxN
     -- modifyArray' is not provided by GHC 9.4 or earlier, sigh.
-    Reference current total <- unsafeRead arr i
-    if current == 0 && total >= tailDuplicationThreshold
+    ref@(Reference _ total) <- unsafeRead arr i
+    krc <- readTVarIO knownReceivedCount
+    -- Duplicating it evicts it, so it has to be evictable.
+    if evictable krc ai ref && total >= tailDuplicationThreshold
         then return $ Just dai
         else return Nothing
   where
@@ -637,6 +639,19 @@ duplicate dyntbl@DynamicTable{..} (AbsoluteIndex ai) = do
     insertEntryToEncoder ent dyntbl
 
 ----------------------------------------------------------------
+
+-- | Whether the entry at an absolute index may be evicted, given the Known
+--   Received Count (RFC 9204, section 2.1.1): once its insertion has been
+--   acknowledged and no unacknowledged field section refers to it.
+--
+-- Whether it was ever referred to has nothing to do with it.  This used to
+-- ask for that instead of the acknowledgement, which kept an entry nothing
+-- referred to for good -- and, since entries go oldest first, every entry
+-- after it too, so that the table filled up and took nothing new for the
+-- rest of the connection.  An encoder inserts such an entry whenever it may
+-- not block another stream and so writes the field out literally.
+evictable :: Int -> Int -> Reference -> Bool
+evictable krc ai (Reference current _) = current == 0 && ai < krc
 
 canInsertEntry :: DynamicTable -> Entry -> Maybe AbsoluteIndex -> IO Bool
 canInsertEntry DynamicTable{..} ent mai = do
@@ -663,8 +678,9 @@ canInsertEntry DynamicTable{..} ent mai = do
                     maxN <- readTVarIO maxNumOfEntries
                     let i = ai `mod` maxN
                     refs <- readIORef referenceCounters
-                    Reference current total <- unsafeRead refs i
-                    if current == 0 && total >= 1
+                    ref <- unsafeRead refs i
+                    krc <- readTVarIO knownReceivedCount
+                    if evictable krc ai ref
                         then do
                             table <- readTVarIO circularTable
                             dent <- atomically $ unsafeRead table i
@@ -693,8 +709,9 @@ tryDrop dyntbl@DynamicTable{..} = do
         then do
             let i = ai `mod` maxN
             refs <- readIORef referenceCounters
-            Reference current total <- unsafeRead refs i
-            if current == 0 && total >= 1
+            ref <- unsafeRead refs i
+            krc <- readTVarIO knownReceivedCount
+            if evictable krc ai ref
                 then do
                     table <- readTVarIO circularTable
                     ent <- atomically $ do
