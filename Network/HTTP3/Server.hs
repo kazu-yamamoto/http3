@@ -105,22 +105,23 @@ processRequest
     -> IO ()
 processRequest ctx server strm th = E.handle reset $ do
     src <- newSource strm
-    mvt <- recvHeader ctx sid src
-    case mvt of
-        Nothing -> QUIC.resetStream strm H3MessageError
-        Just ht -> do
-            mreq <- mkRequest ctx strm src ht
-            case mreq of
-                -- Malformed; 'mkRequest' has reset the stream.
-                Nothing -> return ()
-                Just req -> do
-                    let aux =
-                            defaultAux
-                                { auxTimeHandle = th
-                                , auxMySockAddr = getMySockAddr ctx
-                                , auxPeerSockAddr = getPeerSockAddr ctx
-                                }
-                    server req aux $ sendResponse ctx strm th
+    (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
+        mvt <- recvHeader ctx sid src
+        case mvt of
+            Nothing -> QUIC.resetStream strm H3MessageError
+            Just ht -> do
+                mreq <- mkRequest ctx strm src ht
+                case mreq of
+                    -- Malformed; 'mkRequest' has reset the stream.
+                    Nothing -> return ()
+                    Just req -> do
+                        let aux =
+                                defaultAux
+                                    { auxTimeHandle = th
+                                    , auxMySockAddr = getMySockAddr ctx
+                                    , auxPeerSockAddr = getPeerSockAddr ctx
+                                    }
+                        server req aux $ sendResponse ctx strm th
   where
     sid = QUIC.streamId strm
     reset se

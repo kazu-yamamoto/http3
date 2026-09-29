@@ -104,17 +104,18 @@ sendRequest ctx scm auth (Request outobj) processResponse =
             QUIC.shutdownStream strm
         src <- newSource strm
         let sid = QUIC.streamId strm
-        mvt <- recvHeader ctx sid src
-        case mvt of
-            Nothing -> do
-                QUIC.resetStream strm H3MessageError
-                threadDelay 100000
-                -- just for type inference
-                E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
-            Just vt@(_, valtbl) -> do
-                (readB, refH) <- newBodyReader ctx sid src valtbl
-                let rsp = Response $ InpObj vt Nothing readB refH
-                processResponse rsp
+        (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
+            mvt <- recvHeader ctx sid src
+            case mvt of
+                Nothing -> do
+                    QUIC.resetStream strm H3MessageError
+                    threadDelay 100000
+                    -- just for type inference
+                    E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
+                Just vt@(_, valtbl) -> do
+                    (readB, refH) <- newBodyReader ctx sid src valtbl
+                    let rsp = Response $ InpObj vt Nothing readB refH
+                    processResponse rsp
   where
     hdr = outObjHeaders outobj
     isIPv6 = isJust (readMaybe auth :: Maybe IPv6)

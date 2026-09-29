@@ -8,6 +8,7 @@ module Network.HTTP3.Recv (
     readSource',
     recvHeader,
     newBodyReader,
+    cancelUnlessReadToEnd,
 ) where
 
 import qualified Control.Exception as E
@@ -24,10 +25,25 @@ import Network.HTTP3.Frame
 data Source = Source
     { sourceRead :: IO ByteString
     , sourcePending :: IORef (Maybe ByteString)
+    , sourceReadToEnd :: IORef Bool
+    -- ^ Whether the body reader has come to the end of the stream between two
+    -- frames, and so has processed every field section on it.
     }
 
 newSource :: Stream -> IO Source
-newSource strm = Source (recvStream strm 1024) <$> newIORef Nothing
+newSource strm = Source (recvStream strm 1024) <$> newIORef Nothing <*> newIORef False
+
+-- | Telling the peer's QPACK encoder, unless the stream has been read to its
+--   end, that the field sections left on it will never be processed (RFC 9204,
+--   section 4.4.2): until it is told, it keeps the entries they refer to.
+--
+-- Also sent when a stream was reset, which cannot be told apart from its end
+-- here unless it came in the middle of a frame; nothing is lost by telling an
+-- encoder about a stream it has nothing outstanding on.
+cancelUnlessReadToEnd :: Context -> StreamId -> Source -> IO ()
+cancelUnlessReadToEnd ctx sid Source{..} = do
+    done <- readIORef sourceReadToEnd
+    unless done $ cancelStream ctx sid
 
 readSource :: Source -> IO ByteString
 readSource Source{..} = do
@@ -126,7 +142,11 @@ recvBody ctx sid src refI refH mcl refL = do
     loop st = do
         bs <- readSource src
         if bs == ""
-            then endOfBody
+            then do
+                -- Not in the middle of a frame, which would mean it was cut
+                -- off.
+                when (st == IInit) $ writeIORef (sourceReadToEnd src) True
+                endOfBody
             else case parseH3Frame lim st bs of
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad

@@ -174,6 +174,25 @@ spec = do
             drain diRef handleDI
             inserts 7 `shouldReturn` True
 
+        it "releases the sections of a stream the decoder cancels" $ do
+            -- One blocked stream allowed, and nothing acknowledged.  Stream 4
+            -- takes it, so stream 8 may not refer to the entry.  Once the
+            -- decoder cancels stream 4, stream 12 may.  The cancellation used
+            -- to be ignored, and stream 4 stayed blocked for good.
+            diRef <- newIORef []
+            (enc, handleDI, tblop) <- newQEncoder defaultQEncoderConfig (\_ -> return ())
+            setCapacity tblop 4096
+            setBlockedStreams tblop 1
+            let hdr = [(toToken "x-foo", "bar")]
+            -- Inserted the second time it is seen.
+            _ <- enc 0 hdr
+            enc 4 hdr >>= (`shouldSatisfy` (/= 0)) . encodedInsertCount
+            enc 8 hdr >>= (`shouldBe` 0) . encodedInsertCount
+            di <- encodeDecoderInstructions [StreamCancellation 4]
+            writeIORef diRef [di]
+            drain diRef handleDI
+            enc 12 hdr >>= (`shouldSatisfy` (/= 0)) . encodedInsertCount
+
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.
 drain :: IORef [BS.ByteString] -> ((Int -> IO BS.ByteString) -> IO ()) -> IO ()

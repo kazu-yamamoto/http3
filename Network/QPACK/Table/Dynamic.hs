@@ -25,6 +25,7 @@ module Network.QPACK.Table.Dynamic (
     Section (..),
     insertSection,
     getAndDelSection,
+    getAndDelSections,
     increaseReference,
     decreaseReference,
 
@@ -381,6 +382,15 @@ getAndDelSection DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
             sec :< rest
                 | Seq.null rest -> (IntMap.delete sid m, Just sec)
                 | otherwise -> (IntMap.insert sid rest m, Just sec)
+    EncodeInfo{..} = codeInfo
+
+-- | Taking out every outstanding field section of a stream.
+getAndDelSections :: DynamicTable -> StreamId -> IO [Section]
+getAndDelSections DynamicTable{..} sid = atomicModifyIORef' sections getAndDel
+  where
+    getAndDel m = case IntMap.lookup sid m of
+        Nothing -> (m, [])
+        Just q -> (IntMap.delete sid m, toList q)
     EncodeInfo{..} = codeInfo
 
 increaseReference :: DynamicTable -> AbsoluteIndex -> IO ()

@@ -6,6 +6,7 @@ module Network.HTTP3.Control (
     controlStream,
 ) where
 
+import Control.Concurrent.MVar
 import qualified Data.ByteString as BS
 import Data.IORef
 import Data.IntSet (IntSet)
@@ -47,7 +48,11 @@ setupUnidirectional conn conf@H3.Config{..} = do
     H3.onControlStreamCreated hooks sC
     H3.onEncoderStreamCreated hooks sE
     H3.onDecoderStreamCreated hooks sD
-    return (sendStream sE, sendStream sD)
+    -- Every request stream writes acknowledgements and cancellations to the
+    -- decoder stream, and an instruction must not be split by another one.
+    -- quic sends a write in two pieces when flow control stops it partway.
+    lockD <- newMVar ()
+    return (sendStream sE, \bs -> withMVar lockD $ \_ -> sendStream sD bs)
   where
     stC = mkType H3ControlStreams
     stE = mkType QPACKEncoderStream
