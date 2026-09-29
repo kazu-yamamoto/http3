@@ -13,7 +13,9 @@ import Data.Maybe (isNothing)
 import Network.HPACK.Token (toToken)
 import Network.QPACK
 import Network.QPACK.Internal (
+    DecoderInstruction (..),
     EncoderInstruction (..),
+    encodeDecoderInstructions,
     encodeEncoderInstructions,
  )
 import System.Timeout (timeout)
@@ -144,6 +146,33 @@ spec = do
                 drain eiRef handleEI
                 (ths, _) <- wait a
                 ths `shouldBe` [(toToken "x-foo", "bar")]
+
+        it "evicts an entry nothing refers to once its insertion is acknowledged" $ do
+            -- No stream may block, and nothing is acknowledged at first, so
+            -- every entry is inserted without being referred to.  Such an
+            -- entry used to be kept for good, and once the table was full
+            -- nothing new went in.
+            eiRef <- newIORef []
+            diRef <- newIORef []
+            (enc, handleDI, tblop) <-
+                newQEncoder defaultQEncoderConfig (\bs -> modifyIORef' eiRef (++ [bs]))
+            setCapacity tblop 256
+            setBlockedStreams tblop 0
+            let inserts i = do
+                    writeIORef eiRef []
+                    -- Twice, since a field is only inserted the second time
+                    -- it is seen.
+                    forM_ [0, 1] $ \j ->
+                        enc ((i * 2 + j) * 4) [(toToken (C8.pack ("x-foo-" ++ show i)), "a")]
+                    any (not . BS.null) <$> readIORef eiRef
+            -- 40 octets each: six fit in 256.
+            mapM inserts [0 .. 5] `shouldReturn` replicate 6 True
+            -- Full, and none of them acknowledged, so none is evictable.
+            inserts 6 `shouldReturn` False
+            di <- encodeDecoderInstructions [InsertCountIncrement 6]
+            writeIORef diRef [di]
+            drain diRef handleDI
+            inserts 7 `shouldReturn` True
 
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.
