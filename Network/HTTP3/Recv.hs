@@ -148,7 +148,10 @@ recvBody ctx sid src refI refH mcl refL = do
                     | typ == H3FrameData -> do
                         writeIORef refI IInit
                         pushbackSource src leftover
-                        chunk payload
+                        -- A DATA frame may be empty (RFC 9114, section
+                        -- 7.2.1), and "" is how the end of the body is told
+                        -- to the reader.  Go on to the next frame instead.
+                        if BS.null payload then loop IInit else chunk payload
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
                         loop IInit

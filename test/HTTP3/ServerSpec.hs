@@ -9,6 +9,7 @@ import Control.Monad
 import qualified Data.ByteString as B
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
+import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
 import qualified Network.QUIC.Client as QUIC
 import Test.Hspec
@@ -25,6 +26,8 @@ h3spec = do
         it "handles normal cases" $ \_ -> runClient
         it "tells the application the peer's address, not its own" $ \_ ->
             runSockAddrClient
+        it "reads a body past a DATA frame that is empty" $ \_ ->
+            runEmptyDataClient
 
 runClient :: IO ()
 runClient = QUIC.run testClientConfig $ \conn ->
@@ -65,6 +68,22 @@ runSockAddrClient = QUIC.run testClientConfig $ \conn ->
         go build = do
             bs <- C.getResponseBodyChunk rsp
             if B.null bs then return (B.concat (build [])) else go (build . (bs :))
+
+-- | A DATA frame may carry nothing (RFC 9114, section 7.2.1).  One sent right
+-- after HEADERS used to be taken for the end of the body, and the server read
+-- nothing of what followed.
+runEmptyDataClient :: IO ()
+runEmptyDataClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+        let hooks = (confHooks conf0){C.onHeadersFrameCreated = (++ [emptyData])}
+            conf = conf0{confHooks = hooks}
+            req = C.requestBuilder methodPost "/length" [] "hello"
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
+            sendRequest req $ \rsp -> do
+                C.responseStatus rsp `shouldBe` Just ok200
+                C.getResponseBodyChunk rsp `shouldReturn` "5"
+  where
+    emptyData = H3Frame H3FrameData ""
 
 client0 :: C.Client ()
 client0 sendRequest _aux = do

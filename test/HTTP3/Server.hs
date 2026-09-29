@@ -78,8 +78,21 @@ server req aux sendResponse = case requestMethod req of
                     unless (B.null bs) loop
             loop
             sendResponse responseHello []
+        -- Answers with the length of the body it read.
+        Just "/length" -> do
+            let loop n = do
+                    bs <- getRequestBodyChunk req
+                    if B.null bs then return n else loop (n + B.length bs)
+            n <- loop (0 :: Int)
+            sendResponse (responseLength n) []
         _ -> sendResponse responseHello []
     _ -> sendResponse response405 []
+
+responseLength :: Int -> Response
+responseLength n = responseBuilder ok200 header body
+  where
+    header = [("Content-Type", "text/plain")]
+    body = byteString $ C8.pack $ show n
 
 responseHello :: Response
 responseHello = responseBuilder ok200 header body
