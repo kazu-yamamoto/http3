@@ -111,6 +111,11 @@ sendRequest ctx scm auth (Request outobj) processResponse =
                     threadDelay 100000
                     -- just for type inference
                     E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
+                Just vt
+                    -- Malformed (RFC 9114, section 4.2).
+                    | Just name <- connectionSpecificField vt -> do
+                        QUIC.resetStream strm H3MessageError
+                        E.throwIO $ ConnectionSpecificField name
                 Just vt@(_, valtbl) -> do
                     (readB, refH) <- newBodyReader ctx sid src valtbl
                     let rsp = Response $ InpObj vt Nothing readB refH

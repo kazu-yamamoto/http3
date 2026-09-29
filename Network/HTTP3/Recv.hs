@@ -9,6 +9,7 @@ module Network.HTTP3.Recv (
     recvHeader,
     newBodyReader,
     cancelUnlessReadToEnd,
+    connectionSpecificField,
 ) where
 
 import qualified Control.Exception as E
@@ -95,6 +96,25 @@ recvHeader ctx sid src = loop IInit
                         loop IInit -- dummy
                 st' -> loop st'
 
+-- | The first connection-specific field in a field section, if any.
+--
+-- RFC 9114, section 4.2: "An endpoint MUST NOT generate an HTTP/3 field
+-- section containing connection-specific fields; any message containing
+-- connection-specific fields MUST be treated as malformed."  It names
+-- Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding and Upgrade,
+-- and lets TE through only with the value "trailers".  Everything else a
+-- Connection field could name is a connection-specific field too, but then
+-- the Connection field is there to be refused.
+connectionSpecificField :: TokenHeaderTable -> Maybe ByteString
+connectionSpecificField (ths, vt)
+    | isJust (getFieldValue tokenConnection vt) = Just "connection"
+    | isJust (getFieldValue tokenTransferEncoding vt) = Just "transfer-encoding"
+    | maybe False (/= "trailers") (getFieldValue tokenTE vt) = Just "te"
+    | otherwise = find (`elem` byName) $ map (foldedCase . tokenKey . fst) ths
+  where
+    -- No tokens of their own.
+    byName = ["keep-alive", "proxy-connection", "upgrade"]
+
 -- | A body reader for one message, and the place its trailers will appear.
 --
 -- The reader counts what it hands out and checks the total against
@@ -163,6 +183,8 @@ recvBody ctx sid src refI refH mcl refL = do
                         writeIORef refI IInit
                         -- pushbackSource src leftover -- fixme
                         hdr <- qpackDecode ctx sid payload
+                        forM_ (connectionSpecificField hdr) $
+                            E.throwIO . ConnectionSpecificField
                         writeIORef refH $ Just hdr
                         endOfBody
                     | typ == H3FrameData -> do
