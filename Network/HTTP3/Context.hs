@@ -188,7 +188,12 @@ unidirectional Context{..} strm = do
         -- The peer opened a unidirectional stream and closed it without
         -- saying what it was for.  Nothing to dispatch to; this used to be a
         -- pattern match failure.
-        Nothing -> return ()
+        --
+        -- Closed here, as below, because only a stream we close is counted
+        -- as done with, and so given back to the peer's limit on the
+        -- unidirectional streams it may open.  One left unclosed is lost to
+        -- it for good.
+        Nothing -> closeStream strm
         Just i -> case toH3StreamType i of
             -- RFC 9114, section 6.2: "Recipients of unknown stream types MUST
             -- either abort reading of the stream or discard incoming data
@@ -196,7 +201,9 @@ unidirectional Context{..} strm = do
             -- recipient SHOULD use the H3_STREAM_CREATION_ERROR error code".
             -- Neither was done: whatever the peer sent was left where it
             -- arrived, for as long as the connection lasted.
-            H3StreamTypeUnknown _ -> stopStream strm H3StreamCreationError
+            H3StreamTypeUnknown _ -> do
+                stopStream strm H3StreamCreationError
+                closeStream strm
             styp -> ctxUniSwitch styp (recvStream strm)
 
 withHandle :: Context -> (T.Handle -> IO ()) -> IO ()
