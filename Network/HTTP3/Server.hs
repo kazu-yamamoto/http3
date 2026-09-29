@@ -183,12 +183,14 @@ mkRequest ctx strm src ht@(_, vt) = do
         mScheme = getFieldValue tokenScheme vt
         mAuthority = getFieldValue tokenAuthority vt
         mPath = getFieldValue tokenPath vt
-    case (mMethod, mScheme, mAuthority, mPath) of
-        (Just "CONNECT", _, Just _, _) -> Just <$> build
-        (Just _, Just _, Just _, Just _) -> Just <$> build
-        _ -> do
+        malformed = do
             QUIC.resetStream strm H3MessageError
             return Nothing
+    case (mMethod, mScheme, mAuthority, mPath) of
+        _ | isJust (connectionSpecificField ht) -> malformed
+        (Just "CONNECT", _, Just _, _) -> Just <$> build
+        (Just _, Just _, Just _, Just _) -> Just <$> build
+        _ -> malformed
   where
     build = do
         let sid = QUIC.streamId strm

@@ -2,6 +2,7 @@
 
 module Network.HTTP3.Error (
     ContentLengthMismatch (..),
+    ConnectionSpecificField (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -24,6 +25,7 @@ module Network.HTTP3.Error (
 ) where
 
 import qualified Control.Exception as E
+import Data.ByteString (ByteString)
 import Network.QUIC
 
 -- | A message whose content does not match the content-length it declared.
@@ -40,6 +42,14 @@ data ContentLengthMismatch = ContentLengthMismatch
     deriving (Eq, Show)
 
 instance E.Exception ContentLengthMismatch
+
+-- | A message carrying a connection-specific field, named here, which makes
+--   it malformed (RFC 9114, section 4.2).  Thrown where 'ContentLengthMismatch'
+--   is, and handled the same way.
+newtype ConnectionSpecificField = ConnectionSpecificField ByteString
+    deriving (Eq, Show)
+
+instance E.Exception ConnectionSpecificField
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError

@@ -7,9 +7,11 @@ module HTTP3.Error (
 
 import Control.Concurrent
 import qualified Control.Exception as E
+import Control.Monad (forM_)
 import Data.ByteString ()
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import qualified Data.CaseInsensitive as CI
 import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
@@ -124,6 +126,32 @@ h3ErrorSpec qcc cconf ms = do
                     qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
                 runCReq req qcc' cconf conf0 ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        forM_ connectionSpecific $ \field@(name, _) ->
+            it
+                ( "MUST treat a request with "
+                    ++ C8.unpack (CI.original name)
+                    ++ " as malformed [HTTP/3 4.2]"
+                )
+                $ \(_, served) -> do
+                    let req = H3.requestNoBody methodGet "/" [field]
+                        qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    before' <- readIORef served
+                    runCReq req qcc' cconf conf0 ms
+                        `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+                    threadDelay 200000
+                    readIORef served `shouldReturn` before'
+        it
+            "MUST treat a request whose trailers carry connection as malformed [HTTP/3 4.2]"
+            $ \_ -> do
+                -- /drain reads the body, and so the trailers after it.
+                let req0 = H3.requestBuilder methodPost "/drain" [] "hello"
+                    req = H3.setRequestTrailersMaker req0 connectionTrailer
+                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                runCReq req qcc' cconf conf0 ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        it "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
+            let req = H3.requestNoBody methodGet "/" [("te", "trailers")]
+            runCReq req qcc cconf conf0 ms `shouldReturn` Just ()
         it
             "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]"
             $ \_ -> do
@@ -429,6 +457,23 @@ illegalSettings1 _ =
     ]
 
 ----------------------------------------------------------------
+
+-- | The fields RFC 9114, section 4.2, names as connection-specific, and TE
+-- with a value other than "trailers".
+connectionSpecific :: [(HeaderName, BS.ByteString)]
+connectionSpecific =
+    [ ("connection", "close")
+    , ("keep-alive", "timeout=5")
+    , ("proxy-connection", "keep-alive")
+    , ("transfer-encoding", "chunked")
+    , ("upgrade", "websocket")
+    , ("te", "gzip")
+    ]
+
+-- | Trailers of a single Connection field.
+connectionTrailer :: H3.TrailersMaker
+connectionTrailer Nothing = return $ H3.Trailers [("connection", "close")]
+connectionTrailer (Just _) = return $ H3.NextTrailersMaker connectionTrailer
 
 -- | Opening a unidirectional stream of our own next to the one given, and
 -- sending it these octets: a stream type and whatever follows it.
