@@ -4,8 +4,10 @@ module HTTP3.Config (
     makeTestServerConfig,
     testClientConfig,
     testH3ClientConfig,
+    waitForSettings,
 ) where
 
+import Control.Concurrent (threadDelay)
 import Data.ByteString (ByteString)
 import qualified Data.List as L
 import qualified Network.HTTP3.Client as H3
@@ -58,3 +60,13 @@ chooseALPN _ver protos = return $ case mh3idx of
 
 testH3ClientConfig :: H3.ClientConfig
 testH3ClientConfig = H3.defaultClientConfig{H3.authority = "127.0.0.1"}
+
+-- | Giving the peer's SETTINGS time to take effect, after a round trip.
+--
+-- A response is no sign that they have: they come on the control stream,
+-- and that is read by a thread of its own, so the response on a request
+-- stream can get to the application first.  A test that depends on them --
+-- a limit the peer announced, or a dynamic table it allowed -- used to fail
+-- a time or two in a hundred.  There is nothing to wait on, so this sleeps.
+waitForSettings :: IO ()
+waitForSettings = threadDelay 100000

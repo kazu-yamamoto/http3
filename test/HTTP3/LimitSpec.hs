@@ -51,6 +51,7 @@ runTooLargeClient = QUIC.run testClientConfig $ \conn ->
             -- the encoder may use the dynamic table.  Without it every copy
             -- goes as a literal and the frame is over the cap.
             sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+            waitForSettings
             let hdr = replicate 150 ("x-a", B.replicate 300 0x62)
                 req = C.requestNoBody methodGet "/" hdr
             sendRequest req $ \rsp ->
