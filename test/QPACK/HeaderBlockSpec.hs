@@ -2,12 +2,14 @@
 
 module QPACK.HeaderBlockSpec where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
+import Data.Maybe (isNothing)
 import Network.HPACK.Token (toToken)
 import Network.QPACK
 import Network.QPACK.Internal (
@@ -114,6 +116,34 @@ spec = do
             -- Delta Base 0, then an indexed field line for relative index 0.
             (ths, _) <- dec 0 $ BS.pack [0x02, 0x00, 0x80]
             ths `shouldBe` [(toToken "x-foo", "bar")]
+
+        it "stops counting a blocked stream whose wait is given up" $ do
+            -- One blocked stream allowed.  A section waiting for an entry
+            -- that has not arrived is abandoned, as when its stream is reset.
+            -- The stream it was counted as used to stay counted, and the next
+            -- section that had to wait was refused as one too many.
+            eiRef <- newIORef []
+            (dec, handleEI) <-
+                newQDecoder defaultQDecoderConfig{dcBlockedSterams = 1} (\_ -> return ())
+            -- Required Insert Count 1, Delta Base 0, then an indexed field
+            -- line for relative index 0: the first entry, not inserted yet.
+            let blk = BS.pack [0x02, 0x00, 0x80]
+            withAsync (dec 0 blk) $ \a -> do
+                threadDelay 100000
+                poll a >>= (`shouldSatisfy` isNothing)
+            withAsync (dec 4 blk) $ \a -> do
+                threadDelay 100000
+                poll a >>= (`shouldSatisfy` isNothing)
+                ins <-
+                    encodeEncoderInstructions
+                        [ SetDynamicTableCapacity 4096
+                        , InsertWithLiteralName (toToken "x-foo") "bar"
+                        ]
+                        False
+                writeIORef eiRef [ins]
+                drain eiRef handleEI
+                (ths, _) <- wait a
+                ths `shouldBe` [(toToken "x-foo", "bar")]
 
 -- | Feeding an instruction handler what has been queued for it, then an end
 -- of stream, so that it returns -- or throws -- here.

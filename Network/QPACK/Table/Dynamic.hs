@@ -424,8 +424,9 @@ setMaxBlockedStreams DynamicTable{..} n = writeIORef maxBlockedStreams n
 tryIncreaseStreams :: DynamicTable -> IO Bool
 tryIncreaseStreams DynamicTable{..} = do
     lim <- readIORef maxBlockedStreams
-    curr <- atomicModifyIORef' blockedStreamsD (\n -> (n + 1, n + 1))
-    return (curr <= lim)
+    -- Counted only if it is let in, since nothing takes a refused one off.
+    atomicModifyIORef' blockedStreamsD $ \n ->
+        if n < lim then (n + 1, True) else (n, False)
   where
     DecodeInfo{..} = codeInfo
 

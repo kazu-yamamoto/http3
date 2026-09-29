@@ -32,11 +32,16 @@ decodeTokenHeader
 decodeTokenHeader dyntbl rbuf = do
     (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
     ready <- checkRequiredInsertCountNB dyntbl reqInsertCount
-    unless ready $ do
+    -- The count of blocked streams has to come down however the wait ends.
+    -- A stream reset while waiting kills the thread, and the count left up
+    -- counted a stream that was not there any more: once as many had gone as
+    -- SETTINGS_QPACK_BLOCKED_STREAMS allows, every section that had to wait
+    -- was refused.
+    unless ready $ E.mask $ \restore -> do
         ok <- tryIncreaseStreams dyntbl
         unless ok $ E.throwIO BlockedStreamsOverflow
-        checkRequiredInsertCount dyntbl reqInsertCount
-        decreaseStreams dyntbl
+        restore (checkRequiredInsertCount dyntbl reqInsertCount)
+            `E.finally` decreaseStreams dyntbl
     checkRequiredInsertCount dyntbl reqInsertCount
     hufdec <- newHuffmanDecoder rbuf
     tbl <- decodeSophisticated (toTokenHeader dyntbl bp hufdec) rbuf
