@@ -1,5 +1,21 @@
 # Revision history for http3
 
+## 0.1.7
+
+* Requiring quic v0.3.10, which hands the application a stream only once
+  the frame that opened it has been checked.  A server used to answer on
+  a stream whose first frame was past the flow control limit, just before
+  the connection was closed over it.
+* Closing the connection with H3_CLOSED_CRITICAL_STREAM when a write on
+  one of our QPACK streams finds it closed, which the peer's STOP_SENDING
+  does.  It used to throw `StreamIsClosed` into whichever thread wrote.
+* QPACK: sending Set Dynamic Table Capacity only when the capacity
+  changes.  `getMaxTableCapacity` is new.
+* h3-server: allowing more unidirectional streams than the three a client
+  needs.
+* Tests: `h3ErrorSpec` takes how to read the number of requests served,
+  so that h3spec can run it against a server elsewhere.
+
 ## 0.1.6
 
 * Requiring quic v0.3.9 and http2 v5.4.6.  quic v0.3.7 stops opening a
