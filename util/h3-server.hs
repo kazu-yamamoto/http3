@@ -138,6 +138,14 @@ main = do
                 , scGroups = getGroups (scGroups sc0) optGroups
                 , scQLog = optQLogDir
                 , scCredentials = Credentials [cred]
+                , -- Room for unidirectional streams beyond the three an HTTP/3
+                  -- client needs.  quic's default is exactly three, and then
+                  -- h3spec cannot open the second control or QPACK stream it
+                  -- needs to see this server refuse one; those cases were
+                  -- left pending.  RFC 9114, section 6.2, suggests allowing
+                  -- more anyway, for extensions and reserved stream types.
+                  scParameters =
+                    (scParameters sc0){initialMaxStreamsUni = 10}
                 }
     run sc $ \conn -> do
         info <- getConnectionInfo conn
