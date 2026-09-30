@@ -10,6 +10,7 @@ module Network.QPACK.Table.Dynamic (
     -- * Capacity
     isTableReady,
     getTableCapacity,
+    getMaxTableCapacity,
     setTableCapacity,
     setDecoderTableCapacity,
     getMaxNumOfEntries,
@@ -233,6 +234,11 @@ isTableReady DynamicTable{..} = readIORef capaReady
 
 getTableCapacity :: DynamicTable -> IO Int
 getTableCapacity DynamicTable{..} = readTVarIO tableSize
+
+-- | The capacity, as last set.  'getTableCapacity' is how much of it the
+--   entries take, whatever its name says.
+getMaxTableCapacity :: DynamicTable -> IO Int
+getMaxTableCapacity DynamicTable{..} = readIORef maxTableSize
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} maxsiz = do

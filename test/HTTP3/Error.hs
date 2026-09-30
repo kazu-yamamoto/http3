@@ -16,6 +16,7 @@ import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
+import Network.QPACK (QDecoderConfig (..), QEncoderConfig (..))
 import Network.QPACK.Internal
 import Network.QUIC
 import Network.QUIC.Client
@@ -272,20 +273,22 @@ h3ErrorSpec qcc cconf ms served = do
         it
             "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream is closed [QPACK 4.2]"
             $ \_ -> do
-                let conf = addHook conf0 $ setOnEncoderStreamCreated closeStream
+                let conf =
+                        noEncoderTable $ addHook conf0 $ setOnEncoderStreamCreated closeStream
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it
             "MUST send H3_CLOSED_CRITICAL_STREAM if a decoder stream is closed [QPACK 4.2]"
             $ \_ -> do
-                let conf = addHook conf0 $ setOnDecoderStreamCreated closeStream
+                let conf =
+                        noDecoderTable $ addHook conf0 $ setOnDecoderStreamCreated closeStream
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
         it
             "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream ends inside an instruction [QPACK 4.2]"
             $ \_ -> do
                 -- The first octet of a Set Dynamic Table Capacity that goes on.
-                let conf = addHook conf0 $ setOnEncoderStreamCreated $ \strm -> do
+                let conf = noEncoderTable $ addHook conf0 $ setOnEncoderStreamCreated $ \strm -> do
                         sendStream strm "\x3f"
                         closeStream strm
                 runC qcc cconf conf ms
@@ -309,6 +312,28 @@ refusedNotServed (Just count) refused = do
     refused
     threadDelay 200000
     count `shouldReturn` before'
+
+-- | A client whose encoder will not use the dynamic table, and so has
+-- nothing to write on its encoder stream.  For the tests that close that
+-- stream: a client that went on writing on it would see the closure itself
+-- and close the connection, and the test is about what the server does.
+noEncoderTable :: H3.Config -> H3.Config
+noEncoderTable conf =
+    conf
+        { H3.confQEncoderConfig =
+            (H3.confQEncoderConfig conf){ecMaxTableCapacity = 0}
+        }
+
+-- | A client whose decoder offers no dynamic table, and so has nothing to
+-- write on its decoder stream: no acknowledgements, since the server cannot
+-- refer to a table, and no Stream Cancellations, which are not sent then.
+-- For the test that closes that stream, as 'noEncoderTable'.
+noDecoderTable :: H3.Config -> H3.Config
+noDecoderTable conf =
+    conf
+        { H3.confQDecoderConfig =
+            (H3.confQDecoderConfig conf){dcMaxTableCapacity = 0}
+        }
 
 addHook :: H3.Config -> (H3.Hooks -> H3.Hooks) -> H3.Config
 addHook conf modify = conf'
