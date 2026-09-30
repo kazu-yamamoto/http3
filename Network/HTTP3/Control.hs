@@ -7,6 +7,7 @@ module Network.HTTP3.Control (
 ) where
 
 import Control.Concurrent.MVar
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
 import Data.IntSet (IntSet)
@@ -52,8 +53,21 @@ setupUnidirectional conn conf@H3.Config{..} = do
     -- decoder stream, and an instruction must not be split by another one.
     -- quic sends a write in two pieces when flow control stops it partway.
     lockD <- newMVar ()
-    return (sendStream sE, \bs -> withMVar lockD $ \_ -> sendStream sD bs)
+    return
+        ( critical $ sendStream sE
+        , critical $ \bs -> withMVar lockD $ \_ -> sendStream sD bs
+        )
   where
+    -- The sending part of one of our QPACK streams is closed only when the
+    -- peer asked for that with STOP_SENDING, which it must not do (RFC
+    -- 9204, section 4.2; RFC 9114, section 6.2.1): the closure of a
+    -- critical stream is a connection error of type H3_CLOSED_CRITICAL_STREAM.
+    -- The write used to throw StreamIsClosed into whichever thread made it,
+    -- and nothing caught it there.
+    critical send bs =
+        send bs `E.catch` \e -> case e of
+            StreamIsClosed -> abortConnection conn H3ClosedCriticalStream ""
+            _ -> E.throwIO e
     stC = mkType H3ControlStreams
     stE = mkType QPACKEncoderStream
     stD = mkType QPACKDecoderStream

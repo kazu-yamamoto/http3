@@ -174,9 +174,14 @@ newQEncoder QEncoderConfig{..} sendEI = do
                     -- MaxEntries.
                     setMaxEntries dyntbl n
                     let tableSize = min ecMaxTableCapacity n
-                    setTableCapacity dyntbl tableSize
-                    ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
-                    sendIns dyntbl ins
+                    current <- getMaxTableCapacity dyntbl
+                    -- The capacity starts at zero (RFC 9204, section 3.2.3),
+                    -- so an encoder that will not use the table has nothing
+                    -- to tell the decoder.
+                    when (tableSize /= current) $ do
+                        setTableCapacity dyntbl tableSize
+                        ins <- encodeEncoderInstructions [SetDynamicTableCapacity tableSize] False
+                        sendIns dyntbl ins
                 , setBlockedStreams = setMaxBlockedStreams dyntbl
                 , setHeaderSize = setMaxHeaderSize dyntbl
                 , getHeaderSize = getMaxHeaderSize dyntbl
