@@ -14,7 +14,9 @@ spec :: Spec
 spec =
     beforeAll start $
         afterAll (teardown . fst) $
-            h3ErrorSpec testClientConfig testH3ClientConfig 2000 served -- 2 seconds
+            -- 2 seconds
+            h3ErrorSpec testClientConfig testH3ClientConfig 2000 served
+                >> h3DrainSpec testClientConfig testH3ClientConfig 2000
   where
     served (_, ref) = Just $ readIORef ref
     start = do

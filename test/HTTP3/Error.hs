@@ -3,6 +3,7 @@
 
 module HTTP3.Error (
     h3ErrorSpec,
+    h3DrainSpec,
 ) where
 
 import Control.Concurrent
@@ -121,16 +122,6 @@ h3ErrorSpec qcc cconf ms served = do
                     qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
                 runC qcc' cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
-            "MUST treat content that does not match content-length as malformed [HTTP/3 4.1.2]"
-            $ \_ -> do
-                -- content-length says five octets and the request carries
-                -- none.  /drain reads the body, which is where the count is
-                -- checked; a body nobody reads is never counted.
-                let req = H3.requestNoBody methodPost "/drain" [("content-length", "5")]
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
-                runCReq req qcc' cconf conf0 ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         forM_ connectionSpecific $ \field@(name, _) ->
             it
                 ( "MUST treat a request with "
@@ -143,15 +134,6 @@ h3ErrorSpec qcc cconf ms served = do
                     refusedNotServed (served x) $
                         runCReq req qcc' cconf conf0 ms
                             `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
-            "MUST treat a request whose trailers carry connection as malformed [HTTP/3 4.2]"
-            $ \_ -> do
-                -- /drain reads the body, and so the trailers after it.
-                let req0 = H3.requestBuilder methodPost "/drain" [] "hello"
-                    req = H3.setRequestTrailersMaker req0 connectionTrailer
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
-                runCReq req qcc' cconf conf0 ms
-                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         it "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
             let req = H3.requestNoBody methodGet "/" [("te", "trailers")]
             runCReq req qcc cconf conf0 ms `shouldReturn` Just ()
@@ -334,6 +316,42 @@ noDecoderTable conf =
         { H3.confQDecoderConfig =
             (H3.confQDecoderConfig conf){dcMaxTableCapacity = 0}
         }
+
+-- | The error cases that need the server to read a request's body.
+--
+-- A server checks content-length, and the fields of trailers, only as its
+-- application reads the body; an application that answers without reading
+-- it never gets to either, and nothing tells from outside which paths read
+-- one.  These go to /drain, where our test server reads the body, and so
+-- are not part of 'h3ErrorSpec': run against a server elsewhere, as h3spec
+-- does, they would fail whatever that server does.
+h3DrainSpec
+    :: ClientConfig
+    -> H3.ClientConfig
+    -> Millisecond
+    -> SpecWith a
+h3DrainSpec qcc cconf ms = do
+    conf0 <- runIO H3.allocSimpleConfig
+    describe "HTTP/3 servers reading a request's body" $ do
+        it
+            "MUST treat content that does not match content-length as malformed [HTTP/3 4.1.2]"
+            $ \_ -> do
+                -- content-length says five octets and the request carries
+                -- none.  /drain reads the body, which is where the count is
+                -- checked; a body nobody reads is never counted.
+                let req = H3.requestNoBody methodPost "/drain" [("content-length", "5")]
+                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                runCReq req qcc' cconf conf0 ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        it
+            "MUST treat a request whose trailers carry connection as malformed [HTTP/3 4.2]"
+            $ \_ -> do
+                -- /drain reads the body, and so the trailers after it.
+                let req0 = H3.requestBuilder methodPost "/drain" [] "hello"
+                    req = H3.setRequestTrailersMaker req0 connectionTrailer
+                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                runCReq req qcc' cconf conf0 ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
 
 addHook :: H3.Config -> (H3.Hooks -> H3.Hooks) -> H3.Config
 addHook conf modify = conf'
