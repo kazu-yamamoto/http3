@@ -2,76 +2,81 @@
 
 ## 0.1.7
 
-* Requiring quic v0.3.10, which hands the application a stream only once
-  the frame that opened it has been checked.  A server used to answer on
-  a stream whose first frame was past the flow control limit, just before
-  the connection was closed over it.
-* Closing the connection with H3_CLOSED_CRITICAL_STREAM when a write on
-  one of our QPACK streams finds it closed, which the peer's STOP_SENDING
-  does.  It used to throw `StreamIsClosed` into whichever thread wrote.
-* QPACK: sending Set Dynamic Table Capacity only when the capacity
-  changes.  `getMaxTableCapacity` is new.
-* h3-server: allowing more unidirectional streams than the three a client
-  needs.
-* Tests: `h3ErrorSpec` takes how to read the number of requests served,
-  so that h3spec can run it against a server elsewhere.
+* Require quic 0.3.10.
+  [#41](https://github.com/kazu-yamamoto/http3/pull/41)
+* Close the connection with H3_CLOSED_CRITICAL_STREAM when one of our
+  QPACK streams is closed.
+  [#40](https://github.com/kazu-yamamoto/http3/pull/40)
+* QPACK: send Set Dynamic Table Capacity only when the capacity changes.
+  `getMaxTableCapacity` is new.
+  [#40](https://github.com/kazu-yamamoto/http3/pull/40)
+* h3-server: allow more unidirectional streams.
+  [#39](https://github.com/kazu-yamamoto/http3/pull/39)
+* Tests: `h3ErrorSpec` can run against a server elsewhere.
+  [#38](https://github.com/kazu-yamamoto/http3/pull/38)
 
 ## 0.1.6
 
-* Requiring quic v0.3.9 and http2 v5.4.6.  quic v0.3.7 stops opening a
-  closed stream again for a late copy of its data, which closed the
-  connection with FLOW_CONTROL_ERROR now and then (#15); v0.3.8 tells a
-  stream that was reset from one that ended; v0.3.9 keeps the peer's open
-  streams within initial_max_streams, closes the sending part on
-  STOP_SENDING, and opens a stream for a RESET_STREAM that comes before
-  its data.
-* QPACK: fixing the dynamic table where the two ends disagreed: the
-  maximum number of entries, when a section is blocked, the blocked
-  streams, more than one outstanding section on a stream, and a change of
-  capacity.  Encoding a field larger than the encoder's buffers.
-* QPACK: stopping counting a blocked stream however its wait ends.
-* QPACK: evicting an entry nothing refers to once its insertion is
-  acknowledged.
-* QPACK: sending Stream Cancellation for a stream not read to its end or
-  reset by the peer, and acting on one received.
-* QPACK: inserting with a reference to a name not yet acknowledged.
-* Holding a field section to our SETTINGS_MAX_FIELD_SECTION_SIZE as it
-  decodes, not only the frame carrying it; a server answers a request
-  over it with 431.  The new `FieldSectionTooLarge` is thrown otherwise.
-* Keeping to the peer's SETTINGS_MAX_FIELD_SECTION_SIZE when sending.  The
-  new `FieldSectionTooLargeForPeer` is thrown by `sendRequest` and
-  `sendResponse` for a header section over it.
-* Reading on past a DATA frame that is empty.
-* Treating a message with a connection-specific field as malformed.  The
-  new `ConnectionSpecificField` is thrown for a response or trailers
-  carrying one.
-* Refusing a second control or QPACK stream, and noticing a QPACK stream
-  closing.  Refusing a push stream.
-* Stopping reading a unidirectional stream of an unknown type, and
-  refusing a server-initiated bidirectional stream.
-* A client whose request the server stops with STOP_SENDING no longer
-  resets the stream, so that a response sent after it is still read.
-* Closing a unidirectional stream we stop reading, so that it is given
-  back to the peer's limit.
-* This is a patch release, but `TableOperation` in `Network.QPACK` has a
-  new field, `getHeaderSize`.
+* Require quic 0.3.9 and http2 5.4.6.
+  [#21](https://github.com/kazu-yamamoto/http3/pull/21)
+  [#30](https://github.com/kazu-yamamoto/http3/pull/30)
+  [#37](https://github.com/kazu-yamamoto/http3/pull/37)
+* QPACK: fix the dynamic table where the two ends disagreed.
+  [#21](https://github.com/kazu-yamamoto/http3/pull/21)
+* QPACK: stop counting a blocked stream however its wait ends.
+  [#23](https://github.com/kazu-yamamoto/http3/pull/23)
+* QPACK: evict an unreferenced entry once its insertion is acknowledged.
+  [#24](https://github.com/kazu-yamamoto/http3/pull/24)
+* QPACK: send and act on Stream Cancellation.
+  [#26](https://github.com/kazu-yamamoto/http3/pull/26)
+  [#35](https://github.com/kazu-yamamoto/http3/pull/35)
+* QPACK: insert with a reference to a name not yet acknowledged.
+  [#32](https://github.com/kazu-yamamoto/http3/pull/32)
+* Hold a field section to our SETTINGS_MAX_FIELD_SECTION_SIZE while
+  decoding.  `FieldSectionTooLarge` is new.
+  [#28](https://github.com/kazu-yamamoto/http3/pull/28)
+* Keep to the peer's SETTINGS_MAX_FIELD_SECTION_SIZE when sending.
+  `FieldSectionTooLargeForPeer` is new.
+  [#33](https://github.com/kazu-yamamoto/http3/pull/33)
+* Read on past an empty DATA frame.
+  [#22](https://github.com/kazu-yamamoto/http3/pull/22)
+* Treat a message with a connection-specific field as malformed.
+  `ConnectionSpecificField` is new.
+  [#29](https://github.com/kazu-yamamoto/http3/pull/29)
+* Refuse a second control or QPACK stream, and a push stream.
+  [#25](https://github.com/kazu-yamamoto/http3/pull/25)
+* Stop reading a unidirectional stream of an unknown type, and refuse a
+  server-initiated bidirectional stream.
+  [#31](https://github.com/kazu-yamamoto/http3/pull/31)
+* Client: do not reset a stream the server stops with STOP_SENDING.
+  [#36](https://github.com/kazu-yamamoto/http3/pull/36)
+* Close a unidirectional stream we stop reading.
+  [#37](https://github.com/kazu-yamamoto/http3/pull/37)
+* `TableOperation` in `Network.QPACK` has a new field, `getHeaderSize`.
+  [#33](https://github.com/kazu-yamamoto/http3/pull/33)
 
 ## 0.1.5
 
-* Security fixes.  Requiring http2 v5.4.5, whose HPACK integer decoder is
-  bounded; QPACK decodes its integers with it.
-* Refusing a QPACK index that names nothing, at both ends of both tables.
-* Putting a ceiling on the frame payload we will hold.
-* Sizing the Huffman scratch buffer to what it has to hold.
-* Reading a unidirectional stream type as the variable-length integer it is.
-* Not handing the application a request we have already rejected.
-* Checking a message against the content-length it declared.
-* Reading the whole SETTINGS frame, noticing a repeated identifier, and
-  refusing one that stops mid-parameter.
-* Giving the application the peer's address, not our own.
-* This is a patch release, but `Network.HTTP3.Internal` and
-  `Network.QPACK.Internal` changed: `parseH3Frame` takes the payload limit,
-  `IFrame` has `ITooLong`, and `DecodeError` has `IllegalDynamicIndex`.
+* Security fixes.  Require http2 5.4.5.
+* Refuse a QPACK index that names nothing.
+  [#12](https://github.com/kazu-yamamoto/http3/pull/12)
+  [#20](https://github.com/kazu-yamamoto/http3/pull/20)
+* Limit the frame payload we hold.
+  [#13](https://github.com/kazu-yamamoto/http3/pull/13)
+* Size the Huffman scratch buffer to what it has to hold.
+  [#14](https://github.com/kazu-yamamoto/http3/pull/14)
+* Read a unidirectional stream type as a variable-length integer.
+  [#16](https://github.com/kazu-yamamoto/http3/pull/16)
+* Do not hand the application a request already rejected.
+  [#17](https://github.com/kazu-yamamoto/http3/pull/17)
+* Check a message against its content-length.
+  [#18](https://github.com/kazu-yamamoto/http3/pull/18)
+* Read the whole SETTINGS frame and refuse a repeated or truncated one.
+  [#19](https://github.com/kazu-yamamoto/http3/pull/19)
+  [#20](https://github.com/kazu-yamamoto/http3/pull/20)
+* Give the application the peer's address, not our own.
+  [#10](https://github.com/kazu-yamamoto/http3/pull/10)
+* `Network.HTTP3.Internal` and `Network.QPACK.Internal` changed.
 
 ## 0.1.4
 
