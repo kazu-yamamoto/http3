@@ -33,14 +33,34 @@ spec = do
             mapM_ roundTrip [1000, 2100, 8000, 20000]
 
         it "encodes a field larger than the encoder's buffers" $ do
-            -- With the default 4096-octet buffers.  4083 is the value that
+            -- With the default 4096-octet buffers.  1011 is the value that
             -- makes the field come to exactly the buffer by the encoder's
-            -- estimate, which used to loop forever; anything larger was
-            -- refused with BufferOverrun.  100000 is also long enough for
-            -- its Huffman code to need a four-octet length.
-            forM_ [4083, 4084, 10000, 100000] $ \n -> do
+            -- estimate ('tokenHeaderSize': four times the octets, plus 32);
+            -- one like it used to loop forever, and anything larger was
+            -- refused with BufferOverrun.  4083 was that value when the
+            -- estimate was the raw length plus 8.  100000 is also long
+            -- enough for its Huffman code to need a four-octet length.
+            forM_ [1011, 1012, 4083, 4084, 10000, 100000] $ \n -> do
                 r <- timeout 5000000 $ roundTripWith defaultQEncoderConfig n
                 void r `shouldBe` Just ()
+
+        it "keeps the tables in step when Huffman makes a value longer" $ do
+            -- The encoder sized its chunks by the raw length of the fields,
+            -- but Huffman coding, tried in place, makes octets above 0x7f
+            -- three to four times longer.  A value of 1500 of them overran
+            -- the 4096-octet buffers after an entry earlier in the chunk had
+            -- gone into the encoder's table, its insertion still unsent: the
+            -- next section referred to an entry the decoder never got, and
+            -- waited for it for ever.
+            r <- timeout 5000000 $ withConnectedPair $ \enc dec -> do
+                let small = [(toToken "x-a", "foo")]
+                    big n = small ++ [(toToken "x-b", BS.replicate n 0xff)]
+                    sections = [small, big 1500, small] ++ map big [500, 1000 .. 6000] ++ [small]
+                forM_ (zip [0, 4 ..] sections) $ \(sid, hdr) -> do
+                    blk <- enc sid hdr
+                    (ths, _) <- dec sid blk
+                    ths `shouldBe` hdr
+            r `shouldBe` Just ()
 
         it "agrees with the decoder on MaxEntries when the encoder uses less" $ do
             -- The decoder offers 64K, the encoder settles for 4K.  Required
@@ -297,6 +317,24 @@ roundTripWith conf n = do
     (ths, _) <- dec 0 blk
     lookup (toToken "x-big") ths `shouldBe` Just val
     return blk
+
+-- | An encoder and a decoder with the default configurations, each one's
+-- instructions carried to the other.
+withConnectedPair :: (QEncoder -> QDecoder -> IO a) -> IO a
+withConnectedPair body = do
+    eiQ <- newTQueueIO
+    diQ <- newTQueueIO
+    (enc, handleDI, tblop) <-
+        newQEncoder defaultQEncoderConfig (atomically . writeTQueue eiQ)
+    (dec, handleEI) <-
+        newQDecoder defaultQDecoderConfig (atomically . writeTQueue diQ)
+    -- What the decoder's SETTINGS would carry.
+    setCapacity tblop $ dcMaxTableCapacity defaultQDecoderConfig
+    setBlockedStreams tblop 100
+    let recvFrom q _ = atomically $ readTQueue q
+    withAsync (handleEI $ recvFrom eiQ) $ \_ ->
+        withAsync (handleDI $ recvFrom diQ) $ \_ ->
+            body enc dec
 
 roundTripMany :: Int -> Int -> Int -> IO ()
 roundTripMany encCap decCap n = do

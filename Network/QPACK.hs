@@ -188,8 +188,19 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 }
     return (enc, handler, ctl)
 
+-- | The most a field can take in either buffer, as a field line or as an
+-- insertion on the encoder stream.
+--
+-- Huffman coding is tried in place before it is known to be the shorter, and
+-- a code is at most 30 bits: under four octets per octet.  To that come the
+-- first octet and the integers -- an index and two lengths, a few octets
+-- each.  The raw length plus 8 was taken for this, and a field of octets
+-- above 0x7f, three to four times longer in Huffman, overran the shared
+-- buffers part-way through a chunk: after an earlier field had gone into the
+-- dynamic table, and before its insertion was sent, so that the table was
+-- out of step with the peer's from there on.
 tokenHeaderSize :: TokenHeader -> Int
-tokenHeaderSize (t, v) = BS.length (CI.original (tokenKey t)) + BS.length v + 8 -- adhoc overhead
+tokenHeaderSize (t, v) = 4 * (BS.length (CI.original (tokenKey t)) + BS.length v) + 32
 
 -- | Taking as many fields as fit in @lim@, but always at least one.
 --
@@ -220,9 +231,8 @@ splitThrough lim ts0 = loop ts0 id
 
 -- | Encoding a chunk from 'splitThrough', in the shared buffers when it fits.
 --
--- One that does not is a single large field, and gets buffers of its own.
--- Their size allows for Huffman coding being tried in place before it is known
--- to be the shorter: a code is at most 30 bits, so under four octets per octet.
+-- One that does not is a single large field, and gets buffers of its own, of
+-- the size 'tokenHeaderSize' allows for it.
 encodeChunk
     :: Buffer
     -> BufferSize
@@ -236,7 +246,7 @@ encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl ts
     | siz <= min bufsiz1 bufsiz2 =
         qpackEncodeHeader buf1 bufsiz1 buf2 bufsiz2 huff dyntbl ts
     | otherwise = do
-        let bufsiz = siz * 4 + 64
+        let bufsiz = siz
         gcbuf1 <- mallocPlainForeignPtrBytes bufsiz
         gcbuf2 <- mallocPlainForeignPtrBytes bufsiz
         withForeignPtr gcbuf1 $ \b1 ->
