@@ -34,6 +34,7 @@ module Network.HTTP3.Client (
 
 import Control.Concurrent
 import qualified Control.Exception as E
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
 import Data.IORef
 import Data.IP (IPv6)
@@ -98,6 +99,29 @@ readerClient ctx = loop
       where
         sid = QUIC.streamId strm
 
+-- | The header section of the final response, past any informational (1xx)
+-- ones before it.
+--
+-- RFC 9114, section 4.1: a response may begin with any number of
+-- informational responses, each a header section of its own, before the
+-- final one.  The first header section was taken for the response: after a
+-- 103 (Early Hints) or a 100 (Continue), the client saw that, and the body
+-- reader took the final response's HEADERS for trailers and ended the body
+-- there, the final response lost.  They are skipped now, as the application
+-- has no way here to be handed them.
+recvFinalHeader
+    :: Context -> QUIC.StreamId -> Source -> IO (Maybe TokenHeaderTable)
+recvFinalHeader ctx sid src = do
+    mvt <- recvHeader ctx sid src
+    case mvt of
+        Just (_, vt)
+            | Just status <- getFieldValue tokenStatus vt
+            , informational status ->
+                recvFinalHeader ctx sid src
+        _ -> return mvt
+  where
+    informational status = C8.length status == 3 && C8.head status == '1'
+
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse = do
@@ -132,7 +156,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         src <- newSource strm
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
-            mvt <- recvHeader ctx sid src
+            mvt <- recvFinalHeader ctx sid src
             case mvt of
                 Nothing -> do
                     QUIC.resetStream strm H3MessageError
