@@ -297,7 +297,9 @@ runResetCancelClient = do
                             unless (B.null bs) drain
                     drain
                 case r of
-                    Left (StreamResetIsReceived _) -> return ()
+                    -- The body threw: the server's failure, not the
+                    -- client's.  H3_MESSAGE_ERROR was sent for it.
+                    Left (StreamResetIsReceived e) -> e `shouldBe` H3InternalError
                     Right () -> expectationFailure "the reset was taken for the end"
                 threadDelay 100000
     bs <- B.concat <$> readIORef sentOnDecoderStream
