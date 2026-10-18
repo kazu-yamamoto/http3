@@ -5,6 +5,7 @@ module QPACK.HeaderBlockSpec where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -15,6 +16,7 @@ import Network.QPACK
 import Network.QPACK.Internal (
     DecoderInstruction (..),
     EncoderInstruction (..),
+    EncoderInstructionError (..),
     encodeDecoderInstructions,
     encodeEncoderInstructions,
  )
@@ -57,6 +59,37 @@ spec = do
                     big n = small ++ [(toToken "x-b", BS.replicate n 0xff)]
                     sections = [small, big 1500, small] ++ map big [500, 1000 .. 6000] ++ [small]
                 forM_ (zip [0, 4 ..] sections) $ \(sid, hdr) -> do
+                    blk <- enc sid hdr
+                    (ths, _) <- dec sid blk
+                    ths `shouldBe` hdr
+            r `shouldBe` Just ()
+
+        it "refuses at once an encoder instruction too long to be valid" $ do
+            -- Its length says it inserts an entry larger than any capacity
+            -- the decoder allows.  It used to be decoded again from its
+            -- beginning with each piece of it that arrived, and kept for as
+            -- long as the peer went on.
+            -- Insert with literal name "x", not in Huffman, its value
+            -- declared to be 1000000 octets: 127 and the rest in 7-bit
+            -- groups.
+            let ei =
+                    BS.pack ([0x41, 0x78, 0x7f] ++ varint (1000000 - 127 :: Int))
+                        <> BS.replicate 10000 0x61
+                varint n
+                    | n < 128 = [fromIntegral n]
+                    | otherwise = fromIntegral (n `mod` 128 + 128) : varint (n `div` 128)
+            ref <- newIORef $ BS.take 10000 ei
+            let recv n = atomicModifyIORef' ref $ \bs -> let (a, b) = BS.splitAt n bs in (b, a)
+            (_, handleEI) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+            r <- timeout 1000000 $ E.try $ handleEI recv
+            r `shouldBe` Just (Left EncoderInstructionError)
+
+        it "takes encoder instructions arriving an octet at a time" $ do
+            -- Each is decoded once it is all there.  A value of 4000 octets is
+            -- near what the default capacity of 4096 takes.
+            r <- timeout 5000000 $ withConnectedPairBy 1 $ \enc dec ->
+                forM_ (zip [0, 4 ..] [100, 100, 4000, 4000]) $ \(sid, n) -> do
+                    let hdr = [(toToken "x-big", C8.replicate n 'a')]
                     blk <- enc sid hdr
                     (ths, _) <- dec sid blk
                     ths `shouldBe` hdr
@@ -321,7 +354,12 @@ roundTripWith conf n = do
 -- | An encoder and a decoder with the default configurations, each one's
 -- instructions carried to the other.
 withConnectedPair :: (QEncoder -> QDecoder -> IO a) -> IO a
-withConnectedPair body = do
+withConnectedPair = withConnectedPairBy maxBound
+
+-- | Like 'withConnectedPair', the encoder's instructions reaching the
+-- decoder no more than the given number of octets at a time.
+withConnectedPairBy :: Int -> (QEncoder -> QDecoder -> IO a) -> IO a
+withConnectedPairBy chunk body = do
     eiQ <- newTQueueIO
     diQ <- newTQueueIO
     (enc, handleDI, tblop) <-
@@ -331,8 +369,15 @@ withConnectedPair body = do
     -- What the decoder's SETTINGS would carry.
     setCapacity tblop $ dcMaxTableCapacity defaultQDecoderConfig
     setBlockedStreams tblop 100
+    pendingEI <- newIORef ""
     let recvFrom q _ = atomically $ readTQueue q
-    withAsync (handleEI $ recvFrom eiQ) $ \_ ->
+        recvEI n = do
+            bs0 <- readIORef pendingEI
+            bs <- if BS.null bs0 then atomically (readTQueue eiQ) else return bs0
+            let (a, b) = BS.splitAt (min n chunk) bs
+            writeIORef pendingEI b
+            return a
+    withAsync (handleEI recvEI) $ \_ ->
         withAsync (handleDI $ recvFrom diQ) $ \_ ->
             body enc dec
 
