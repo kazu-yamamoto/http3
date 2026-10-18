@@ -128,17 +128,26 @@ connectionSpecificField (ths, vt)
 -- Only what is actually read is counted, so a body the application never asks
 -- for is never checked. Answering that would mean draining it on the
 -- application's behalf, which is a different design from the one here.
+--
+-- A message defined to have no content -- a response to HEAD, a 204 or a
+-- 304, say -- can carry a content-length that describes content it does not
+-- have (RFC 9114, section 4.1.2).  For one of those the content is taken to
+-- be empty, whatever its content-length says: DATA on it is malformed.
 newBodyReader
     :: Context
     -> StreamId
     -> Source
     -> ValueTable
+    -> Bool
+    -- ^ Whether the message is defined to have no content
     -> IO (IO (ByteString, Bool), IORef (Maybe TokenHeaderTable))
-newBodyReader ctx sid src vt = do
+newBodyReader ctx sid src vt noContent = do
     refI <- newIORef IInit
     refH <- newIORef Nothing
     refL <- newIORef 0
-    let mcl = fst <$> (getFieldValue tokenContentLength vt >>= C8.readInt)
+    let mcl
+            | noContent = Just 0
+            | otherwise = fst <$> (getFieldValue tokenContentLength vt >>= C8.readInt)
     return (recvBody ctx sid src refI refH mcl refL, refH)
 
 recvBody

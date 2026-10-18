@@ -198,7 +198,7 @@ mkRequest ctx strm src ht@(_, vt) = do
   where
     build = do
         let sid = QUIC.streamId strm
-        (readB, refH) <- newBodyReader ctx sid src vt
+        (readB, refH) <- newBodyReader ctx sid src vt False
         return $ Request $ InpObj ht Nothing readB refH
 
 sendResponse

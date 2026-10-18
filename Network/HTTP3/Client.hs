@@ -188,10 +188,23 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                         QUIC.resetStream strm H3MessageError
                         E.throwIO $ ConnectionSpecificField name
                 Just vt@(_, valtbl) -> do
-                    (readB, refH) <- newBodyReader ctx sid src valtbl
+                    (readB, refH) <-
+                        newBodyReader ctx sid src valtbl $ noContent valtbl
                     let rsp = Response $ InpObj vt Nothing readB refH
                     processResponse rsp
   where
+    -- A response defined to have no content: to HEAD, a 204 or a 304, or a
+    -- 2xx to CONNECT (RFC 9110, section 6.4.1).  Its content-length, which it
+    -- may carry, describes content it does not have; it was checked against
+    -- the empty body all the same, and the client refused such a response
+    -- with ContentLengthMismatch.
+    noContent valtbl =
+        method == Just "HEAD"
+            || status `elem` [Just "204", Just "304"]
+            || (method == Just "CONNECT" && maybe False ("2" `C8.isPrefixOf`) status)
+      where
+        status = getFieldValue tokenStatus valtbl
+    method = snd <$> find ((== ":method") . fst) hdr
     -- Done with the stream: the response has been processed, or waiting for
     -- it was given up -- 'timeout', say.  A request sent in full has had its
     -- FIN, and closing the stream only tidies up.  One that has not is cut
