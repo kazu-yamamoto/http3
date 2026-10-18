@@ -583,6 +583,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
     handle ins@(InsertWithNameReference ii val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
+        cap <- getMaxTableCapacity dyntbl
         dai <- atomically $ do
             idx <- case ii of
                 Left ai -> return $ SIndex ai
@@ -591,27 +592,29 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
                     return $ DIndex $ fromInsRelativeIndex ri ip
             ent0 <- toIndexedEntry dyntbl idx
             let ent = toEntryToken (entryToken ent0) val
-            _ <- insertEntryToDecoder ent dyntbl
+            _ <- insertEntryToDecoder cap ent dyntbl
             return idx
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
         return 1
     handle ins@(InsertWithLiteralName t val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
+        cap <- getMaxTableCapacity dyntbl
         dai <- atomically $ do
             let ent = toEntryToken t val
-            insertEntryToDecoder ent dyntbl
+            insertEntryToDecoder cap ent dyntbl
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
         return 1
     handle ins@(Duplicate ri) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
+        cap <- getMaxTableCapacity dyntbl
         (dai, dai') <- atomically $ do
             ip <- getInsertionPointSTM dyntbl
             let ai = fromInsRelativeIndex ri ip
                 idx = DIndex ai
             ent <- toIndexedEntry dyntbl idx
-            ai' <- insertEntryToDecoder ent dyntbl
+            ai' <- insertEntryToDecoder cap ent dyntbl
             return (ai, ai')
         qpackDebug dyntbl $
             putStrLn $
