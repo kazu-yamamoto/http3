@@ -35,6 +35,7 @@ module Network.HTTP3.Client (
 import Control.Concurrent
 import qualified Control.Exception as E
 import qualified Data.ByteString.UTF8 as UTF8
+import Data.IORef
 import Data.IP (IPv6)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
@@ -104,12 +105,14 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     -- header that exceeds the indicated size".  Here, so that the caller is
     -- the one told.
     checkHeaderSize ctx hdr'
-    E.bracket (newStream ctx) closeStream $ \strm -> do
+    sent <- newIORef False
+    E.bracket (newStream ctx) (done sent) $ \strm -> do
         forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
             ( do
                 sendHeader ctx strm th hdr'
                 sendBody ctx strm th outobj
                 QUIC.shutdownStream strm
+                writeIORef sent True
             )
                 -- What goes wrong here is thrown away with the thread, and
                 -- the request would be left half sent, with the response
@@ -146,6 +149,18 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                     let rsp = Response $ InpObj vt Nothing readB refH
                     processResponse rsp
   where
+    -- Done with the stream: the response has been processed, or waiting for
+    -- it was given up -- 'timeout', say.  A request sent in full has had its
+    -- FIN, and closing the stream only tidies up.  One that has not is cut
+    -- short, and is reset (H3_REQUEST_CANCELLED).  'closeStream' used to be
+    -- called either way, and it ends the sending part with a FIN: the server
+    -- took a request body cut short for a whole one.  The sender, if it is
+    -- still at it, finds the stream closed and stops.
+    done sent strm = do
+        complete <- readIORef sent
+        if complete
+            then closeStream strm
+            else QUIC.resetStream strm H3RequestCancelled
     hdr = outObjHeaders outobj
     isIPv6 = isJust (readMaybe auth :: Maybe IPv6)
     auth'

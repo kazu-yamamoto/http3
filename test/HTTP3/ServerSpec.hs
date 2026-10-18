@@ -58,6 +58,8 @@ h3spec = do
             runResetCancelClient
         it "tells the handler of a request body cut short by a reset" $ \_ ->
             runResetRequestClient
+        it "resets a request interrupted before its body is sent" $ \_ ->
+            runInterruptedRequestClient
         it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
             runTruncatedFrameClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
@@ -316,6 +318,27 @@ runResetRequestClient = do
                 r `shouldSatisfy` \x -> case x of
                     Just (Left e) -> "StreamResetIsReceived" `isInfixOf` e
                     _ -> False
+
+-- | A request interrupted by 'timeout' while its body is still being sent:
+-- the server must not take the part of it that arrived for the whole body.
+-- The stream used to be closed with a FIN; it is reset now, with
+-- H3_REQUEST_CANCELLED.
+runInterruptedRequestClient :: IO ()
+runInterruptedRequestClient = do
+    _ <- tryTakeMVar recordedBody
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestStreaming methodPost "/record" [] $ \write flush -> do
+                        write "partial"
+                        flush
+                        threadDelay 2000000
+                timeout 300000 (sendRequest req $ \_ -> return ())
+                    `shouldReturn` Nothing
+                r <- timeout 2000000 $ takeMVar recordedBody
+                r
+                    `shouldBe` Just
+                        (Left (show (StreamResetIsReceived H3RequestCancelled)))
 
 -- | A POST whose DATA frame claims 100 octets and has 10 when the stream
 -- ends (RFC 9114, section 7.1: a connection error of type H3_FRAME_ERROR).
