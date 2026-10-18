@@ -1,5 +1,27 @@
 # Revision history for http3
 
+## 0.1.8
+
+* Allow time-manager 0.4.
+* Keep the encoder's dynamic table in step when Huffman makes a field longer.
+  [#43](https://github.com/kazu-yamamoto/http3/pull/43)
+* Decode an encoder instruction once it has all arrived.
+  [#44](https://github.com/kazu-yamamoto/http3/pull/44)
+* Do not take a body cut short for a whole one.
+  [#45](https://github.com/kazu-yamamoto/http3/pull/45)
+* Reset a client request cut short instead of ending it.
+  [#46](https://github.com/kazu-yamamoto/http3/pull/46)
+* Take the final response past informational ones.
+  [#47](https://github.com/kazu-yamamoto/http3/pull/47)
+* Accept a content-length on a response with no content.
+  [#48](https://github.com/kazu-yamamoto/http3/pull/48)
+* Reset the stream of a failed handler with H3_INTERNAL_ERROR.
+  [#49](https://github.com/kazu-yamamoto/http3/pull/49)
+* Evict from the decoder's table by size, and refuse an entry too large.
+  [#50](https://github.com/kazu-yamamoto/http3/pull/50)
+* Tests: keep the cases that need /drain out of h3ErrorSpec.
+  [#42](https://github.com/kazu-yamamoto/http3/pull/42)
+
 ## 0.1.7
 
 * Require quic 0.3.10.
