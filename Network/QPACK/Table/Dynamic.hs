@@ -167,7 +167,7 @@ data DynamicTable = DynamicTable
     , debugQPACK        :: IORef Bool
     , capaReady         :: IORef Bool
     , tableSize         :: TVar Size
-    , maxTableSize      :: IORef Size
+    , maxTableSize      :: TVar Size
     , sendIns           :: ByteString -> IO ()
     , maxHeaderSize     :: IORef Int
     , maxBlockedStreams :: IORef Int
@@ -223,7 +223,7 @@ newDynamicTable info send = do
     debugQPACK <- newIORef False
     capaReady <- newIORef False
     tableSize <- newTVarIO 0
-    maxTableSize <- newIORef 0
+    maxTableSize <- newTVarIO 0
     let sendIns = send
     maxHeaderSize <- newIORef maxBound
     maxBlockedStreams <- newIORef 0
@@ -240,13 +240,13 @@ getTableCapacity DynamicTable{..} = readTVarIO tableSize
 -- | The capacity, as last set.  'getTableCapacity' is how much of it the
 --   entries take, whatever its name says.
 getMaxTableCapacity :: DynamicTable -> IO Int
-getMaxTableCapacity DynamicTable{..} = readIORef maxTableSize
+getMaxTableCapacity DynamicTable{..} = readTVarIO maxTableSize
 
 setTableCapacity :: DynamicTable -> Int -> IO ()
 setTableCapacity dyntbl@DynamicTable{..} maxsiz = do
     qpackDebug dyntbl $ putStrLn $ "setTableCapacity " ++ show maxsiz
     when (maxN >= 1) $ do
-        writeIORef maxTableSize maxsiz
+        atomically $ writeTVar maxTableSize maxsiz
         tbl <- atomically $ newArray (0, end) dummyEntry
         atomically $ do
             writeTVar maxNumOfEntries maxN
@@ -281,7 +281,7 @@ setDecoderTableCapacity dyntbl@DynamicTable{..} cap = do
         atomically $ do
             writeTVar maxNumOfEntries maxN
             writeTVar circularTable tbl
-    writeIORef maxTableSize cap
+    atomically $ writeTVar maxTableSize cap
     -- Lowering the capacity evicts what no longer fits (RFC 9204, section
     -- 3.2.2).
     atomically $ evictDecoder cap dyntbl
@@ -326,7 +326,7 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     resetReference dyntbl ai
     return ai
 
--- | Inserting an entry into the decoder's table, with the capacity the
+-- | Inserting an entry into the decoder's table, within the capacity the
 --   encoder set.
 --
 -- RFC 9204, section 3.2.2: before an entry is added, the oldest entries are
@@ -340,8 +340,13 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
 -- No entry is smaller than 32 octets and the capacity is no more than we
 -- announced, so the entries left after eviction never fill the ring: the
 -- slot an entry goes into holds nothing still in use.
-insertEntryToDecoder :: Size -> Entry -> DynamicTable -> STM AbsoluteIndex
-insertEntryToDecoder cap ent dyntbl@DynamicTable{..} = do
+--
+-- The capacity is read here, in the same transaction, rather than passed:
+-- this is exported from "Network.QPACK.Internal", and its type stays as it
+-- was.
+insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
+insertEntryToDecoder ent dyntbl@DynamicTable{..} = do
+    cap <- readTVar maxTableSize
     let siz = entrySize ent
     when (siz > cap) $ throwSTM EncoderInstructionError
     evictDecoder (cap - siz) dyntbl
@@ -717,7 +722,7 @@ canInsertEntry :: DynamicTable -> Entry -> Maybe AbsoluteIndex -> IO Bool
 canInsertEntry DynamicTable{..} ent mai = do
     let siz = entrySize ent
     tblsiz <- readTVarIO tableSize
-    maxtblsiz <- readIORef maxTableSize
+    maxtblsiz <- readTVarIO maxTableSize
     if tblsiz + siz <= maxtblsiz
         then
             return True
@@ -755,7 +760,7 @@ dropIfNecessary dyntbl@DynamicTable{..} = loop
   where
     loop = do
         tblsize <- readTVarIO tableSize
-        maxtblsize <- readIORef maxTableSize
+        maxtblsize <- readTVarIO maxTableSize
         unless (tblsize <= maxtblsize) $ do
             dropped <- tryDrop dyntbl
             if dropped then loop else error "dropIfNecessary"
@@ -889,7 +894,7 @@ checkAbsoluteIndex DynamicTable{..} (AbsoluteIndex ai) tag = do
             size <- calcSize end 0
             size0 <- readTVarIO tableSize
             when (size /= size0) $ error $ "checkAbsoluteIndex: size /= size0) " ++ tag
-            lim <- readIORef maxTableSize
+            lim <- readTVarIO maxTableSize
             when (size > lim) $ error $ "checkAbsoluteIndex: size > lim " ++ tag
             putStrLn $ "    check: tblsiz: " ++ show size ++ " " ++ show ai ++ " " ++ tag
         else
