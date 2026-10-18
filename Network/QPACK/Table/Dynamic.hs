@@ -151,6 +151,7 @@ data CodeInfo
     | DecodeInfo
         { huffmanDecoder  :: HuffmanDecoder  -- only for encoder instruction handler
         , blockedStreamsD :: IORef Int
+        , evictedD        :: TVar AbsoluteIndex -- the oldest entry not evicted
         }
 {- FOURMOLU_ENABLE -}
 
@@ -207,6 +208,7 @@ newDynamicTableForDecoding huftmpsiz sendDI = do
     gcbuf <- mallocPlainForeignPtrBytes huftmpsiz
     let huffmanDecoder = decodeH gcbuf huftmpsiz
     blockedStreamsD <- newIORef 0
+    evictedD <- newTVarIO 0
     newDynamicTable DecodeInfo{..} sendDI
 
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
@@ -280,6 +282,9 @@ setDecoderTableCapacity dyntbl@DynamicTable{..} cap = do
             writeTVar maxNumOfEntries maxN
             writeTVar circularTable tbl
     writeIORef maxTableSize cap
+    -- Lowering the capacity evicts what no longer fits (RFC 9204, section
+    -- 3.2.2).
+    atomically $ evictDecoder cap dyntbl
     -- No entry is smaller than 32, so below that nothing can be inserted.
     writeIORef capaReady (maxN >= 1 && maxNumbers cap >= 1)
 
@@ -321,16 +326,51 @@ insertEntryToEncoder ent dyntbl@DynamicTable{..} = do
     resetReference dyntbl ai
     return ai
 
-insertEntryToDecoder :: Entry -> DynamicTable -> STM AbsoluteIndex
-insertEntryToDecoder ent DynamicTable{..} = do
+-- | Inserting an entry into the decoder's table, with the capacity the
+--   encoder set.
+--
+-- RFC 9204, section 3.2.2: before an entry is added, the oldest entries are
+-- evicted until it fits, and an entry larger than the capacity is an error
+-- (section 4.3.2, QPACK_ENCODER_STREAM_ERROR).  Neither was done: an entry
+-- of any size went into the next slot of the ring, which has a slot for each
+-- 32 octets of the capacity we announced, so that a peer could have us keep
+-- that many entries of a megabyte each -- 128 MB for a capacity of 4096 --
+-- and refer to entries a conforming decoder would have evicted.
+--
+-- No entry is smaller than 32 octets and the capacity is no more than we
+-- announced, so the entries left after eviction never fill the ring: the
+-- slot an entry goes into holds nothing still in use.
+insertEntryToDecoder :: Size -> Entry -> DynamicTable -> STM AbsoluteIndex
+insertEntryToDecoder cap ent dyntbl@DynamicTable{..} = do
+    let siz = entrySize ent
+    when (siz > cap) $ throwSTM EncoderInstructionError
+    evictDecoder (cap - siz) dyntbl
     x@(InsertionPoint insp) <- readTVar insertionPoint
     writeTVar insertionPoint (x + 1)
     maxN <- readTVar maxNumOfEntries
     let i = insp `mod` maxN
     table <- readTVar circularTable
     unsafeWrite table i ent
-    modifyTVar' tableSize (+ entrySize ent)
+    modifyTVar' tableSize (+ siz)
     return $ AbsoluteIndex insp
+
+-- | Evicting the oldest entries of the decoder's table until the entries
+--   left take no more than the given size.
+evictDecoder :: Size -> DynamicTable -> STM ()
+evictDecoder target DynamicTable{..} = case codeInfo of
+    DecodeInfo{..} -> loop evictedD
+    _ -> return ()
+  where
+    loop evicted = do
+        siz <- readTVar tableSize
+        when (siz > target) $ do
+            AbsoluteIndex ai <- readTVar evicted
+            maxN <- readTVar maxNumOfEntries
+            table <- readTVar circularTable
+            ent <- unsafeRead table (ai `mod` maxN)
+            writeTVar tableSize (siz - entrySize ent)
+            writeTVar evicted $ AbsoluteIndex (ai + 1)
+            loop evicted
 
 -- | Look up an entry of the dynamic table by absolute index.
 --
@@ -352,7 +392,11 @@ toDynamicEntry DynamicTable{..} (AbsoluteIndex idx) = do
     -- @ip - maxN@ is negative, which would let a negative index through; the
     -- index conversions produce those readily, since a pre-base index larger
     -- than the base gives one.
-    let lo = max 0 (ip - maxN)
+    -- An entry the decoder has evicted is gone too.
+    evicted <- case codeInfo of
+        DecodeInfo{..} -> (\(AbsoluteIndex ai) -> ai) <$> readTVar evictedD
+        _ -> return 0
+    let lo = maximum [0, ip - maxN, evicted]
     when (maxN == 0 || idx < lo || idx >= ip) $
         throwSTM $
             IllegalDynamicIndex idx
