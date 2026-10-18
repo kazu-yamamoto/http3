@@ -124,14 +124,35 @@ processRequest ctx server strm th = E.handle reset $ do
   where
     sid = QUIC.streamId strm
     reset se
-        | isAsyncException se = E.throwIO se
+        -- Killed: by the timeout, or with the connection.  Whatever was
+        -- sent of the response is not the whole of it, and is reset here.
+        -- It used to be passed on as it was, and the finalizer
+        -- ('closeStream') ended the stream with a FIN: the client took a
+        -- response cut short for a whole one.  A response that has gone out
+        -- in full has had its FIN already, and 'resetStream' does nothing.
+        | isAsyncException se = do
+            QUIC.resetStream strm H3InternalError
+            E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         -- The response was more than the client will take, and the
         -- application did nothing about it.  Our failure, not the client's.
         | Just (_ :: FieldSectionTooLargeForPeer) <- E.fromException se =
             QUIC.resetStream strm H3InternalError
-        | otherwise = QUIC.resetStream strm H3MessageError
+        -- The request is malformed (RFC 9114, section 4.1.2): the body
+        -- reader says so, and the handler passes it on.
+        | malformed se = QUIC.resetStream strm H3MessageError
+        -- The client reset the stream, and the handler gave up on it.
+        | Just (_ :: StreamResetIsReceived) <- E.fromException se =
+            QUIC.resetStream strm H3RequestCancelled
+        -- Anything else is the handler's own failure.  H3_MESSAGE_ERROR
+        -- was sent for it, which says the request was malformed.
+        | otherwise = QUIC.resetStream strm H3InternalError
+    malformed se
+        | Just (_ :: ContentLengthMismatch) <- E.fromException se = True
+        | Just (_ :: ConnectionSpecificField) <- E.fromException se = True
+        | Just FieldSectionTooLarge <- E.fromException se = True
+        | otherwise = False
 
 processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
 processRequestIO ctx put strm = E.handle reset $ do
