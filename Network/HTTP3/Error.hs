@@ -3,6 +3,7 @@
 module Network.HTTP3.Error (
     ContentLengthMismatch (..),
     ConnectionSpecificField (..),
+    StreamResetIsReceived (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -50,6 +51,16 @@ newtype ConnectionSpecificField = ConnectionSpecificField ByteString
     deriving (Eq, Show)
 
 instance E.Exception ConnectionSpecificField
+
+-- | The peer reset the stream, with this error code, before the body came to
+--   its end: what has been read of the body is not the whole of it.
+--
+-- quic tells a reset to the reader as the end of the stream, and the body
+-- reader used to take it for the end of the body.
+newtype StreamResetIsReceived = StreamResetIsReceived ApplicationProtocolError
+    deriving (Eq, Show)
+
+instance E.Exception StreamResetIsReceived
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError

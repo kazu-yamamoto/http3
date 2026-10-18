@@ -1,20 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.ServerSpec where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (takeMVar, threadDelay, tryTakeMVar)
 import Control.Concurrent.Async
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
 import Data.IORef
+import Data.List (isInfixOf)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (
     ApplicationProtocolError (..),
     H3Frame (..),
     H3FrameType (..),
+    StreamResetIsReceived (..),
  )
 import Network.HTTP3.Server
 import Network.QPACK (
@@ -53,6 +56,10 @@ h3spec = do
             runCancelClient
         it "cancels a stream reset between two frames" $ \_ ->
             runResetCancelClient
+        it "tells the handler of a request body cut short by a reset" $ \_ ->
+            runResetRequestClient
+        it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
+            runTruncatedFrameClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
             runUnknownStreamClient
         it "gives back what a stream of an unknown type took of the limit" $ \_ ->
@@ -277,15 +284,65 @@ runResetCancelClient = do
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
             C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
                 let req = C.requestNoBody methodGet "/reset" []
-                -- Stream 0, read to what looks like its end.
-                sendRequest req $ \rsp -> do
+                -- Stream 0, read to its reset.  That used to look like the
+                -- end of the body; it is told as what it is now.
+                r <- E.try $ sendRequest req $ \rsp -> do
                     let drain = do
                             bs <- C.getResponseBodyChunk rsp
                             unless (B.null bs) drain
                     drain
+                case r of
+                    Left (StreamResetIsReceived _) -> return ()
+                    Right () -> expectationFailure "the reset was taken for the end"
                 threadDelay 100000
     bs <- B.concat <$> readIORef sentOnDecoderStream
     B.elem 0x40 bs `shouldBe` True
+
+-- | A request body that throws part-way, so that the client resets the
+-- stream: the handler must not take what it read for the whole body.
+runResetRequestClient :: IO ()
+runResetRequestClient = do
+    _ <- tryTakeMVar recordedBody
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestStreaming methodPost "/record" [] $ \write flush -> do
+                        write "partial"
+                        flush
+                        threadDelay 100000
+                        E.throwIO $ userError "body failed"
+                _ <- timeout 1000000 $ E.try @E.SomeException $ sendRequest req $ \_ -> return ()
+                r <- timeout 2000000 $ takeMVar recordedBody
+                r `shouldSatisfy` \x -> case x of
+                    Just (Left e) -> "StreamResetIsReceived" `isInfixOf` e
+                    _ -> False
+
+-- | A POST whose DATA frame claims 100 octets and has 10 when the stream
+-- ends (RFC 9114, section 7.1: a connection error of type H3_FRAME_ERROR).
+-- Written by hand on a stream of its own, the HEADERS frame referring to the
+-- static table only.
+runTruncatedFrameClient :: IO ()
+runTruncatedFrameClient = do
+    r <- timeout 3000000 $ E.try $ QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \_sendRequest _aux -> do
+                strm <- Q.stream conn
+                Q.sendStream strm $ headersFrame <> dataPart
+                Q.shutdownStream strm
+                threadDelay 1000000
+    case r of
+        Just (Left (Q.ApplicationProtocolErrorIsReceived H3FrameError _)) -> return ()
+        _ -> expectationFailure $ "unexpected: " ++ show r
+  where
+    -- Required Insert Count 0 and Base 0, then :method POST (static 20),
+    -- :scheme https (23), :path with "/drain", :authority with "localhost".
+    section =
+        B.pack [0x00, 0x00, 0xd4, 0xd7, 0x51, 6]
+            <> "/drain"
+            <> B.pack [0x50, 9]
+            <> "localhost"
+    headersFrame = B.pack [0x01, fromIntegral (B.length section)] <> section
+    dataPart = B.pack [0x00, 0x40, 100] <> B.replicate 10 0x61
 
 -- | The client's QPACK decoder stream: its third unidirectional stream, after
 -- the control stream and the encoder stream.
