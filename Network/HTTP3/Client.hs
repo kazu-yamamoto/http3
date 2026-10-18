@@ -34,6 +34,7 @@ module Network.HTTP3.Client (
 
 import Control.Concurrent
 import qualified Control.Exception as E
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
 import Data.IORef
 import Data.IP (IPv6)
@@ -98,6 +99,48 @@ readerClient ctx = loop
       where
         sid = QUIC.streamId strm
 
+-- | The header section of the final response, past any informational (1xx)
+-- ones before it.
+--
+-- RFC 9114, section 4.1: a response may begin with any number of
+-- informational responses, each a header section of its own, before the
+-- final one.  The first header section was taken for the response: after a
+-- 103 (Early Hints) or a 100 (Continue), the client saw that, and the body
+-- reader took the final response's HEADERS for trailers and ended the body
+-- there, the final response lost.  They are skipped now, as the application
+-- has no way here to be handed them.
+--
+-- RFC 9114 sets no limit on how many there may be, and a server could go on
+-- sending them for as long as it liked, the request never answered.  More
+-- than 'maxInformational' reset the stream with H3_EXCESSIVE_LOAD: a server
+-- has no use for more than a couple -- a 100 and a 103, say.
+recvFinalHeader
+    :: Context -> QUIC.Stream -> Source -> IO (Maybe TokenHeaderTable)
+recvFinalHeader ctx strm src = loop (0 :: Int)
+  where
+    sid = QUIC.streamId strm
+    loop n = do
+        mvt <- recvHeader ctx sid src
+        case mvt of
+            Just (_, vt)
+                | Just status <- getFieldValue tokenStatus vt
+                , informational status ->
+                    if n < maxInformational
+                        then loop (n + 1)
+                        else do
+                            QUIC.resetStream strm H3ExcessiveLoad
+                            E.throwIO $
+                                QUIC.ApplicationProtocolErrorIsSent
+                                    H3ExcessiveLoad
+                                    "too many informational responses"
+            _ -> return mvt
+    informational status = C8.length status == 3 && C8.head status == '1'
+
+-- | How many informational responses 'recvFinalHeader' takes before the
+--   final one.
+maxInformational :: Int
+maxInformational = 10
+
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
 sendRequest ctx scm auth (Request outobj) processResponse = do
@@ -132,7 +175,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         src <- newSource strm
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
-            mvt <- recvHeader ctx sid src
+            mvt <- recvFinalHeader ctx strm src
             case mvt of
                 Nothing -> do
                     QUIC.resetStream strm H3MessageError
