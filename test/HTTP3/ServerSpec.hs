@@ -15,6 +15,7 @@ import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (
     ApplicationProtocolError (..),
+    ContentLengthMismatch (..),
     H3Frame (..),
     H3FrameType (..),
     StreamResetIsReceived (..),
@@ -60,6 +61,8 @@ h3spec = do
             runResetRequestClient
         it "resets a request interrupted before its body is sent" $ \_ ->
             runInterruptedRequestClient
+        it "accepts a content-length on a response with no content" $ \_ ->
+            runNoContentClient
         it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
             runTruncatedFrameClient
         it "stops reading a unidirectional stream of an unknown type" $ \_ ->
@@ -339,6 +342,26 @@ runInterruptedRequestClient = do
                 r
                     `shouldBe` Just
                         (Left (show (StreamResetIsReceived H3RequestCancelled)))
+
+-- | Responses with no content and a content-length of 1000: to HEAD, and a
+-- 304.  The client checked the empty body against it and refused them with
+-- ContentLengthMismatch.  A 200 like that is malformed still.
+runNoContentClient :: IO ()
+runNoContentClient =
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let body rsp = do
+                        bs <- C.getResponseBodyChunk rsp
+                        if B.null bs then return "" else (bs <>) <$> body rsp
+                    get method path =
+                        sendRequest (C.requestNoBody method path []) $ \rsp ->
+                            (,) (C.responseStatus rsp) <$> body rsp
+                get methodHead "/" `shouldReturn` (Just ok200, "")
+                get methodGet "/not-modified" `shouldReturn` (Just notModified304, "")
+                get methodGet "/no-content" `shouldThrow` \e -> case e of
+                    ContentLengthMismatch 1000 0 -> True
+                    _ -> False
 
 -- | A POST whose DATA frame claims 100 octets and has 10 when the stream
 -- ends (RFC 9114, section 7.1: a connection error of type H3_FRAME_ERROR).

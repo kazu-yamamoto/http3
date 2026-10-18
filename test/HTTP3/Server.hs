@@ -78,6 +78,12 @@ server req aux sendResponse = case requestMethod req of
         -- frames: the body throws, and the stream is reset.
         Just "/reset" ->
             sendResponse (responseStreaming ok200 [] resetAfterOne) []
+        -- No content, and a content-length describing content it does not
+        -- have: allowed for a 304 (RFC 9114, section 4.1.2).
+        Just "/not-modified" ->
+            sendResponse (responseNoBody notModified304 bigLength) []
+        -- The same for a 200, which is meant to have content: malformed.
+        Just "/no-content" -> sendResponse (responseNoBody ok200 bigLength) []
         -- A response whose header section is some 2K.
         Just "/bigheader" ->
             sendResponse (responseNoBody ok200 [("x-big", B.replicate 2000 0x61)]) []
@@ -109,12 +115,18 @@ server req aux sendResponse = case requestMethod req of
             n <- loop (0 :: Int)
             sendResponse (responseLength n) []
         _ -> sendResponse responseHello []
+    -- No content, as a response to HEAD has, and the content-length of the
+    -- GET.
+    Just "HEAD" -> sendResponse (responseNoBody ok200 bigLength) []
     _ -> sendResponse response405 []
 
 -- | What the handler of /record made of the body it was sent.
 recordedBody :: MVar (Either String Int)
 recordedBody = unsafePerformIO newEmptyMVar
 {-# NOINLINE recordedBody #-}
+
+bigLength :: ResponseHeaders
+bigLength = [("content-length", "1000")]
 
 responseLength :: Int -> Response
 responseLength n = responseBuilder ok200 header body
