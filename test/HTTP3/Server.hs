@@ -6,6 +6,7 @@ module HTTP3.Server (
     setupWith,
     server,
     countingServer,
+    recordedBody,
     teardown,
     trailersMaker,
     firstTrailerValue,
@@ -31,6 +32,7 @@ import Network.HTTP.Types
 import Network.HTTP3.Server
 import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
+import System.IO.Unsafe (unsafePerformIO)
 import Test.Hspec
 
 import HTTP3.Config
@@ -90,6 +92,15 @@ server req aux sendResponse = case requestMethod req of
                     unless (B.null bs) loop
             loop
             sendResponse responseHello []
+        -- What the handler made of the body: how long it was, or what it
+        -- was told instead of its end ('recordedBody').
+        Just "/record" -> do
+            let loop n = do
+                    bs <- getRequestBodyChunk req
+                    if B.null bs then return n else loop (n + B.length bs)
+            r <- E.try $ loop (0 :: Int)
+            putMVar recordedBody $ either (\e -> Left (show (e :: E.SomeException))) Right r
+            sendResponse responseHello []
         -- Answers with the length of the body it read.
         Just "/length" -> do
             let loop n = do
@@ -99,6 +110,11 @@ server req aux sendResponse = case requestMethod req of
             sendResponse (responseLength n) []
         _ -> sendResponse responseHello []
     _ -> sendResponse response405 []
+
+-- | What the handler of /record made of the body it was sent.
+recordedBody :: MVar (Either String Int)
+recordedBody = unsafePerformIO newEmptyMVar
+{-# NOINLINE recordedBody #-}
 
 responseLength :: Int -> Response
 responseLength n = responseBuilder ok200 header body

@@ -167,10 +167,26 @@ recvBody ctx sid src refI refH mcl refL = do
         bs <- readSource src
         if bs == ""
             then do
-                -- Not in the middle of a frame, which would mean it was cut
-                -- off.
-                when (st == IInit) $ writeIORef (sourceReadToEnd src) True
-                endOfBody
+                -- The end of the stream, but not always of the body.  quic
+                -- tells a reset of the peer's as an end too, and a stream
+                -- that ends in the middle of a frame was cut off: RFC 9114,
+                -- section 7.1, makes that a connection error.  Both used to
+                -- be taken for the end of the body, so that a body cut
+                -- short was delivered as a whole one if it had no
+                -- content-length to check.
+                mreset <- resetReceived $ sourceStream src
+                case mreset of
+                    Just aerr -> E.throwIO $ StreamResetIsReceived aerr
+                    Nothing
+                        | st /= IInit -> do
+                            abort ctx H3FrameError
+                            E.throwIO $
+                                ApplicationProtocolErrorIsSent
+                                    H3FrameError
+                                    "a frame cut off by the end of the stream"
+                        | otherwise -> do
+                            writeIORef (sourceReadToEnd src) True
+                            endOfBody
             else case parseH3Frame lim st bs of
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad
