@@ -9,6 +9,7 @@ module Network.QPACK.Instruction (
     encodeEncoderInstructions,
     decodeEncoderInstructions,
     decodeEncoderInstructions',
+    encoderInstructionLength,
     encodeEI,
     decodeEI,
 
@@ -21,6 +22,7 @@ module Network.QPACK.Instruction (
 ) where
 
 import qualified Control.Exception as E
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.CaseInsensitive
 import Network.ByteOrder
@@ -123,6 +125,50 @@ decodeEncoderInstructions hufdec bs = withReadBuffer bs $ loop id
                         left <- extractByteString rbuf rn
                         let eis = build []
                         return (eis, left)
+
+-- | The length in octets of the first encoder instruction, once enough of it
+-- has arrived to tell: its first octet and the integers that give the lengths
+-- of its strings (RFC 9204, section 4.3).  'Nothing' until then.
+--
+-- So that an instruction arriving a piece at a time is decoded once it is
+-- all there, rather than tried again from its beginning with each piece.
+encoderInstructionLength :: ByteString -> Maybe Int
+encoderInstructionLength bs = case BS.uncons bs of
+    Nothing -> Nothing
+    Just (w0, _)
+        -- Insert with name reference: an index, then the value
+        | w0 `testBit` 7 -> int 6 0 >>= str . snd
+        -- Insert with literal name: the name, then the value
+        | w0 `testBit` 6 -> do
+            (len, off) <- int 5 0
+            str (off + len)
+        -- Set dynamic table capacity, or duplicate: an integer
+        | otherwise -> snd <$> int 5 0
+  where
+    -- A string at the offset: its length, with a 7-bit prefix after the
+    -- Huffman bit, then the string itself.
+    str off = do
+        (len, off') <- int 7 off
+        return $ off' + len
+    -- An integer with an n-bit prefix at the offset: its value, and the
+    -- offset after it.  One too long to be a length here is taken as one
+    -- longer than any instruction can be.
+    int :: Int -> Int -> Maybe (Int, Int)
+    int n off = do
+        w <- at off
+        let mask = (1 `shiftL` n) - 1
+            v = fromIntegral w .&. mask
+        if v < mask then Just (v, off + 1) else go (off + 1) v 0
+      where
+        go i acc m
+            | m > 28 = Just (maxBound `div` 2, i)
+            | otherwise = do
+                b <- at i
+                let acc' = acc + ((fromIntegral b .&. 0x7f) `shiftL` m)
+                if b < 0x80 then Just (acc', i + 1) else go (i + 1) acc' (m + 7)
+    at i
+        | i < BS.length bs = Just $ BS.index bs i
+        | otherwise = Nothing
 
 decodeEI :: HuffmanDecoder -> ReadBuffer -> IO EncoderInstruction
 decodeEI hufdec rbuf = do

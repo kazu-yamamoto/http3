@@ -542,9 +542,26 @@ encoderInstructionHandler decCapLim dyntbl recv = loop ""
         let bs
                 | bs0 == "" = bs1
                 | otherwise = bs0 <> bs1
-        when (bs1 /= "") $ do
-            leftover <- encoderInstructionHandlerS decCapLim dyntbl bs
-            loop leftover
+        when (bs1 /= "") $ case encoderInstructionLength bs of
+            Just len
+                | len > maxInstructionLength -> E.throwIO EncoderInstructionError
+                -- Not all there yet: wait for the rest before decoding.
+                | len > BS.length bs -> loop bs
+            _ -> do
+                leftover <- encoderInstructionHandlerS decCapLim dyntbl bs
+                loop leftover
+    -- An instruction inserts an entry, which may not be larger than the
+    -- capacity, and the capacity not larger than we said (RFC 9204, sections
+    -- 4.3.1 to 4.3.3).  Its strings come to no more than four octets each
+    -- coded in Huffman, a code being at most 30 bits; 32 more allows for the
+    -- integers.  A longer one cannot be valid.
+    --
+    -- An instruction that had not all arrived used to be decoded from its
+    -- beginning again with each piece of it that did, and kept for as long as
+    -- the peer went on: one of a megabyte, never finished, cost seconds of CPU
+    -- and gigabytes of allocation.  Now it is decoded once it is all there,
+    -- and refused as soon as its length says it cannot be valid.
+    maxInstructionLength = 4 * decCapLim + 32
 
 -- Note: dyntbl for decoder
 encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
