@@ -57,6 +57,8 @@ run :: Connection -> Config -> Server -> IO ()
 run conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
     readerServer ctx $ \strm ->
+        -- 'processRequest' handles its own exceptions; only asynchronous ones
+        -- leave it, and the thread manager takes those that it threw.
         forkManagedTimeoutFinally
             ctx
             "H3 server: processRequest"
