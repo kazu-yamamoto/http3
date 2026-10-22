@@ -36,6 +36,7 @@ import Network.QUIC
 import Network.QUIC.Internal (isClient, isServer)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
+import qualified System.TimeManager as TM
 
 import Network.HTTP3.Config
 import Network.HTTP3.Control
@@ -52,6 +53,9 @@ data Context = Context
     , ctxUniSwitch :: H3StreamType -> InstructionHandler
     , ctxPReadMaker :: PositionReadMaker
     , ctxThreadManager :: T.ThreadManager
+    , ctxTimeoutManager :: TM.Manager
+    -- ^ Owning a thread and timing it out are separate, so the
+    --   thread manager carries no timer and this is kept here.
     , ctxHooks :: Hooks
     , ctxMySockAddr :: SockAddr
     , ctxPeerSockAddr :: SockAddr
@@ -98,7 +102,8 @@ newContext conn conf = do
                 -- the connection; there is nobody to report a failure to.
                 (encodeDecoderInstructions [StreamCancellation sid] >>= sendDI)
                     `E.catch` ignoreSync
-    ctxThreadManager <- T.newThreadManager $ confTimeoutManager conf
+    ctxThreadManager <- T.newThreadManager
+    let ctxTimeoutManager = confTimeoutManager conf
     let ctxConnection = conn
     return Context{..}
   where
@@ -206,8 +211,8 @@ unidirectional Context{..} strm = do
                 closeStream strm
             styp -> ctxUniSwitch styp (recvStream strm)
 
-withHandle :: Context -> (T.Handle -> IO ()) -> IO ()
-withHandle Context{..} action = void $ T.withHandle ctxThreadManager (return ()) action
+withHandle :: Context -> (TM.Handle -> IO ()) -> IO ()
+withHandle Context{..} action = void $ TM.withHandle ctxTimeoutManager (return ()) action
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
@@ -218,14 +223,14 @@ pReadMaker = ctxPReadMaker
 forkManaged :: Context -> String -> IO () -> IO ()
 forkManaged Context{..} = T.forkManaged ctxThreadManager
 
-forkManagedTimeout :: Context -> String -> (T.Handle -> IO ()) -> IO ()
+forkManagedTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
 forkManagedTimeout Context{..} =
-    T.forkManagedTimeout ctxThreadManager
+    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager
 
 forkManagedTimeoutFinally
-    :: Context -> String -> (T.Handle -> IO ()) -> IO () -> IO ()
+    :: Context -> String -> (TM.Handle -> IO ()) -> IO () -> IO ()
 forkManagedTimeoutFinally Context{..} =
-    T.forkManagedTimeoutFinally ctxThreadManager
+    T.forkManagedTimeoutFinally ctxThreadManager ctxTimeoutManager
 
 abort :: Context -> ApplicationProtocolError -> IO ()
 abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""
