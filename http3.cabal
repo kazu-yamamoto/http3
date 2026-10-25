@@ -83,16 +83,16 @@ library
         containers,
         http-semantics >= 0.4 && <0.5,
         http-types,
-        http2 >=5.4.6 && <5.5,
+        http2 >=5.4.10 && <5.5,
         iproute >= 1.7 && < 1.8,
         network,
         network-byte-order,
         network-control >= 0.1.7 && <0.2,
         psqueues,
-        quic >= 0.3.10 && < 0.4,
+        quic >= 0.3.18 && < 0.4,
         sockaddr,
         stm,
-        time-manager >= 0.2.3 && <0.5,
+        time-manager >= 0.5 && <0.6,
         utf8-string >=1.0 && <1.1
 
 executable h3-server
