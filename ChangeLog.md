@@ -1,5 +1,12 @@
 # Revision history for http3
 
+## 0.1.9
+
+* A connection's threads are waited for, up to five seconds, before `run`
+  returns and quic tears the connection down.
+  [#55](https://github.com/kazu-yamamoto/http3/pull/55)
+* Requires `time-manager` 0.5, `http2` 5.4.10 and `quic` 0.3.18.
+
 ## 0.1.8
 
 * Allow time-manager 0.4.
