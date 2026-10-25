@@ -37,6 +37,7 @@ import Network.QUIC.Internal (isClient, isServer)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
+import System.Timeout (timeout)
 
 import Network.HTTP3.Config
 import Network.HTTP3.Control
@@ -69,10 +70,26 @@ data Context = Context
     -- ^ Sending a Stream Cancellation on our QPACK decoder stream
     }
 
+-- | Running an action with a context, and seeing this connection's own
+--   threads out before returning: they are using the connection, which
+--   the caller tears down once this returns.
+--
+-- The wait is capped because one of the threads waited for runs the
+-- application's handler: an application which swallows the asynchronous
+-- exception would otherwise keep this from ever returning.  quic waits
+-- for its own threads with no cap, because those are all its own and are
+-- known to end.
 withContext :: Connection -> Config -> (Context -> IO a) -> IO a
 withContext conn conf action = do
     ctx <- newContext conn conf
-    T.stopAfter (ctxThreadManager ctx) (action ctx) (\_ -> return ())
+    let mgr = ctxThreadManager ctx
+    T.stopAfter mgr (action ctx) $ \_ ->
+        void $ timeout stopTimeout $ T.waitUntilAllGone mgr
+
+-- | How long the threads are given to end after they have been told to.
+--   Unwinding takes milliseconds; this is for one that does not stop.
+stopTimeout :: Int
+stopTimeout = 5000000
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
