@@ -5,6 +5,7 @@
 
 module Main where
 
+import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -15,6 +16,7 @@ import System.Console.GetOpt
 import System.Environment (getArgs)
 import System.Exit
 import System.IO
+import Text.Read (readMaybe)
 
 import Common
 import Network.QUIC
@@ -100,8 +102,6 @@ serverOpts argv =
         (_, _, errs) -> showUsageAndExit $ concat errs
 
 chooseALPN :: Version -> [ByteString] -> IO ByteString
-chooseALPN _ protos
-    | "perf" `elem` protos = return "perf"
 chooseALPN ver protos = return $ case mh3idx of
     Nothing -> case mhqidx of
         Nothing -> ""
@@ -120,11 +120,15 @@ main = do
     args <- getArgs
     (Options{..}, ips) <- serverOpts args
     when (length ips < 2) $ showUsageAndExit "cannot recognize <addr> and <port>\n"
-    let port = read (last ips)
-        addrs = read <$> init ips
-        aps = (,port) <$> addrs
+    aps <- case (,) <$> mapM readMaybe (init ips) <*> readMaybe (last ips) of
+        Nothing -> showUsageAndExit "cannot parse <addr> or <port>\n"
+        Just (addrs, port) -> return $ (,port) <$> addrs
     smgr <- SM.newSessionManager SM.defaultConfig
-    Right cred@(!_cc, !_priv) <- credentialLoadX509 optCertFile optKeyFile
+    let loadCred =
+            credentialLoadX509 optCertFile optKeyFile
+                `E.catch` \e -> return $ Left $ show (e :: E.IOException)
+    cred@(!_cc, !_priv) <-
+        loadCred >>= either (showUsageAndExit . ("cannot load credentials: " ++)) return
     let sc0 = defaultServerConfig
         sc =
             sc0
