@@ -8,8 +8,8 @@ import Control.Concurrent
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
+import Data.Maybe (fromMaybe)
 import Data.UnixTime
-import Data.Word
 import Foreign.C.Types
 import qualified Network.HTTP3.Client as H3
 import Network.TLS.QUIC
@@ -18,6 +18,7 @@ import System.Environment
 import System.Exit
 import qualified System.Timeout as T
 import Text.Printf
+import Text.Read (readMaybe)
 
 import ClientX
 import Common
@@ -41,7 +42,6 @@ data Options = Options
     , optInteractive :: Bool
     , optMigration :: Maybe ConnectionControl
     , optPacketSize :: Maybe Int
-    , optPerformance :: Word64
     , optNumOfReqs :: Int
     }
     deriving (Show)
@@ -64,7 +64,6 @@ defaultOptions =
         , optInteractive = False
         , optMigration = Nothing
         , optPacketSize = Nothing
-        , optPerformance = 0
         , optNumOfReqs = 1
         }
 
@@ -111,7 +110,7 @@ options =
     , Option
         ['s']
         ["packet-size"]
-        (ReqArg (\n o -> o{optPacketSize = Just (read n)}) "<size>")
+        (ReqArg (\n o -> o{optPacketSize = Just (fromMaybe 0 (readMaybe n))}) "<size>")
         "specify QUIC packet size (UDP payload size)"
     , Option
         ['i']
@@ -164,14 +163,9 @@ options =
         (NoArg (\o -> o{optMigration = Just ActiveMigration}))
         "use a new address and a new server CID"
     , Option
-        ['t']
-        ["performance"]
-        (ReqArg (\n o -> o{optPerformance = read n}) "<size>")
-        "measure performance"
-    , Option
         ['n']
         ["number-of-requests"]
-        (ReqArg (\n o -> o{optNumOfReqs = read n}) "<n>")
+        (ReqArg (\n o -> o{optNumOfReqs = fromMaybe 0 (readMaybe n)}) "<n>")
         "specify the number of requests"
     ]
 
@@ -197,14 +191,19 @@ main = do
         h : p : [] -> return (h, p, ["/"])
         h : p : ps -> return (h, p, C8.pack <$> ps)
     cmvar <- newEmptyMVar
-    let ccalpn ver
-            | optPerformance /= 0 = return $ Just ["perf"]
-            | otherwise =
-                let (h3X, hqX) = makeProtos ver
-                    protos
-                        | optHQ = [hqX, h3X]
-                        | otherwise = [h3X, hqX]
-                 in return $ Just protos
+    -- Bad numbers are left as 0 by the options, and refused here.  They
+    -- used to stop the program with "Prelude.read: no parse", and a
+    -- negative number of requests never ended.
+    when (maybe False (<= 0) optPacketSize) $
+        showUsageAndExit "packet size must be a positive integer"
+    when (optNumOfReqs <= 0) $
+        showUsageAndExit "number of requests must be a positive integer"
+    let ccalpn ver =
+            let (h3X, hqX) = makeProtos ver
+                protos
+                    | optHQ = [hqX, h3X]
+                    | otherwise = [h3X, hqX]
+             in return $ Just protos
         gvers vers
             | optVerNego = GreasingVersion : vers
             | otherwise = vers

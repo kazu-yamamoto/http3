@@ -69,6 +69,9 @@ encode qfile efile capacity blocked immack debug = do
                     putWord64be $ fromIntegral (sid :: Int)
                     putWord32be $ fromIntegral $ BS.length bs
             BS.appendFile efile $ header <> bs
+    -- Started afresh: 'save' appends, and a second run used to follow the
+    -- first in the same file.
+    BS.writeFile efile BS.empty
     enc <- newQEncoderS encConf (save 0) blocked immack debug
     withFile qfile ReadMode $ qencode enc save
 

@@ -4,6 +4,7 @@
 
 module Main where
 
+import Control.Monad (unless)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Conduit.Attoparsec
@@ -123,9 +124,16 @@ test size efile qfile debug = do
     ratio <- newIORef $ Ratio{ratioInst = 0, ratioHeader = 0}
     withFile qfile ReadMode $ \h -> do
         processBlock efile $ testSwitch dec insthdr ref h ratio
+        waiting <- readIORef ref
+        unless (Seq.null waiting) $ do
+            putStrLn $ show (Seq.length waiting) ++ " blocks never decoded"
+            exitFailure
         r <- readIORef ratio
-        let (x, y) = ((ratioInst r * 1000) `div` ratioHeader r) `divMod` 10
-        putStrLn $ show x ++ "." ++ show y
+        if ratioHeader r == 0
+            then putStrLn "no blocks"
+            else do
+                let (x, y) = ((ratioInst r * 1000) `div` ratioHeader r) `divMod` 10
+                putStrLn $ show x ++ "." ++ show y
 
 testSwitch
     :: (StreamId -> ByteString -> IO (Maybe [Header]))
@@ -146,7 +154,7 @@ testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
         mhdr <- dec n bs
         case mhdr of
             Nothing -> modifyIORef' ref (blk <|)
-            Just hdr -> compareHeaders hdr
+            Just hdr -> compareHeaders n bs hdr
   where
     loop fifo = do
         case viewr fifo of
@@ -156,18 +164,20 @@ testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
                 case mhdr of
                     Nothing -> writeIORef ref fifo
                     Just hdr -> do
-                        compareHeaders hdr
+                        compareHeaders n1 bs1 hdr
                         loop fifo'
-    compareHeaders hdr = do
+    -- The block's own number and octets.  The ones of the encoder stream
+    -- block that let it be decoded used to be counted in their place.
+    compareHeaders n0 bs0 hdr = do
         hdr' <- fromCaseSensitive <$> headerlist h
         if fromCaseSensitive hdr == hdr'
             then modifyIORef' ratio $ \r ->
                 r
-                    { ratioInst = ratioInst r + BS.length bs
+                    { ratioInst = ratioInst r + BS.length bs0
                     , ratioHeader = ratioHeader r + sum (map headerSize hdr)
                     }
             else do
-                putStrLn $ "---- Stream " ++ show n
+                putStrLn $ "---- Stream " ++ show n0
                 let hdrt = zip hdr hdr'
                 mapM_ printDiff hdrt
                 exitFailure
