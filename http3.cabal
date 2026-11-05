@@ -211,6 +211,7 @@ test-suite spec
         HTTP3.HandlerSpec
         HTTP3.InformationalSpec
         HTTP3.LimitSpec
+        HTTP3.RunIOSpec
         HTTP3.Server
         HTTP3.ServerSpec
         QPACK.HeaderBlockSpec

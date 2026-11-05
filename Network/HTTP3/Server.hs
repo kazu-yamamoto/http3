@@ -79,7 +79,11 @@ runIO conn conf action = withContext conn conf $ \ctx -> do
                 }
         put strmreq = atomically $ writeTQueue reqq strmreq
     io <- action sio
-    concurrently_ io (readerServer ctx $ processRequestIO ctx put)
+    -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
+    -- let one stream that never sent them stop every stream after it.
+    concurrently_ io $ readerServer ctx $ \strm ->
+        forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th ->
+            processRequestIO ctx put strm
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
@@ -172,7 +176,11 @@ processRequestIO ctx put strm = E.handle reset $ do
   where
     sid = QUIC.streamId strm
     reset se
-        | isAsyncException se = E.throwIO se
+        -- Killed by the timeout, or with the connection, before the request
+        -- was handed over.
+        | isAsyncException se = do
+            QUIC.resetStream strm H3RequestIncomplete
+            E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | otherwise = QUIC.resetStream strm H3MessageError
