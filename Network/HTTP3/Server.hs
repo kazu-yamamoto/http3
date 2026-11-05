@@ -84,11 +84,16 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
     -- looked at the request: it is rejected, which tells the client it may
     -- retry (RFC 9114, section 4.1.1).  The stream used to end with a FIN
     -- and nothing on it, which the client could only take for malformed.
-    finish ctx strm started = do
-        s <- readIORef started
-        unless s $ QUIC.resetStream strm H3RequestRejected
-        closeStream strm
-        requestDone ctx (QUIC.streamId strm)
+    --
+    -- The request is done with however that goes: a stream or connection
+    -- already gone must not leave it in flight for a GOAWAY to wait on.
+    finish ctx strm started =
+        ( do
+            s <- readIORef started
+            unless s $ QUIC.resetStream strm H3RequestRejected
+            closeStream strm
+        )
+            `E.finally` requestDone ctx (QUIC.streamId strm)
 
 -- | Once told: GOAWAY, and the requests taken before it answered.
 goingAway :: Context -> STM () -> IO ()
