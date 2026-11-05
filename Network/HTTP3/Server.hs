@@ -91,7 +91,7 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
         ( do
             s <- readIORef started
             unless s $ QUIC.resetStream strm H3RequestRejected
-            closeStream strm
+            QUIC.closeStreamWith strm H3NoError
         )
             `E.finally` requestDone ctx (QUIC.streamId strm)
 
@@ -325,4 +325,4 @@ sendResponseIO ctx strm (Response outobj) =
     void $ withHandle ctx $ \th -> do
         sendHeader ctx strm th $ outObjHeaders outobj
         sendBody ctx strm th outobj
-        QUIC.closeStream strm
+        QUIC.closeStreamWith strm H3NoError

@@ -227,7 +227,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     done sent strm = do
         complete <- readIORef sent
         if complete
-            then closeStream strm
+            then QUIC.closeStreamWith strm H3RequestCancelled
             else QUIC.resetStream strm H3RequestCancelled
     hdr = outObjHeaders outobj
     isIPv6 = isJust (readMaybe auth :: Maybe IPv6)
