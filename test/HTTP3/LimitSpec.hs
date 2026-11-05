@@ -23,10 +23,13 @@ import HTTP3.Server
 -- does with it, and a client that has not been told of a limit sends it.
 spec :: Spec
 spec =
-    describe "H3 server keeping to a limit it does not announce" $
+    describe "H3 server keeping to a limit it does not announce" $ do
         it "answers 431 to a request header section over its limit" $
             E.bracket (setupWith hideLimit server 4096) teardown $
                 \_ -> runTooLargeClient
+        it "answers 431 to a HEADERS frame longer than its limit" $
+            E.bracket (setupWith hideLimit server 4096) teardown $
+                \_ -> runTooLongFrameClient
 
 -- | SETTINGS with the dynamic table as the test server has it, and without
 -- SETTINGS_MAX_FIELD_SECTION_SIZE: QPACK_MAX_TABLE_CAPACITY 4096 and
@@ -54,5 +57,17 @@ runTooLargeClient = QUIC.run testClientConfig $ \conn ->
             waitForSettings
             let hdr = replicate 150 ("x-a", B.replicate 300 0x62)
                 req = C.requestNoBody methodGet "/" hdr
+            sendRequest req $ \rsp ->
+                C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431
+
+-- | One field with a 40000-octet value of "~", which Huffman makes no shorter: the
+-- HEADERS frame itself is longer than the server's 32768.  The section was
+-- refused with the 431 above only once decoded, and a frame this long closed
+-- the whole connection with H3_EXCESSIVE_LOAD instead.
+runTooLongFrameClient :: IO ()
+runTooLongFrameClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            let req = C.requestNoBody methodGet "/" [("x-a", B.replicate 40000 0x7e)]
             sendRequest req $ \rsp ->
                 C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431

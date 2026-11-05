@@ -22,6 +22,7 @@ import Imports
 import Network.HTTP3.Context
 import Network.HTTP3.Error
 import Network.HTTP3.Frame
+import Network.QPACK.Error (FieldSectionTooLarge (..))
 
 data Source = Source
     { sourceStream :: Stream
@@ -85,6 +86,11 @@ recvHeader ctx sid src = loop IInit
         if bs == ""
             then return Nothing
             else case parseH3Frame lim st bs of
+                -- A field section longer than we said we would take, before
+                -- it is decoded: the request is refused with 431 (RFC 9114,
+                -- section 4.2.2), as one that decodes to too much is.  It
+                -- used to close the connection with H3_EXCESSIVE_LOAD.
+                ITooLong H3FrameHeaders _ -> E.throwIO FieldSectionTooLarge
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad
                 st0
