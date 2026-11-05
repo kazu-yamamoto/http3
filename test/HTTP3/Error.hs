@@ -31,25 +31,7 @@ type Millisecond = Int
 
 runC
     :: ClientConfig -> H3.ClientConfig -> H3.Config -> Millisecond -> IO (Maybe ())
-runC qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
-    info <- getConnectionInfo conn
-    case alpn info of
-        Just proto | "hq" `BS.isPrefixOf` proto -> do
-            waitEstablished conn
-            putStrLn $
-                "Warning: "
-                    ++ C8.unpack proto
-                    ++ " is negotiated. Skipping this test. Use \"h3spec -s HTTP/3\" next time."
-            E.throwIO $ ApplicationProtocolErrorIsReceived H3InternalError ""
-        _ -> H3.run conn cconf conf client
-  where
-    us = ms * 1000
-    client :: H3.Client ()
-    client sendRequest _aux = do
-        let req = H3.requestNoBody methodGet "/" []
-        ret <- sendRequest req $ \_rsp -> return ()
-        threadDelay 100000
-        return ret
+runC = runCReq $ H3.requestNoBody methodGet "/" []
 
 -- | Like 'runC', but sending a request of our own choosing.
 runCReq
@@ -64,14 +46,28 @@ runCReq req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
     case alpn info of
         Just proto | "hq" `BS.isPrefixOf` proto -> do
             waitEstablished conn
-            E.throwIO $ ApplicationProtocolErrorIsReceived H3InternalError ""
+            E.throwIO $ HQNegotiated proto
         _ -> H3.run conn cconf conf client
   where
     us = ms * 1000
+    client :: H3.Client ()
     client sendRequest _aux = do
         ret <- sendRequest req $ \_rsp -> return ()
         threadDelay 100000
         return ret
+
+-- | Thrown when hq is negotiated instead of h3, so that the test is
+-- reported as pending rather than passing on a generic error code.
+newtype HQNegotiated = HQNegotiated BS.ByteString deriving (Show)
+
+instance E.Exception HQNegotiated
+
+-- | 'it' for the tests here, leaving a test pending against an hq server.
+itH3 :: HasCallStack => String -> (a -> Expectation) -> SpecWith a
+itH3 name body = it name $ \x ->
+    body x `E.catch` \(HQNegotiated proto) ->
+        pendingWith $
+            C8.unpack proto ++ " is negotiated. Use \"h3spec -s HTTP/3\" next time."
 
 -- | The error cases for an HTTP/3 server.
 --
@@ -89,184 +85,185 @@ h3ErrorSpec
 h3ErrorSpec qcc cconf ms served = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers" $ do
-        it
+        itH3
             "MUST send H3_FRAME_UNEXPECTED if DATA is received before HEADERS [HTTP/3 4.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated requestIllegalData
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
-        it "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.1.1]" $ \_ -> do
+        itH3
+            "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.3.1]" $ \_ -> do
             let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
-                qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                qcc' = throwOnReset qcc
             runC qcc' cconf conf ms
                 `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
-            "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.1.3]"
+        itH3
+            "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.3.1]"
             $ \x -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader0
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    qcc' = throwOnReset qcc
                 refusedNotServed (served x) $
                     runC qcc' cconf conf ms
                         `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
-            "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present[HTTP/3 4.1.3]"
+        itH3
+            "MUST send H3_MESSAGE_ERROR if prohibited pseudo-header fields are present [HTTP/3 4.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader1
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    qcc' = throwOnReset qcc
                 runC qcc' cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
-            "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.1.3]"
+        itH3
+            "MUST send H3_MESSAGE_ERROR if pseudo-header fields exist after fields [HTTP/3 4.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader2
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    qcc' = throwOnReset qcc
                 runC qcc' cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         forM_ connectionSpecific $ \field@(name, _) ->
-            it
+            itH3
                 ( "MUST treat a request with "
                     ++ C8.unpack (CI.original name)
                     ++ " as malformed [HTTP/3 4.2]"
                 )
                 $ \x -> do
                     let req = H3.requestNoBody methodGet "/" [field]
-                        qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                        qcc' = throwOnReset qcc
                     refusedNotServed (served x) $
                         runCReq req qcc' cconf conf0 ms
                             `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
+        itH3 "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
             let req = H3.requestNoBody methodGet "/" [("te", "trailers")]
             runCReq req qcc cconf conf0 ms `shouldReturn` Just ()
-        it
+        itH3
             "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated startWithNonSettings
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MissingSettings]
-        it
+        itH3
             "MUST send H3_FRAME_UNEXPECTED if a DATA frame is received on a control stream [HTTP/3 7.2.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated controlData
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
-        it
+        itH3
             "MUST send H3_FRAME_UNEXPECTED if a HEADERS frame is received on a control stream [HTTP/3 7.2.2]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated controlHeaders
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
-        it
+        itH3
             "MUST send H3_FRAME_UNEXPECTED if a second SETTINGS frame is received [HTTP/3 7.2.4]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated doubleSettings
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         {- this is MAY
-                it "MUST send H3_SETTINGS_ERROR if duplicate setting identifiers exist [HTTP/3 7.2.4]" $ \_ -> do
+                itH3 "MUST send H3_SETTINGS_ERROR if duplicate setting identifiers exist [HTTP/3 7.2.4]" $ \_ -> do
                     let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings0
                     runC qcc cconf conf ms `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
         -}
-        it
+        itH3
             "MUST send H3_SETTINGS_ERROR if HTTP/2 settings are included [HTTP/3 7.2.4.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated illegalSettings1
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
-        it
+        itH3
             "MUST send H3_FRAME_ERROR if a SETTINGS frame stops mid-parameter [HTTP/3 7.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated truncatedSettings
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameError]
-        it
+        itH3
             "MUST NOT stop reading settings at a reserved identifier [HTTP/3 7.2.4.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated greaseThenHttp2Setting
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
-        it
-            "treats a repeated setting identifier as an error whatever its value [HTTP/3 7.2.4.1]"
+        itH3
+            "treats a repeated setting identifier as an error whatever its value [HTTP/3 7.2.4]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated duplicateLargeSetting
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3SettingsError]
-        it
-            "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.5]"
+        itH3
+            "MUST send H3_FRAME_UNEXPECTED if CANCEL_PUSH is received in a request stream [HTTP/3 7.2.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
-        it
-            "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exits in a field line representation [QPACK 3.1]"
+        itH3
+            "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exists in a field line representation [QPACK 3.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader4
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
-        it
-            "MUST send QPACK_DECOMPRESSION_FAILED if a field line references a dynamic table entry that is not there [QPACK 2.1.2]"
+        itH3
+            "MUST send QPACK_DECOMPRESSION_FAILED if a field line references a dynamic table entry that is not there [QPACK 2.2.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader5
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
-        it
-            "MUST NOT buffer a frame longer than SETTINGS_MAX_FIELD_SECTION_SIZE [HTTP/3 7.1]"
+        itH3
+            "MUST NOT buffer an over-long frame on a control stream [HTTP/3 7.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlStreamCreated overLongFrame
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ExcessiveLoad]
-        it
-            "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.1.3]"
+        itH3
+            "MUST send QPACK_ENCODER_STREAM_ERROR if a new dynamic table capacity value exceeds the limit [QPACK 4.3.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnEncoderStreamCreated largeTableCapacity
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackEncoderStreamError]
-        it
-            "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [QPACK 4.2]"
+        itH3
+            "MUST send H3_CLOSED_CRITICAL_STREAM if a control stream is closed [HTTP/3 6.2.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlStreamCreated closeStream
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
-        it
+        itH3
             "MUST send H3_STREAM_CREATION_ERROR if a second control stream is opened [HTTP/3 6.2.1]"
             $ \_ -> do
                 -- A stream type of 0x00, then an empty SETTINGS frame.
                 opened <- newIORef False
                 let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother opened "\x00\x04\x00"
                 expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
-        it
+        itH3
             "MUST send H3_STREAM_CREATION_ERROR if a client opens a push stream [HTTP/3 6.2.2]"
             $ \_ -> do
                 -- A stream type of 0x01, then push ID 0.
                 opened <- newIORef False
                 let conf = addHook conf0 $ setOnControlStreamCreated $ openAnother opened "\x01\x00"
                 expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
-        it
+        itH3
             "MUST send H3_STREAM_CREATION_ERROR if a second encoder stream is opened [QPACK 4.2]"
             $ \_ -> do
                 opened <- newIORef False
                 let conf = addHook conf0 $ setOnEncoderStreamCreated $ openAnother opened "\x02"
                 expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
-        it
+        itH3
             "MUST send H3_STREAM_CREATION_ERROR if a second decoder stream is opened [QPACK 4.2]"
             $ \_ -> do
                 opened <- newIORef False
                 let conf = addHook conf0 $ setOnDecoderStreamCreated $ openAnother opened "\x03"
                 expectIfOpened opened (runC qcc cconf conf ms) [H3StreamCreationError]
-        it
+        itH3
             "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream is closed [QPACK 4.2]"
             $ \_ -> do
                 let conf =
                         noEncoderTable $ addHook conf0 $ setOnEncoderStreamCreated closeStream
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
-        it
+        itH3
             "MUST send H3_CLOSED_CRITICAL_STREAM if a decoder stream is closed [QPACK 4.2]"
             $ \_ -> do
                 let conf =
                         noDecoderTable $ addHook conf0 $ setOnDecoderStreamCreated closeStream
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
-        it
+        itH3
             "MUST send H3_CLOSED_CRITICAL_STREAM if an encoder stream ends inside an instruction [QPACK 4.2]"
             $ \_ -> do
                 -- The first octet of a Set Dynamic Table Capacity that goes on.
@@ -275,7 +272,7 @@ h3ErrorSpec qcc cconf ms served = do
                         closeStream strm
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3ClosedCriticalStream]
-        it
+        itH3
             "MUST send QPACK_DECODER_STREAM_ERROR if Insert Count Increment is 0 [QPACK 4.4.3]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnDecoderStreamCreated zeroInsertCountIncrement
@@ -333,23 +330,23 @@ h3DrainSpec
 h3DrainSpec qcc cconf ms = do
     conf0 <- runIO H3.allocSimpleConfig
     describe "HTTP/3 servers reading a request's body" $ do
-        it
+        itH3
             "MUST treat content that does not match content-length as malformed [HTTP/3 4.1.2]"
             $ \_ -> do
                 -- content-length says five octets and the request carries
                 -- none.  /drain reads the body, which is where the count is
                 -- checked; a body nobody reads is never counted.
                 let req = H3.requestNoBody methodPost "/drain" [("content-length", "5")]
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    qcc' = throwOnReset qcc
                 runCReq req qcc' cconf conf0 ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
-        it
+        itH3
             "MUST treat a request whose trailers carry connection as malformed [HTTP/3 4.2]"
             $ \_ -> do
                 -- /drain reads the body, and so the trailers after it.
                 let req0 = H3.requestBuilder methodPost "/drain" [] "hello"
                     req = H3.setRequestTrailersMaker req0 connectionTrailer
-                    qcc' = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr -> E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
+                    qcc' = throwOnReset qcc
                 runCReq req qcc' cconf conf0 ms
                     `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
 
@@ -586,6 +583,11 @@ addQUICHook :: ClientConfig -> (Hooks -> Hooks) -> ClientConfig
 addQUICHook cc modify = cc'
   where
     cc' = cc{ccHooks = modify $ ccHooks cc}
+
+-- | Turning a RESET_STREAM from the server into the exception the tests expect.
+throwOnReset :: ClientConfig -> ClientConfig
+throwOnReset qcc = addQUICHook qcc $ setOnResetStreamReceived $ \_strm aerr ->
+    E.throwIO (ApplicationProtocolErrorIsReceived aerr "")
 
 setOnResetStreamReceived
     :: (Stream -> ApplicationProtocolError -> IO ()) -> Hooks -> Hooks
