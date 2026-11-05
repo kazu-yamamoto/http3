@@ -65,6 +65,8 @@ h3spec = do
             runCancelPushInBodyClient
         it "refuses DATA after trailers" $ \_ ->
             runDataAfterTrailersClient
+        it "sends a request whose trailers maker answers early" $ \_ ->
+            runEarlyTrailersClient
         it "accepts a content-length on a response with no content" $ \_ ->
             runNoContentClient
         it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
@@ -367,6 +369,21 @@ runCancelPushInBodyClient = do
     r `shouldSatisfy` \x -> case x of
         Just (Right _) -> False
         _ -> True
+
+-- | A trailers maker that answers with the trailers at the first chunk of
+-- the body, rather than asking to be called again.  The sender took that
+-- for granted and failed with a pattern match.
+runEarlyTrailersClient :: IO ()
+runEarlyTrailersClient = do
+    _ <- tryTakeMVar recordedBody
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req0 = C.requestBuilder methodPost "/record" [] "hello"
+                    req = C.setRequestTrailersMaker req0 $ \_ ->
+                        return $ C.Trailers [("x-t", "1")]
+                sendRequest req $ \rsp -> C.responseStatus rsp `shouldBe` Just ok200
+    timeout 1000000 (takeMVar recordedBody) `shouldReturn` Just (Right 5)
 
 -- | A DATA frame after the trailers, which RFC 9114, section 4.1, makes
 -- H3_FRAME_UNEXPECTED.  Whatever followed the trailers used to be dropped

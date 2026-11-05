@@ -87,11 +87,22 @@ newByteStringWith tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0
-        then return ("", Nothing, tlrmkr0)
+        -- Nothing this time, but not necessarily the end: there may be a
+        -- next.  This used to end the body here.
+        then return ("", mnext1, tlrmkr0)
         else do
             let bs = PS fp 0 len
-            NextTrailersMaker tlrmkr1 <- tlrmkr0 $ Just bs
+            tlrmkr1 <- nextMaker <$> tlrmkr0 (Just bs)
             return (bs, mnext1, tlrmkr1)
+
+-- | The trailers maker to go on with after a chunk of the body.
+--
+-- One that answers with the trailers before the end keeps them for the end.
+-- That was taken to be impossible, and failed with a pattern match; or the
+-- trailers were dropped for none.
+nextMaker :: NextTrailersMaker -> TrailersMaker
+nextMaker (NextTrailersMaker t) = t
+nextMaker tm@(Trailers _) = \_ -> return tm
 
 newByteStringAndSend
     :: Stream
@@ -106,10 +117,7 @@ newByteStringAndSend strm th tlrmkr0 action = do
         then return (signal, tlrmkr0)
         else do
             let bs = PS fp 0 len
-            tm <- tlrmkr0 $ Just bs
-            let tlrmkr1 = case tm of
-                    NextTrailersMaker t -> t
-                    _ -> defaultTrailersMaker
+            tlrmkr1 <- nextMaker <$> tlrmkr0 (Just bs)
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
             T.tickle th
             return (signal, tlrmkr1)
@@ -134,7 +142,10 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
                     }
         strmbdy iface
     tlrmkr <- readIORef ref
-    Trailers trailers <- tlrmkr Nothing
+    tm <- tlrmkr Nothing
+    let trailers = case tm of
+            Trailers t -> t
+            _ -> []
     unless (null trailers) $ sendHeader ctx strm th trailers
   where
     -- fixme: how to implement flush and cancel?
@@ -150,9 +161,6 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
             newByteStringAndSend strm th tlrmkr1 writer >>= loop
         loop (B.Chunk bs writer, tlrmkr1) = do
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
-            tm2 <- tlrmkr1 $ Just bs
-            let tlrmkr2 = case tm2 of
-                    NextTrailersMaker t -> t
-                    _ -> defaultTrailersMaker
+            tlrmkr2 <- nextMaker <$> tlrmkr1 (Just bs)
             T.tickle th
             newByteStringAndSend strm th tlrmkr2 writer >>= loop
