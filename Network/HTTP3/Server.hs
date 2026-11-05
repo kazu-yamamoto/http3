@@ -34,6 +34,7 @@ module Network.HTTP3.Server (
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import qualified Control.Monad.STM as STM
 import qualified Control.Exception as E
 import Data.IORef
 import GHC.Conc.Sync
@@ -78,7 +79,7 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
                 "H3 server: processRequest"
                 (\th -> writeIORef started True >> processRequest ctx server strm th)
                 (finish ctx strm started)
-    maybe serve (\stop -> race_ (goingAway ctx stop) serve) mstop
+    maybe serve (\stop -> race_ (goingAway ctx (True <$ stop)) serve) mstop
   where
     -- A thread stopped before it began, as the connection goes, has not
     -- looked at the request: it is rejected, which tells the client it may
@@ -96,9 +97,17 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
             `E.finally` requestDone ctx (QUIC.streamId strm)
 
 -- | Once told: GOAWAY, and the requests taken before it answered.
-goingAway :: Context -> STM () -> IO ()
-goingAway ctx stop = do
-    atomically stop
+--
+-- Told to stop, in two steps (RFC 9114, section 5.2): the largest
+-- identifier first, and the last request taken once a PTO has passed, so
+-- that requests already on their way are taken.  An application that is
+-- done answers nothing more, so its GOAWAY is the last one at once.
+goingAway :: Context -> STM Bool -> IO ()
+goingAway ctx told = do
+    twoSteps <- atomically told
+    when twoSteps $ do
+        goAwayAll ctx
+        waitPTO ctx
     goAway ctx
     atomically $ drained ctx
 
@@ -143,7 +152,7 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     io <- action sio
     -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
     -- let one stream that never sent them stop every stream after it.
-    race_ (goingAway ctx $ maybe appDone (appDone <|>) mstop) $
+    race_ (goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop) $
         concurrently_ io $
             readerServer ctx $ \strm ->
                 forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th -> do

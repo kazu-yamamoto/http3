@@ -23,15 +23,25 @@ spec =
     describe "H3 server going away" $
         -- RFC 9114, section 5.2: the request taken before GOAWAY is answered,
         -- one opened after it is rejected, and the connection then ends.
-        it "answers the request it took and rejects a later one" $ do
-            stop <- newTVarIO False
-            returned <- newEmptyMVar
-            E.bracket (setupGoAway stop returned) teardown $ \_ -> do
-                timeout 5000000 (slowThenFast stop) `shouldReturn` Just (Just ok200, False)
-                timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
+        do
+            it "answers the request it took and rejects a later one" $ do
+                stop <- newTVarIO False
+                returned <- newEmptyMVar
+                E.bracket (setupGoAway stop returned) teardown $ \_ -> do
+                    -- Long after the second GOAWAY.
+                    timeout 5000000 (slowThenFast 500000 stop) `shouldReturn` Just (Just ok200, False)
+                    timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
+            -- The first GOAWAY has the largest identifier, and the second
+            -- comes a PTO later: a request sent in between is taken.
+            it "answers a request sent between its two GOAWAYs" $ do
+                stop <- newTVarIO False
+                returned <- newEmptyMVar
+                E.bracket (setupGoAway stop returned) teardown $ \_ -> do
+                    timeout 5000000 (slowThenFast 0 stop) `shouldReturn` Just (Just ok200, True)
+                    timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
 
 -- | A server going away once the variable is set; the 'MVar' is filled when
--- 'runWith' returns.  "/slow" is answered after 300 milliseconds.
+-- 'runWith' returns.  "/slow" is answered after a second.
 setupGoAway :: TVar Bool -> MVar () -> IO ThreadId
 setupGoAway stop returned = do
     sc <- makeTestServerConfig
@@ -44,21 +54,22 @@ setupGoAway stop returned = do
   where
     svr req _aux sendResponse = do
         case requestPath req of
-            Just "/slow" -> threadDelay 300000
+            Just "/slow" -> threadDelay 1000000
             _ -> return ()
         sendResponse (responseBuilder ok200 [] "hello") []
 
--- | A request for "/slow"; the server told to go away; then a request for
--- "/".  The status of the first, and whether the second succeeded.
-slowThenFast :: TVar Bool -> IO (Maybe Status, Bool)
-slowThenFast stop = QUICC.run testClientConfig $ \conn ->
+-- | A request for "/slow"; the server told to go away; then, after the
+-- delay, a request for "/".  The status of the first, and whether the
+-- second succeeded.
+slowThenFast :: Int -> TVar Bool -> IO (Maybe Status, Bool)
+slowThenFast delay stop = QUICC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
         C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
             let get path = sendRequest (C.requestNoBody methodGet path []) $ return . C.responseStatus
             slow <- async $ get "/slow"
             threadDelay 100000
             atomically $ writeTVar stop True
-            threadDelay 100000
+            threadDelay delay
             fast <- E.try $ get "/"
             s <- wait slow
             return (s, either (\(_ :: E.SomeException) -> False) (const True) fast)

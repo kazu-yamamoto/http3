@@ -29,9 +29,12 @@ module Network.HTTP3.Context (
     admitRequest,
     requestDone,
     goAway,
+    goAwayAll,
+    waitPTO,
     drained,
 ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forM_, void)
@@ -42,7 +45,7 @@ import qualified Data.IntSet as IntSet
 import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
 import Network.QUIC
-import Network.QUIC.Internal (encodeInt', isClient, isServer)
+import Network.QUIC.Internal (Microseconds (..), connLDCC, encodeInt', getPTO, isClient, isServer)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
@@ -327,7 +330,7 @@ requestDone Context{..} sid = atomically $ modifyTVar' ctxInFlight $ IntSet.dele
 -- | Sending GOAWAY once, with the first request stream not taken: the
 --   streams taken so far are still answered.
 goAway :: Context -> IO ()
-goAway Context{..} = do
+goAway ctx@Context{..} = do
     mlim <- atomically $ do
         old <- readTVar ctxGoAway
         case old of
@@ -336,9 +339,24 @@ goAway Context{..} = do
                 lim <- maybe 0 (+ 4) <$> readTVar ctxLastRequest
                 writeTVar ctxGoAway $ Just lim
                 return $ Just lim
-    forM_ mlim $ \lim -> do
-        payload <- withWriteBuffer 8 $ \wbuf -> encodeInt' wbuf $ fromIntegral lim
-        ctxSendControl [H3Frame H3FrameGoaway payload]
+    forM_ mlim $ sendGoAway ctx
+
+-- | The first of two GOAWAYs: the largest identifier, which stops the
+--   client sending requests and takes every one already on its way.
+goAwayAll :: Context -> IO ()
+goAwayAll ctx = sendGoAway ctx $ 2 ^ (62 :: Int) - 4
+
+-- | Waiting for the connection's probe timeout, which is at least a round
+--   trip.
+waitPTO :: Context -> IO ()
+waitPTO Context{..} = do
+    Microseconds pto <- getPTO $ connLDCC ctxConnection
+    threadDelay pto
+
+sendGoAway :: Context -> StreamId -> IO ()
+sendGoAway Context{..} lim = do
+    payload <- withWriteBuffer 8 $ \wbuf -> encodeInt' wbuf $ fromIntegral lim
+    ctxSendControl [H3Frame H3FrameGoaway payload]
 
 -- | Waiting until our GOAWAY is out and no request taken is left.
 drained :: Context -> STM ()
