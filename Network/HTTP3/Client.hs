@@ -182,8 +182,14 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                     -- goes to the application, which may retry a request
                     -- rejected with H3_REQUEST_REJECTED (RFC 9114, section
                     -- 4.1.1).  It used to be dropped for H3_MESSAGE_ERROR.
+                    --
+                    -- Not at once: a server closing the connection may reset
+                    -- its streams first, and the connection error, which says
+                    -- more, comes to this thread in the meantime.
                     mreset <- QUIC.resetReceived strm
-                    forM_ mreset $ E.throwIO . StreamResetIsReceived
+                    forM_ mreset $ \aerr -> do
+                        threadDelay 100000
+                        E.throwIO $ StreamResetIsReceived aerr
                     QUIC.resetStream strm H3MessageError
                     threadDelay 100000
                     -- just for type inference
