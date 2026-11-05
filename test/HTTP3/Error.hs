@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.Error (
     h3ErrorSpec,
@@ -29,6 +30,13 @@ import Test.Hspec
 
 type Millisecond = Int
 
+-- | Making a request, and then waiting for the connection error a test
+-- expects, for as long as the timeout allows.
+--
+-- It used to wait a tenth of a second after the response.  A server
+-- answering the request before it got round to the control stream, as one
+-- under load could, then had the connection closed under it, and the test
+-- failed for want of an error it was about to send.
 runC
     :: ClientConfig -> H3.ClientConfig -> H3.Config -> Millisecond -> IO (Maybe ())
 runC = runCReq $ H3.requestNoBody methodGet "/" []
@@ -41,7 +49,31 @@ runCReq
     -> H3.Config
     -> Millisecond
     -> IO (Maybe ())
-runCReq req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
+runCReq = runCWith True
+
+-- | Like 'runCReq', for a test that expects no error: done a tenth of a
+-- second after the response.
+runCReqOk
+    :: H3.Request
+    -> ClientConfig
+    -> H3.ClientConfig
+    -> H3.Config
+    -> Millisecond
+    -> IO (Maybe ())
+runCReqOk = runCWith False
+
+-- | With 'True', a test that expects a connection error: a reset of the
+-- request does not end it, since a server closing the connection may reset
+-- its streams first.
+runCWith
+    :: Bool
+    -> H3.Request
+    -> ClientConfig
+    -> H3.ClientConfig
+    -> H3.Config
+    -> Millisecond
+    -> IO (Maybe ())
+runCWith expectError req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
     info <- getConnectionInfo conn
     case alpn info of
         Just proto | "hq" `BS.isPrefixOf` proto -> do
@@ -51,10 +83,14 @@ runCReq req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
   where
     us = ms * 1000
     client :: H3.Client ()
-    client sendRequest _aux = do
-        ret <- sendRequest req $ \_rsp -> return ()
-        threadDelay 100000
-        return ret
+    client sendRequest _aux
+        | expectError = do
+            _ <- E.try @StreamResetIsReceived $ sendRequest req $ \_rsp -> return ()
+            threadDelay us
+        | otherwise = do
+            ret <- sendRequest req $ \_rsp -> return ()
+            threadDelay 100000
+            return ret
 
 -- | Thrown when hq is negotiated instead of h3, so that the test is
 -- reported as pending rather than passing on a generic error code.
@@ -134,7 +170,7 @@ h3ErrorSpec qcc cconf ms served = do
                             `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         itH3 "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
             let req = H3.requestNoBody methodGet "/" [("te", "trailers")]
-            runCReq req qcc cconf conf0 ms `shouldReturn` Just ()
+            runCReqOk req qcc cconf conf0 ms `shouldReturn` Just ()
         itH3
             "MUST send H3_MISSING_SETTINGS if the first control frame is not SETTINGS [HTTP/3 6.2.1]"
             $ \_ -> do
@@ -228,7 +264,8 @@ h3ErrorSpec qcc cconf ms served = do
             "MUST ignore a frame of unknown type, however long [HTTP/3 7.2.8]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlFrameCreated longUnknownFrame
-                runC qcc cconf conf ms `shouldReturn` Just ()
+                runCReqOk (H3.requestNoBody methodGet "/" []) qcc cconf conf ms
+                    `shouldReturn` Just ()
         itH3
             "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exists in a field line representation [QPACK 3.1]"
             $ \_ -> do
