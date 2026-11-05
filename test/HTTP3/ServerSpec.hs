@@ -61,6 +61,8 @@ h3spec = do
             runResetRequestClient
         it "resets a request interrupted before its body is sent" $ \_ ->
             runInterruptedRequestClient
+        it "does not hand the handler a CANCEL_PUSH it refused as body" $ \_ ->
+            runCancelPushInBodyClient
         it "accepts a content-length on a response with no content" $ \_ ->
             runNoContentClient
         it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
@@ -344,6 +346,25 @@ runInterruptedRequestClient = do
                 r
                     `shouldBe` Just
                         (Left (show (StreamResetIsReceived H3RequestCancelled)))
+
+-- | A CANCEL_PUSH frame where the body should be.  It is a connection error
+-- (RFC 9114, section 7.2.3), and its payload used to go on to the handler
+-- as body all the same, since 'abort' did not stop the reader.
+runCancelPushInBodyClient :: IO ()
+runCancelPushInBodyClient = do
+    _ <- tryTakeMVar recordedBody
+    _ <- E.try @E.SomeException $ QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+            let cancelPush = H3Frame H3FrameCancelPush "abc"
+                hooks = (confHooks conf0){C.onHeadersFrameCreated = (++ [cancelPush])}
+                conf = conf0{confHooks = hooks}
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
+                void $ timeout 1000000 $ sendRequest (C.requestNoBody methodPost "/record" []) $ \_ ->
+                    return ()
+    r <- timeout 1000000 $ takeMVar recordedBody
+    r `shouldSatisfy` \x -> case x of
+        Just (Right _) -> False
+        _ -> True
 
 -- | Responses with no content and a content-length of 1000: to HEAD, and a
 -- 304.  The client checked the empty body against it and refused them with

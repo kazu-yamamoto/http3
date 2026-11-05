@@ -79,7 +79,6 @@ recvHeader ctx sid src = loop IInit
             else case parseH3Frame lim st bs of
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad
-                    loop IInit -- dummy
                 st0
                     -- Nothing here drains DATA, so it is not covered by the
                     -- length cap; and it is not allowed before HEADERS
@@ -87,7 +86,6 @@ recvHeader ctx sid src = loop IInit
                     -- than after buffering whatever length it claimed.
                     | Just H3FrameData <- frameTypeOf st0 -> do
                         abort ctx H3FrameUnexpected
-                        loop IInit -- dummy
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         pushbackSource src leftover
@@ -97,7 +95,6 @@ recvHeader ctx sid src = loop IInit
                         loop IInit
                     | otherwise -> do
                         abort ctx H3FrameUnexpected
-                        loop IInit -- dummy
                 st' -> loop st'
 
 -- | The first connection-specific field in a field section, if any.
@@ -189,17 +186,12 @@ recvBody ctx sid src refI refH mcl refL = do
                     Nothing
                         | st /= IInit -> do
                             abort ctx H3FrameError
-                            E.throwIO $
-                                ApplicationProtocolErrorIsSent
-                                    H3FrameError
-                                    "a frame cut off by the end of the stream"
                         | otherwise -> do
                             writeIORef (sourceReadToEnd src) True
                             endOfBody
             else case parseH3Frame lim st bs of
                 ITooLong _ _ -> do
                     abort ctx H3ExcessiveLoad
-                    return ("", True) -- dummy
                 IPay H3FrameData siz received bss -> do
                     let st' = IPay H3FrameData siz received []
                     if null bss
@@ -228,5 +220,4 @@ recvBody ctx sid src refI refH mcl refL = do
                         loop IInit
                     | otherwise -> do
                         abort ctx H3FrameUnexpected
-                        return (payload, False) -- dummy
                 st' -> loop st'

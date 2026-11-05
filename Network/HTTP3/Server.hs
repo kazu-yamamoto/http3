@@ -141,6 +141,9 @@ processRequest ctx server strm th = E.handle reset $ do
             E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
+        -- A connection error has been sent: the stream goes with it.
+        | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
+            return ()
         -- The response was more than the client will take, and the
         -- application did nothing about it.  Our failure, not the client's.
         | Just (_ :: FieldSectionTooLargeForPeer) <- E.fromException se =
@@ -183,6 +186,8 @@ processRequestIO ctx put strm = E.handle reset $ do
             E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
+        | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
+            return ()
         | otherwise = QUIC.resetStream strm H3MessageError
 
 -- | Answering a request whose header section is more than we said we would

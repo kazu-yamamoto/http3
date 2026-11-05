@@ -4,6 +4,7 @@
 module Network.HTTP3.Control (
     setupUnidirectional,
     controlStream,
+    connectionError,
 ) where
 
 import Control.Concurrent.MVar
@@ -66,12 +67,21 @@ setupUnidirectional conn conf@H3.Config{..} = do
     -- and nothing caught it there.
     critical send bs =
         send bs `E.catch` \e -> case e of
-            StreamIsClosed -> abortConnection conn H3ClosedCriticalStream ""
+            StreamIsClosed -> connectionError conn H3ClosedCriticalStream
             _ -> E.throwIO e
     stC = mkType H3ControlStreams
     stE = mkType QPACKEncoderStream
     stD = mkType QPACKDecoderStream
     hooks = H3.confHooks conf
+
+-- | Closing the connection with this error, and stopping here.
+--
+-- 'abortConnection' only throws to the connection's main thread, so code
+-- after it went on running in this one: a frame refused was then handled.
+connectionError :: Connection -> ApplicationProtocolError -> IO a
+connectionError conn aerr = do
+    abortConnection conn aerr ""
+    E.throwIO $ ApplicationProtocolErrorIsSent aerr ""
 
 -- DynamicTable for Encoder
 controlStream
@@ -81,7 +91,7 @@ controlStream conn lim tblop ref recv = loop0
     loop0 = do
         bs <- recv 1024
         if bs == ""
-            then abortConnection conn H3ClosedCriticalStream ""
+            then connectionError conn H3ClosedCriticalStream
             else do
                 (done, st1) <- readIORef ref >>= parse0 bs
                 writeIORef ref st1
@@ -89,7 +99,7 @@ controlStream conn lim tblop ref recv = loop0
     loop = do
         bs <- recv 1024
         if bs == ""
-            then abortConnection conn H3ClosedCriticalStream ""
+            then connectionError conn H3ClosedCriticalStream
             else do
                 readIORef ref >>= parse bs >>= writeIORef ref
                 loop
@@ -100,15 +110,13 @@ controlStream conn lim tblop ref recv = loop0
                 -- business on a control stream, so refuse it before any of it
                 -- is buffered rather than after.
                 | Just H3FrameData <- frameTypeOf st1' -> do
-                    abortConnection conn H3FrameUnexpected ""
-                    return (False, IInit)
+                    connectionError conn H3FrameUnexpected
             ITooLong _ _ -> do
-                abortConnection conn H3ExcessiveLoad ""
-                return (False, IInit)
+                connectionError conn H3ExcessiveLoad
             IDone typ payload leftover -> do
                 case typ of
                     H3FrameSettings -> checkSettings conn tblop payload
-                    _ -> abortConnection conn H3MissingSettings ""
+                    _ -> connectionError conn H3MissingSettings
                 st1 <- parse leftover IInit
                 return (True, st1)
             st1 -> return (False, st1)
@@ -117,20 +125,18 @@ controlStream conn lim tblop ref recv = loop0
         case parseH3Frame lim st0 bs of
             st1'
                 | Just H3FrameData <- frameTypeOf st1' -> do
-                    abortConnection conn H3FrameUnexpected ""
-                    return IInit
+                    connectionError conn H3FrameUnexpected
             ITooLong _ _ -> do
-                abortConnection conn H3ExcessiveLoad ""
-                return IInit
+                connectionError conn H3ExcessiveLoad
             IDone typ _payload leftover -> do
                 case typ of
                     H3FrameCancelPush -> return ()
-                    H3FrameSettings -> abortConnection conn H3FrameUnexpected ""
+                    H3FrameSettings -> connectionError conn H3FrameUnexpected
                     H3FrameGoaway -> return ()
                     H3FrameMaxPushId -> return ()
                     _
                         | permittedInControlStream typ -> return ()
-                        | otherwise -> abortConnection conn H3FrameUnexpected ""
+                        | otherwise -> connectionError conn H3FrameUnexpected
                 parse leftover IInit
             st1 -> return st1
 
@@ -141,7 +147,7 @@ checkSettings conn tblop payload = do
         -- RFC 9114 section 7.1: a payload that "terminates before the end of
         -- the identified fields MUST be treated as a connection error of type
         -- H3_FRAME_ERROR".
-        Nothing -> abortConnection conn H3FrameError ""
+        Nothing -> connectionError conn H3FrameError
         Just h3settings -> loop IntSet.empty h3settings
   where
     loop :: IntSet -> H3Settings -> IO ()
@@ -151,7 +157,7 @@ checkSettings conn tblop payload = do
         -- identifier, and this does.  A set rather than bits in an Int:
         -- identifiers are variable-length integers, so everything from 64 up
         -- fell off the end of the word and could repeat unnoticed.
-        | i `IntSet.member` seen = abortConnection conn H3SettingsError ""
+        | i `IntSet.member` seen = connectionError conn H3SettingsError
         | otherwise = do
             let seen' = IntSet.insert i seen
             case k of
@@ -171,7 +177,7 @@ checkSettings conn tblop payload = do
                     loop seen' ss
                 _
                     -- HTTP/2 settings
-                    | i <= 0x6 -> abortConnection conn H3SettingsError ""
+                    | i <= 0x6 -> connectionError conn H3SettingsError
                     -- Unknown, so ignored -- but the rest of the frame is
                     -- not.  This used to stop here, which meant a peer
                     -- following section 7.2.4.1's advice to send a reserved

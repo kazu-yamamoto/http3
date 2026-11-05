@@ -131,7 +131,7 @@ newContext conn conf = do
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
     abortWith aerr se
         | isAsyncException se = E.throwIO se
-        | otherwise = abortConnection conn aerr ""
+        | otherwise = connectionError conn aerr
 
 isAsyncException :: E.Exception e => e -> Bool
 isAsyncException e =
@@ -166,8 +166,8 @@ switch conn seen ctl handleEI handleDI styp = case styp of
     -- H3_ID_ERROR when no MAX_PUSH_ID frame has been sent", which this client
     -- never does.
     H3PushStreams
-        | isServer conn -> \_ -> abortConnection conn H3StreamCreationError ""
-        | otherwise -> \_ -> abortConnection conn H3IdError ""
+        | isServer conn -> \_ -> connectionError conn H3StreamCreationError
+        | otherwise -> \_ -> connectionError conn H3IdError
     -- 'unidirectional' does not get here with an unknown type.
     H3StreamTypeUnknown _ -> \_ -> return ()
   where
@@ -175,11 +175,11 @@ switch conn seen ctl handleEI handleDI styp = case styp of
     once handler recv = do
         dup <- atomicModifyIORef' seen $ \ts -> (styp : ts, styp `elem` ts)
         if dup
-            then abortConnection conn H3StreamCreationError ""
+            then connectionError conn H3StreamCreationError
             else handler recv
     closing handler recv = do
         handler recv
-        abortConnection conn H3ClosedCriticalStream ""
+        connectionError conn H3ClosedCriticalStream
 
 isH3Server :: Context -> Bool
 isH3Server Context{..} = isServer ctxConnection
@@ -238,19 +238,32 @@ pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
 
 forkManaged :: Context -> String -> IO () -> IO ()
-forkManaged Context{..} = T.forkManaged ctxThreadManager
+forkManaged Context{..} label =
+    T.forkManaged ctxThreadManager label . endingOnConnectionError
 
 forkManagedTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
-forkManagedTimeout Context{..} =
-    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager
+forkManagedTimeout Context{..} label body =
+    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager label $
+        endingOnConnectionError . body
 
 forkManagedTimeoutFinally
     :: Context -> String -> (TM.Handle -> IO ()) -> IO () -> IO ()
-forkManagedTimeoutFinally Context{..} =
-    T.forkManagedTimeoutFinally ctxThreadManager ctxTimeoutManager
+forkManagedTimeoutFinally Context{..} label body =
+    T.forkManagedTimeoutFinally ctxThreadManager ctxTimeoutManager label $
+        endingOnConnectionError . body
 
-abort :: Context -> ApplicationProtocolError -> IO ()
-abort ctx aerr = abortConnection (ctxConnection ctx) aerr ""
+-- | A thread that has sent a connection error ('connectionError') ends there
+-- quietly: the connection is going, and the error has been told to the peer.
+endingOnConnectionError :: IO () -> IO ()
+endingOnConnectionError io =
+    io `E.catch` \e -> case e of
+        ApplicationProtocolErrorIsSent _ _ -> return ()
+        _ -> E.throwIO e
+
+-- | Closing the connection with this error, and stopping here: see
+-- 'connectionError'.
+abort :: Context -> ApplicationProtocolError -> IO a
+abort ctx = connectionError (ctxConnection ctx)
 
 getHooks :: Context -> Hooks
 getHooks = ctxHooks
