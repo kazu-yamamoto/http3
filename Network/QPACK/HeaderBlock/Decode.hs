@@ -10,6 +10,7 @@ import Data.IORef
 import Network.ByteOrder
 import qualified Network.HPACK as HPACK
 import Network.HPACK.Internal (
+    Entry,
     HuffmanDecoder,
     decodeH,
     decodeI,
@@ -30,9 +31,9 @@ import Network.QPACK.Types
 decodeTokenHeader
     :: DynamicTable
     -> ReadBuffer
-    -> IO (TokenHeaderTable, Bool)
+    -> IO (TokenHeaderTable, RequiredInsertCount)
 decodeTokenHeader dyntbl rbuf = do
-    (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
+    (reqInsertCount, bp) <- decodePrefix rbuf dyntbl
     ready <- checkRequiredInsertCountNB dyntbl reqInsertCount
     -- The count of blocked streams has to come down however the wait ends.
     -- A stream reset while waiting kills the thread, and the count left up
@@ -46,28 +47,29 @@ decodeTokenHeader dyntbl rbuf = do
             `E.finally` decreaseStreams dyntbl
     checkRequiredInsertCount dyntbl reqInsertCount
     hufdec <- newHuffmanDecoder rbuf
-    dec <- limitFieldSection dyntbl $ toTokenHeader dyntbl bp hufdec
+    dec <- limitFieldSection dyntbl $ toTokenHeader dyntbl reqInsertCount bp hufdec
     -- HPACK's decoder refuses a section of more than 200 fields, which is
     -- the same thing as far as we are concerned: more than we will take.
     tbl <-
         decodeSophisticated dec rbuf `E.catch` \e -> case e of
             HPACK.TooLargeHeader -> E.throwIO FieldSectionTooLarge
             _ -> E.throwIO e
-    return (tbl, needAck)
+    return (tbl, reqInsertCount)
 
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
-    -> IO (Maybe ([Header], Bool))
+    -> IO (Maybe ([Header], RequiredInsertCount))
 decodeTokenHeaderS dyntbl rbuf = do
-    (reqInsertCount, bp, needAck) <- decodePrefix rbuf dyntbl
+    (reqInsertCount, bp) <- decodePrefix rbuf dyntbl
     ok <- checkRequiredInsertCountNB dyntbl reqInsertCount
     if ok
         then do
             hufdec <- newHuffmanDecoder rbuf
-            dec <- limitFieldSection dyntbl $ toTokenHeader dyntbl bp hufdec
+            dec <-
+                limitFieldSection dyntbl $ toTokenHeader dyntbl reqInsertCount bp hufdec
             hs <- decodeSimple dec rbuf
-            return $ Just (hs, needAck)
+            return $ Just (hs, reqInsertCount)
         else return Nothing
 
 -- | A field line decoder that stops once the section comes to more than we
@@ -116,34 +118,54 @@ newHuffmanDecoder rbuf = do
 {- FOURMOLU_DISABLE -}
 toTokenHeader
     :: DynamicTable
+    -> RequiredInsertCount
     -> BasePoint
     -> HuffmanDecoder
     -> Word8
     -> ReadBuffer
     -> IO TokenHeader
-toTokenHeader dyntbl bp hufdec w8 rbuf
+toTokenHeader dyntbl ric bp hufdec w8 rbuf
     | w8 `testBit` 7 =
-        decodeIndexedFieldLine                  rbuf dyntbl        bp w8
+        decodeIndexedFieldLine                  rbuf dyntbl ric        bp w8
     | w8 `testBit` 6 =
-        decodeLiteralFieldLineWithNameReference rbuf dyntbl hufdec bp w8
+        decodeLiteralFieldLineWithNameReference rbuf dyntbl ric hufdec bp w8
     | w8 `testBit` 5 =
-        decodeLiteralFieldLineWithLiteralName   rbuf dyntbl hufdec bp w8
+        decodeLiteralFieldLineWithLiteralName   rbuf dyntbl     hufdec bp w8
     | w8 `testBit` 4 =
-        decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl        bp w8
+        decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl ric        bp w8
     | otherwise =
-        decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl hufdec bp w8
+        decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl ric hufdec bp w8
 {- FOURMOLU_ENABLE -}
+
+-- | The entry a field line refers to.
+--
+-- RFC 9204, section 2.2.3: a reference to an entry at or above the Required
+-- Insert Count is QPACK_DECOMPRESSION_FAILED.  It was checked only against
+-- what had been inserted, so a section with a Required Insert Count of 0 --
+-- which is never acknowledged -- could name any entry in the table.
+lookupEntry :: DynamicTable -> RequiredInsertCount -> HIndex -> IO Entry
+lookupEntry dyntbl (RequiredInsertCount ric) hidx = do
+    case hidx of
+        DIndex (AbsoluteIndex ai)
+            | ai >= ric -> E.throwIO $ IllegalDynamicIndex ai
+        _ -> return ()
+    atomically $ toIndexedEntry dyntbl hidx
 
 -- 4.5.2.  Indexed Field Line
 decodeIndexedFieldLine
-    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeIndexedFieldLine rbuf dyntbl bp w8 = do
+    :: ReadBuffer
+    -> DynamicTable
+    -> RequiredInsertCount
+    -> BasePoint
+    -> Word8
+    -> IO TokenHeader
+decodeIndexedFieldLine rbuf dyntbl ric bp w8 = do
     i <- decodeI 6 (w8 .&. 0b00111111) rbuf
     let static = w8 `testBit` 6
         hidx
             | static = SIndex $ AbsoluteIndex i
             | otherwise = DIndex $ fromPreBaseIndex (PreBaseIndex i) bp
-    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
+    ret <- entryTokenHeader <$> lookupEntry dyntbl ric hidx
     qpackDebug dyntbl $
         putStrLn $
             "IndexedFieldLine (" ++ show hidx ++ ") " ++ showTokenHeader ret
@@ -151,11 +173,16 @@ decodeIndexedFieldLine rbuf dyntbl bp w8 = do
 
 -- 4.5.3.  Indexed Field Line With Post-Base Index
 decodeIndexedFieldLineWithPostBaseIndex
-    :: ReadBuffer -> DynamicTable -> BasePoint -> Word8 -> IO TokenHeader
-decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
+    :: ReadBuffer
+    -> DynamicTable
+    -> RequiredInsertCount
+    -> BasePoint
+    -> Word8
+    -> IO TokenHeader
+decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl ric bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    ret <- atomically (entryTokenHeader <$> toIndexedEntry dyntbl hidx)
+    ret <- entryTokenHeader <$> lookupEntry dyntbl ric hidx
     qpackDebug dyntbl $
         putStrLn $
             "IndexedFieldLineWithPostBaseIndex ("
@@ -172,17 +199,18 @@ decodeIndexedFieldLineWithPostBaseIndex rbuf dyntbl bp w8 = do
 decodeLiteralFieldLineWithNameReference
     :: ReadBuffer
     -> DynamicTable
+    -> RequiredInsertCount
     -> HuffmanDecoder
     -> BasePoint
     -> Word8
     -> IO TokenHeader
-decodeLiteralFieldLineWithNameReference rbuf dyntbl hufdec bp w8 = do
+decodeLiteralFieldLineWithNameReference rbuf dyntbl ric hufdec bp w8 = do
     i <- decodeI 4 (w8 .&. 0b00001111) rbuf
     let static = w8 `testBit` 4
         hidx
             | static = SIndex $ AbsoluteIndex i
             | otherwise = DIndex $ fromPreBaseIndex (PreBaseIndex i) bp
-    key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
+    key <- entryToken <$> lookupEntry dyntbl ric hidx
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key, val)
     qpackDebug dyntbl $
@@ -197,14 +225,15 @@ decodeLiteralFieldLineWithNameReference rbuf dyntbl hufdec bp w8 = do
 decodeLiteralFieldLineWithPostBaseNameReference
     :: ReadBuffer
     -> DynamicTable
+    -> RequiredInsertCount
     -> HuffmanDecoder
     -> BasePoint
     -> Word8
     -> IO TokenHeader
-decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl hufdec bp w8 = do
+decodeLiteralFieldLineWithPostBaseNameReference rbuf dyntbl ric hufdec bp w8 = do
     i <- decodeI 3 (w8 .&. 0b00000111) rbuf
     let hidx = DIndex $ fromPostBaseIndex (PostBaseIndex i) bp
-    key <- atomically (entryToken <$> toIndexedEntry dyntbl hidx)
+    key <- entryToken <$> lookupEntry dyntbl ric hidx
     val <- decodeS (`clearBit` 7) (`testBit` 7) 7 hufdec rbuf
     let ret = (key, val)
     qpackDebug dyntbl $

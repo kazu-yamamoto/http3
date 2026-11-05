@@ -34,6 +34,8 @@ data DecodeError
     | -- | An absolute index outside the dynamic table's live window
       IllegalDynamicIndex Int
     | IllegalInsertCount
+    | -- | A Base below zero (RFC 9204, section 4.5.1.2)
+      IllegalBase
     | BlockedStreamsOverflow
     deriving (Eq, Show)
 

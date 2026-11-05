@@ -55,6 +55,7 @@ module Network.QPACK.Table.Dynamic (
     wouldSectionBeBlocked,
     wouldInstructionBeBlocked,
     setInsersionPointToKnownReceivedCount,
+    updateReported,
 
     -- * Points
     getBasePoint,
@@ -152,6 +153,7 @@ data CodeInfo
         { huffmanDecoder  :: HuffmanDecoder  -- only for encoder instruction handler
         , blockedStreamsD :: IORef Int
         , evictedD        :: TVar AbsoluteIndex -- the oldest entry not evicted
+        , reportedD       :: MVar Int -- the Known Received Count told to the encoder
         }
 {- FOURMOLU_ENABLE -}
 
@@ -209,6 +211,7 @@ newDynamicTableForDecoding huftmpsiz sendDI = do
     let huffmanDecoder = decodeH gcbuf huftmpsiz
     blockedStreamsD <- newIORef 0
     evictedD <- newTVarIO 0
+    reportedD <- newMVar 0
     newDynamicTable DecodeInfo{..} sendDI
 
 newDynamicTable :: CodeInfo -> (ByteString -> IO ()) -> IO DynamicTable
@@ -584,9 +587,15 @@ updateRequiredInsertCount DynamicTable{..} aidx = do
 
 ----------------------------------------------------------------
 
+-- | RFC 9204, section 4.4.3: an increment that takes the Known Received
+-- Count beyond what has been inserted is a QPACK_DECODER_STREAM_ERROR.  It
+-- was added unchecked, and entries never acknowledged could be evicted.
 incrementKnownReceivedCount :: DynamicTable -> Int -> IO ()
-incrementKnownReceivedCount DynamicTable{..} n =
-    atomically $ modifyTVar' knownReceivedCount (+ n)
+incrementKnownReceivedCount DynamicTable{..} n = atomically $ do
+    krc <- readTVar knownReceivedCount
+    InsertionPoint ip <- readTVar insertionPoint
+    when (krc + n > ip) $ throwSTM DecoderInstructionError
+    writeTVar knownReceivedCount (krc + n)
   where
     EncodeInfo{..} = codeInfo
 
@@ -612,6 +621,19 @@ wouldInstructionBeBlocked DynamicTable{..} (AbsoluteIndex ai) = atomically $ do
     return (ai >= krc)
   where
     EncodeInfo{..} = codeInfo
+
+-- | Telling the encoder of insertions, under a lock and with what it has
+-- been told so far (decoder only).
+--
+-- A Section Acknowledgement tells it of insertions as well as an Insert
+-- Count Increment does (RFC 9204, section 2.1.4).  The increment used to be
+-- the number of entries just inserted, so a section acknowledged first had
+-- them counted twice, and the encoder's Known Received Count went past what
+-- had been inserted.
+updateReported :: DynamicTable -> (Int -> IO Int) -> IO ()
+updateReported DynamicTable{..} = modifyMVar_ reportedD
+  where
+    DecodeInfo{..} = codeInfo
 
 setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
 setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do

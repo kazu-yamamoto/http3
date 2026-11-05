@@ -515,9 +515,8 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
 qpackDecoder
     :: DynamicTable -> StreamId -> EncodedFieldSection -> IO TokenHeaderTable
 qpackDecoder dyntbl sid bs = do
-    (tbl, needAck) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
-    when needAck $
-        encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
+    (tbl, ric) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+    acknowledgeSection dyntbl sid ric
     return tbl
 
 qpackDecoderS
@@ -527,10 +526,29 @@ qpackDecoderS dyntbl sid bs = do
     mhs <- withReadBuffer bs $ \rbuf -> decodeTokenHeaderS dyntbl rbuf
     case mhs of
         Nothing -> return Nothing
-        Just (hs, needAck) -> do
-            when needAck $
-                encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
+        Just (hs, ric) -> do
+            acknowledgeSection dyntbl sid ric
             return $ Just hs
+
+-- | A Section Acknowledgement, for a section with a Required Insert Count
+-- other than 0 (RFC 9204, section 4.4.1).  It tells the encoder that the
+-- insertions up to that count have arrived.
+acknowledgeSection :: DynamicTable -> StreamId -> RequiredInsertCount -> IO ()
+acknowledgeSection _ _ 0 = return ()
+acknowledgeSection dyntbl sid (RequiredInsertCount ric) =
+    updateReported dyntbl $ \reported -> do
+        encodeDecoderInstructions [SectionAcknowledgement sid] >>= sendIns dyntbl
+        return $ max reported ric
+
+-- | An Insert Count Increment for the insertions the encoder has not been
+-- told of, by this or by a Section Acknowledgement (RFC 9204, section 4.4.3).
+reportInsertions :: DynamicTable -> IO ()
+reportInsertions dyntbl = updateReported dyntbl $ \reported -> do
+    InsertionPoint ip <- getInsertionPoint dyntbl
+    when (ip > reported) $
+        encodeDecoderInstructions [InsertCountIncrement (ip - reported)]
+            >>= sendIns dyntbl
+    return $ max reported ip
 
 -- Note: dyntbl for decoder
 encoderInstructionHandler :: Int -> DynamicTable -> EncoderInstructionHandler
@@ -568,9 +586,8 @@ encoderInstructionHandlerS :: Int -> DynamicTable -> EncoderInstructionHandlerS
 encoderInstructionHandlerS _ _dyntbl "" = return ""
 encoderInstructionHandlerS decCapLim dyntbl bs = do
     (ins, leftover) <- decodeEncoderInstructions hufdec bs
-    cnt <- sum <$> mapM handle ins
-    when (cnt /= 0) $
-        encodeDecoderInstructions [InsertCountIncrement cnt] >>= sendIns dyntbl
+    mapM_ handle ins
+    reportInsertions dyntbl
     return leftover
   where
     hufdec = getHuffmanDecoder dyntbl -- only for encoder instruction handler
@@ -579,7 +596,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
         | otherwise = do
             setDecoderTableCapacity dyntbl n
             qpackDebug dyntbl $ print ins
-            return 0
+            return ()
     handle ins@(InsertWithNameReference ii val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -594,7 +611,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             _ <- insertEntryToDecoder ent dyntbl
             return idx
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-        return 1
+        return ()
     handle ins@(InsertWithLiteralName t val) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -602,7 +619,7 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
             let ent = toEntryToken t val
             insertEntryToDecoder ent dyntbl
         qpackDebug dyntbl $ putStrLn $ show ins ++ ": " ++ show dai
-        return 1
+        return ()
     handle ins@(Duplicate ri) = do
         ready <- isTableReady dyntbl
         unless ready $ E.throwIO EncoderInstructionError
@@ -616,4 +633,4 @@ encoderInstructionHandlerS decCapLim dyntbl bs = do
         qpackDebug dyntbl $
             putStrLn $
                 show ins ++ ": " ++ show dai ++ " -> " ++ show dai'
-        return 1
+        return ()

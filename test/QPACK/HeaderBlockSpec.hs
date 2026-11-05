@@ -14,7 +14,9 @@ import Data.Maybe (isNothing)
 import Network.HPACK.Token (toToken)
 import Network.QPACK
 import Network.QPACK.Internal (
+    DecodeError (..),
     DecoderInstruction (..),
+    DecoderInstructionError (..),
     EncoderInstruction (..),
     EncoderInstructionError (..),
     encodeDecoderInstructions,
@@ -246,6 +248,41 @@ spec = do
             drain diRef handleDI
             enc 12 hdr >>= (`shouldSatisfy` (/= 0)) . encodedInsertCount
 
+        it "refuses an Insert Count Increment beyond what was inserted" $ do
+            -- One entry inserted, five acknowledged.  It used to be added to
+            -- the Known Received Count unchecked (RFC 9204, section 4.4.3).
+            diRef <- newIORef []
+            (enc, handleDI, tblop) <- newQEncoder defaultQEncoderConfig (\_ -> return ())
+            setCapacity tblop 4096
+            setBlockedStreams tblop 100
+            let hdr = [(toToken "x-foo", "bar")]
+            -- Inserted the second time it is seen.
+            mapM_ (`enc` hdr) [0, 4]
+            di <- encodeDecoderInstructions [InsertCountIncrement 5]
+            writeIORef diRef [di]
+            E.try (drain diRef handleDI) `shouldReturn` Left DecoderInstructionError
+
+        it "refuses a reference at or above the Required Insert Count" $ do
+            -- Entry 0 is in the table, but a section whose Required Insert
+            -- Count is 0 may not name it (RFC 9204, section 2.2.3).
+            -- Prefix 0x00 0x01: Required Insert Count 0, Base 1; then an
+            -- Indexed Field Line, pre-base index 0, which is entry 0.
+            dec <- decoderWithOneEntry
+            decodeError (dec 0 "\x00\x01\x80")
+                `shouldReturn` Left (IllegalDynamicIndex 0)
+
+        it "refuses a negative Base" $ do
+            -- Required Insert Count 1 (encoded 2), the sign bit and Delta
+            -- Base 5: a Base of -5 (RFC 9204, section 4.5.1.2).
+            dec <- decoderWithOneEntry
+            decodeError (dec 0 "\x02\x85\x10") `shouldReturn` Left IllegalBase
+
+        it "refuses an encoded Required Insert Count that comes to 0" $ do
+            -- Encoded 1 with nothing inserted is 0, which has to be encoded
+            -- as 0 (RFC 9204, section 4.5.1.1).  Then :method GET.
+            (dec, _) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+            decodeError (dec 0 "\x01\x00\xd1") `shouldReturn` Left IllegalInsertCount
+
         it "refuses a section that decodes to more than the announced limit" $ do
             -- A field line of one octet refers to a 1037-octet entry, so a
             -- section of a few octets decodes to far more than its length.
@@ -326,6 +363,22 @@ drain ref handler = do
     handler $ \_ -> atomicModifyIORef' queue $ \xs -> case xs of
         [] -> ([], "")
         y : ys -> (ys, y)
+
+-- | The 'DecodeError' an action throws, if any.
+decodeError :: IO a -> IO (Either DecodeError ())
+decodeError io = E.try (void io)
+
+-- | A decoder that has been sent one entry, x-foo: bar.
+decoderWithOneEntry :: IO QDecoder
+decoderWithOneEntry = do
+    (dec, handleEI) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+    ei <-
+        encodeEncoderInstructions
+            [SetDynamicTableCapacity 4096, InsertWithLiteralName (toToken "x-foo") "bar"]
+            False
+    ref <- newIORef [ei]
+    drain ref handleEI
+    return dec
 
 roundTrip :: Int -> IO ()
 roundTrip n = do

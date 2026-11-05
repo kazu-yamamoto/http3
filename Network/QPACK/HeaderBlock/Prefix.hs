@@ -48,6 +48,9 @@ decodeRequiredInsertCount maxEntries (InsertionPoint totalNumberOfInserts) encod
     | reqInsertCount > maxValue && reqInsertCount <= fullRange =
         E.throw IllegalInsertCount
     | reqInsertCount > maxValue = RequiredInsertCount (reqInsertCount - fullRange)
+    -- RFC 9204, section 4.5.1.1: "Value of 0 must be encoded as 0."  An
+    -- encoded 1 with nothing inserted yet came out as 0, and was taken.
+    | reqInsertCount == 0 = E.throw IllegalInsertCount
     | otherwise = RequiredInsertCount reqInsertCount
   where
     fullRange = 2 * maxEntries
@@ -76,7 +79,11 @@ encodeBase (RequiredInsertCount reqInsCnt) (BasePoint base)
 -- BasePoint 6
 decodeBase :: RequiredInsertCount -> Bool -> Int -> BasePoint
 decodeBase (RequiredInsertCount reqInsCnt) False deltaBase = BasePoint (reqInsCnt + deltaBase)
-decodeBase (RequiredInsertCount reqInsCnt) True deltaBase = BasePoint (reqInsCnt - deltaBase - 1)
+-- RFC 9204, section 4.5.1.2: with the sign bit set, "the value of Required
+-- Insert Count MUST be greater than the value of Delta Base".
+decodeBase (RequiredInsertCount reqInsCnt) True deltaBase
+    | reqInsCnt <= deltaBase = E.throw IllegalBase
+    | otherwise = BasePoint (reqInsCnt - deltaBase - 1)
 
 ----------------------------------------------------------------
 
@@ -101,7 +108,7 @@ encodePrefix wbuf dyntbl = do
 
 -- | Decoding the prefix part of header block.
 decodePrefix
-    :: ReadBuffer -> DynamicTable -> IO (RequiredInsertCount, BasePoint, Bool)
+    :: ReadBuffer -> DynamicTable -> IO (RequiredInsertCount, BasePoint)
 decodePrefix rbuf dyntbl = do
     maxEntries <- getMaxEntries dyntbl
     totalNumberOfInserts <- getInsertionPoint dyntbl
@@ -122,5 +129,4 @@ decodePrefix rbuf dyntbl = do
                 ++ show totalNumberOfInserts
                 ++ ", maxN "
                 ++ show maxEntries
-    let needAck = reqInsCnt /= 0
-    return (reqInsCnt, baseIndex, needAck)
+    return (reqInsCnt, baseIndex)
