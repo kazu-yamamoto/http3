@@ -8,10 +8,13 @@ module HTTP3.Config (
 ) where
 
 import Control.Concurrent (threadDelay)
+import qualified Control.Exception as E
 import Data.ByteString (ByteString)
 import qualified Data.List as L
 import qualified Network.HTTP3.Client as H3
+import qualified Network.Socket as NS
 import Network.TLS (Credentials (..), credentialLoadX509)
+import System.IO.Unsafe (unsafePerformIO)
 
 import Network.QUIC.Client
 import Network.QUIC.Internal
@@ -28,10 +31,22 @@ makeTestServerConfig = do
             , scALPN = Just chooseALPN
             }
 
+-- | The UDP port of this test process, one the OS had free.
+--
+-- It used to be 8003 for every run, and two runs at once -- from two
+-- working trees, say -- reached each other's servers: a test failed, or
+-- passed, against another run's server.
+testPort :: NS.PortNumber
+testPort = unsafePerformIO $
+    E.bracket (NS.socket NS.AF_INET NS.Datagram NS.defaultProtocol) NS.close $ \s -> do
+        NS.bind s $ NS.SockAddrInet 0 $ NS.tupleToHostAddress (127, 0, 0, 1)
+        NS.socketPort s
+{-# NOINLINE testPort #-}
+
 testServerConfig :: ServerConfig
 testServerConfig =
     defaultServerConfig
-        { scAddresses = [("127.0.0.1", 8003)]
+        { scAddresses = [("127.0.0.1", testPort)]
         , -- Room for more unidirectional streams than the three a client
           -- needs, so that a test can open a second control or QPACK stream
           -- and see it refused.  The default of three leaves no room for one.
@@ -42,7 +57,7 @@ testServerConfig =
 testClientConfig :: ClientConfig
 testClientConfig =
     defaultClientConfig
-        { ccPortName = "8003"
+        { ccPortName = show testPort
         , ccValidate = False
         }
 
