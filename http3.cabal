@@ -76,22 +76,22 @@ library
     ghc-options:        -Wall
     build-depends:
         base >=4.9 && <5,
-        array,
-        async,
-        bytestring,
-        case-insensitive,
-        containers,
+        array >=0.5 && <0.6,
+        async >=2.2 && <2.3,
+        bytestring >=0.10,
+        case-insensitive >=1.2 && <1.3,
+        containers >=0.6,
         http-semantics >= 0.4 && <0.5,
-        http-types,
+        http-types >=0.12 && <0.13,
         http2 >=5.4.10 && <5.5,
         iproute >= 1.7 && < 1.8,
-        network,
-        network-byte-order,
+        network >=3.1,
+        network-byte-order >=0.1.7 && <0.2,
         network-control >= 0.1.7 && <0.2,
-        psqueues,
+        psqueues >=0.2 && <0.3,
         quic >= 0.3.18 && < 0.4,
-        sockaddr,
-        stm,
+        sockaddr >=0.0.1 && <0.1,
+        stm >=2.5 && <2.6,
         time-manager >= 0.5 && <0.6,
         utf8-string >=1.0 && <1.1
 
@@ -107,10 +107,8 @@ executable h3-server
     ghc-options:        -Wall -threaded -rtsopts
     build-depends:
         base >=4.9 && <5,
-        base16-bytestring,
         bytestring,
         crypton,
-        filepath,
         http-types,
         http2,
         http3,
@@ -136,9 +134,7 @@ executable h3-client
     build-depends:
         base >=4.9 && <5,
         async,
-        base16-bytestring,
         bytestring,
-        filepath,
         http-types,
         http3,
         quic,
@@ -164,11 +160,8 @@ executable qif-enc
         cereal,
         conduit,
         conduit-extra,
-        containers,
         filepath,
-        http3,
-        quic,
-        stm
+        http3
 
     if flag(devel)
 
@@ -190,8 +183,7 @@ executable qif-dec
         conduit-extra,
         containers,
         http3,
-        quic,
-        stm
+        quic
 
     if flag(devel)
 
@@ -231,7 +223,6 @@ test-suite spec
         QuickCheck,
         attoparsec,
         async,
-        base16-bytestring,
         bytestring,
         case-insensitive,
         conduit,
