@@ -98,7 +98,8 @@ newContext conn conf = do
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
-    ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE <$> newIORef IInit
+    cst <- newControlState
+    ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE cst <$> newIORef IInit
     let ctxPeerMaxFieldSectionSize = getHeaderSize dyntblE
     seen <- newIORef []
     info <- getConnectionInfo conn

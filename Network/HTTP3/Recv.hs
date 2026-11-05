@@ -68,6 +68,14 @@ pushbackSource :: Source -> ByteString -> IO ()
 pushbackSource _ "" = return ()
 pushbackSource Source{..} bs = writeIORef sourcePending $ Just bs
 
+-- | A PUSH_PROMISE on a request stream.  A server cannot receive one (RFC
+-- 9114, section 7.2.5), and a client that has sent no MAX_PUSH_ID, as ours
+-- never does, has allowed none (section 4.6).  It used to be ignored.
+pushPromise :: Context -> IO a
+pushPromise ctx
+    | isH3Server ctx = abort ctx H3FrameUnexpected
+    | otherwise = abort ctx H3IdError
+
 recvHeader :: Context -> StreamId -> Source -> IO (Maybe TokenHeaderTable)
 recvHeader ctx sid src = loop IInit
   where
@@ -90,6 +98,7 @@ recvHeader ctx sid src = loop IInit
                     | typ == H3FrameHeaders -> do
                         pushbackSource src leftover
                         Just <$> qpackDecode ctx sid payload
+                    | typ == H3FramePushPromise -> pushPromise ctx
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
                         loop IInit
@@ -215,6 +224,7 @@ recvBody ctx sid src refI refH mcl refL = do
                         -- 7.2.1), and "" is how the end of the body is told
                         -- to the reader.  Go on to the next frame instead.
                         if BS.null payload then loop IInit else chunk payload
+                    | typ == H3FramePushPromise -> pushPromise ctx
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
                         loop IInit

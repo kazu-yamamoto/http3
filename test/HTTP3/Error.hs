@@ -92,11 +92,12 @@ h3ErrorSpec qcc cconf ms served = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
         itH3
-            "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.3.1]" $ \_ -> do
-            let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
-                qcc' = throwOnReset qcc
-            runC qcc' cconf conf ms
-                `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+            "MUST send H3_MESSAGE_ERROR if a pseudo-header is duplicated [HTTP/3 4.3.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader3
+                    qcc' = throwOnReset qcc
+                runC qcc' cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         itH3
             "MUST send H3_MESSAGE_ERROR if mandatory pseudo-header fields are absent [HTTP/3 4.3.1]"
             $ \x -> do
@@ -193,6 +194,41 @@ h3ErrorSpec qcc cconf ms served = do
                 let conf = addHook conf0 $ setOnHeadersFrameCreated requestCancelPush
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        itH3
+            "MUST send H3_FRAME_UNEXPECTED if PUSH_PROMISE is received [HTTP/3 7.2.5]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnHeadersFrameCreated requestPushPromise
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3FrameUnexpected]
+        itH3
+            "MUST send H3_ID_ERROR if CANCEL_PUSH names a push ID not allowed [HTTP/3 7.2.3]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated cancelPushNotAllowed
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3IdError]
+        itH3
+            "MUST send H3_ID_ERROR if MAX_PUSH_ID goes down [HTTP/3 7.2.7]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated maxPushIdDown
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3IdError]
+        itH3
+            "MUST send H3_ID_ERROR if GOAWAY goes up [HTTP/3 5.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated goawayUp
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3IdError]
+        itH3
+            "MUST send H3_FRAME_ERROR if MAX_PUSH_ID has octets after its push ID [HTTP/3 7.1]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated maxPushIdTrailing
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [H3FrameError]
+        itH3
+            "MUST ignore a frame of unknown type, however long [HTTP/3 7.2.8]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnControlFrameCreated longUnknownFrame
+                runC qcc cconf conf ms `shouldReturn` Just ()
         itH3
             "MUST send QPACK_DECOMPRESSION_FAILED if an invalid static table index exists in a field line representation [QPACK 3.1]"
             $ \_ -> do
@@ -388,6 +424,32 @@ controlHeaders fs = fs ++ [H3Frame H3FrameHeaders ""]
 
 requestCancelPush :: [H3Frame] -> [H3Frame]
 requestCancelPush fs = H3Frame H3FrameCancelPush "" : fs
+
+-- PUSH_PROMISE, push ID 0, and no field section to speak of.  Before
+-- HEADERS, since a server need not read what comes after them.
+requestPushPromise :: [H3Frame] -> [H3Frame]
+requestPushPromise fs = H3Frame H3FramePushPromise "\x00" : fs
+
+-- CANCEL_PUSH for push ID 0, with no MAX_PUSH_ID sent: no push is allowed.
+cancelPushNotAllowed :: [H3Frame] -> [H3Frame]
+cancelPushNotAllowed fs = fs ++ [H3Frame H3FrameCancelPush "\x00"]
+
+-- MAX_PUSH_ID 5, then 3.
+maxPushIdDown :: [H3Frame] -> [H3Frame]
+maxPushIdDown fs = fs ++ [H3Frame H3FrameMaxPushId "\x05", H3Frame H3FrameMaxPushId "\x03"]
+
+-- GOAWAY 0, then 4.
+goawayUp :: [H3Frame] -> [H3Frame]
+goawayUp fs = fs ++ [H3Frame H3FrameGoaway "\x00", H3Frame H3FrameGoaway "\x04"]
+
+-- MAX_PUSH_ID 5, and an octet more.
+maxPushIdTrailing :: [H3Frame] -> [H3Frame]
+maxPushIdTrailing fs = fs ++ [H3Frame H3FrameMaxPushId "\x05\x00"]
+
+-- A reserved type (0x21), with a payload longer than
+-- SETTINGS_MAX_FIELD_SECTION_SIZE.
+longUnknownFrame :: [H3Frame] -> [H3Frame]
+longUnknownFrame fs = fs ++ [H3Frame (H3FrameUnknown 0x21) (BS.replicate 40000 0)]
 
 requestIllegalData :: [H3Frame] -> [H3Frame]
 requestIllegalData fs = H3Frame H3FrameData "" : fs

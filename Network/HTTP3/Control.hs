@@ -4,6 +4,8 @@
 module Network.HTTP3.Control (
     setupUnidirectional,
     controlStream,
+    ControlState,
+    newControlState,
     connectionError,
 ) where
 
@@ -14,6 +16,7 @@ import Data.IORef
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Network.QUIC
+import Network.QUIC.Internal (isServer)
 
 import Imports
 import qualified Network.HTTP3.Config as H3
@@ -83,10 +86,24 @@ connectionError conn aerr = do
     abortConnection conn aerr ""
     E.throwIO $ ApplicationProtocolErrorIsSent aerr ""
 
+-- | The last GOAWAY and MAX_PUSH_ID the peer sent on its control stream.
+data ControlState = ControlState
+    { lastGoaway :: IORef (Maybe Int64)
+    , lastMaxPushId :: IORef (Maybe Int64)
+    }
+
+newControlState :: IO ControlState
+newControlState = ControlState <$> newIORef Nothing <*> newIORef Nothing
+
 -- DynamicTable for Encoder
 controlStream
-    :: Connection -> Int -> TableOperation -> IORef IFrame -> InstructionHandler
-controlStream conn lim tblop ref recv = loop0
+    :: Connection
+    -> Int
+    -> TableOperation
+    -> ControlState
+    -> IORef IFrame
+    -> InstructionHandler
+controlStream conn lim tblop cst ref recv = loop0
   where
     loop0 = do
         bs <- recv 1024
@@ -128,17 +145,47 @@ controlStream conn lim tblop ref recv = loop0
                     connectionError conn H3FrameUnexpected
             ITooLong _ _ -> do
                 connectionError conn H3ExcessiveLoad
-            IDone typ _payload leftover -> do
+            IDone typ payload leftover -> do
                 case typ of
-                    H3FrameCancelPush -> return ()
+                    H3FrameCancelPush -> singleInt payload >>= cancelPush
                     H3FrameSettings -> connectionError conn H3FrameUnexpected
-                    H3FrameGoaway -> return ()
-                    H3FrameMaxPushId -> return ()
+                    H3FrameGoaway -> singleInt payload >>= goaway
+                    H3FrameMaxPushId -> singleInt payload >>= maxPushId
                     _
                         | permittedInControlStream typ -> return ()
                         | otherwise -> connectionError conn H3FrameUnexpected
                 parse leftover IInit
             st1 -> return st1
+
+    -- RFC 9114, section 7.1: the payload is exactly the fields the frame
+    -- has, here one variable-length integer, or H3_FRAME_ERROR.
+    singleInt payload = case parseQInt QInit payload of
+        QDone i "" -> return i
+        _ -> connectionError conn H3FrameError
+    server = isServer conn
+    -- Section 7.2.3: a push ID beyond what is allowed is H3_ID_ERROR.  A
+    -- client allows none, since ours sends no MAX_PUSH_ID; a server, those
+    -- up to the client's MAX_PUSH_ID.
+    cancelPush pid = do
+        allowed <-
+            if server
+                then readIORef (lastMaxPushId cst)
+                else return Nothing
+        unless (maybe False (pid <=) allowed) $ connectionError conn H3IdError
+    -- Section 5.2: from a server, the ID of a client-initiated bidirectional
+    -- stream; and in either direction, no larger than one sent before.
+    -- What to do on GOAWAY is left to the caller of the connection.
+    goaway i = do
+        when (not server && i `mod` 4 /= 0) $ connectionError conn H3IdError
+        prev <- readIORef (lastGoaway cst)
+        when (maybe False (i >) prev) $ connectionError conn H3IdError
+        writeIORef (lastGoaway cst) (Just i)
+    -- Section 7.2.7: only a server takes MAX_PUSH_ID, and it may not go down.
+    maxPushId i = do
+        unless server $ connectionError conn H3FrameUnexpected
+        prev <- readIORef (lastMaxPushId cst)
+        when (maybe False (i <) prev) $ connectionError conn H3IdError
+        writeIORef (lastMaxPushId cst) (Just i)
 
 checkSettings :: Connection -> TableOperation -> ByteString -> IO ()
 checkSettings conn tblop payload = do

@@ -205,6 +205,10 @@ data IFrame
       ITooLong
         H3FrameType
         Int -- The length it claimed
+    | -- | Skipping the payload of a frame of unknown type
+      ISkip
+        H3FrameType
+        Int -- Bytes still to skip
     deriving (Eq, Show)
 
 -- | The frame type, once the parse has got far enough to know it.
@@ -215,6 +219,7 @@ frameTypeOf (ILen typ _) = Just typ
 frameTypeOf (IPay typ _ _ _) = Just typ
 frameTypeOf (IDone typ _ _) = Just typ
 frameTypeOf (ITooLong typ _) = Just typ
+frameTypeOf (ISkip typ _) = Just typ
 
 -- | Feed bytes to a frame parse.
 --
@@ -240,6 +245,10 @@ parseH3Frame lim (IType ist) bs = case parseQInt ist bs of
 parseH3Frame lim (ILen typ ist) bs = case parseQInt ist bs of
     QDone i bs'
         | reqLen == 0 -> IDone typ "" bs'
+        -- RFC 9114, section 7.2.8: frames of unknown types "MUST be
+        -- ignored".  Their payload is skipped rather than held, so the cap
+        -- does not apply: one over it used to close the connection.
+        | ignorable typ -> parseH3Frame lim (ISkip typ reqLen) bs'
         | typ /= H3FrameData && reqLen > lim -> ITooLong typ reqLen
         | otherwise -> parseH3Frame lim (IPay typ reqLen 0 []) bs'
       where
@@ -253,7 +262,16 @@ parseH3Frame _ (IPay typ reqLen len0 bss0) bs0 = case len1 `compare` reqLen of
          in IDone typ (compose bs2 bss0) leftover
   where
     len1 = len0 + BS.length bs0
+parseH3Frame _ (ISkip typ n) bs
+    | BS.length bs < n = ISkip typ (n - BS.length bs)
+    | otherwise = IDone typ "" (BS.drop n bs)
 parseH3Frame _ st _ = st
+
+-- | A frame type not defined by RFC 9114, nor reserved there for one of
+-- HTTP/2's (section 11.2.1).
+ignorable :: H3FrameType -> Bool
+ignorable (H3FrameUnknown i) = i > 0x09
+ignorable _ = False
 
 compose :: ByteString -> [ByteString] -> ByteString
 compose bs bss = BS.concat $ reverse (bs : bss)
