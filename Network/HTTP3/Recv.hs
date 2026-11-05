@@ -184,6 +184,28 @@ recvBody ctx sid src refI refH mcl refL = do
     chunk bs = do
         modifyIORef' refL (+ BS.length bs)
         return (bs, False)
+    -- The rest of the stream after the trailers, which may hold no HEADERS
+    -- or DATA (RFC 9114, section 4.1).  It used to be dropped unread: the
+    -- frames in the same read as the trailers, and whatever came after them.
+    afterTrailers st = do
+        bs <- readSource src
+        if bs == ""
+            then do
+                when (st /= IInit) $ abort ctx H3FrameError
+                writeIORef (sourceReadToEnd src) True
+            else case parseH3Frame lim st bs of
+                ITooLong _ _ -> abort ctx H3ExcessiveLoad
+                st0
+                    | Just typ <- frameTypeOf st0
+                    , typ == H3FrameData || typ == H3FrameHeaders ->
+                        abort ctx H3FrameUnexpected
+                IDone typ _ leftover
+                    | typ == H3FramePushPromise -> pushPromise ctx
+                    | permittedInRequestStream typ -> do
+                        pushbackSource src leftover
+                        afterTrailers IInit
+                    | otherwise -> abort ctx H3FrameUnexpected
+                st' -> afterTrailers st'
     loop st = do
         bs <- readSource src
         if bs == ""
@@ -217,11 +239,12 @@ recvBody ctx sid src refI refH mcl refL = do
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         writeIORef refI IInit
-                        -- pushbackSource src leftover -- fixme
                         hdr <- qpackDecode ctx sid payload
                         forM_ (connectionSpecificField hdr) $
                             E.throwIO . ConnectionSpecificField
                         writeIORef refH $ Just hdr
+                        pushbackSource src leftover
+                        afterTrailers IInit
                         endOfBody
                     | typ == H3FrameData -> do
                         writeIORef refI IInit

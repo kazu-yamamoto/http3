@@ -63,6 +63,8 @@ h3spec = do
             runInterruptedRequestClient
         it "does not hand the handler a CANCEL_PUSH it refused as body" $ \_ ->
             runCancelPushInBodyClient
+        it "refuses DATA after trailers" $ \_ ->
+            runDataAfterTrailersClient
         it "accepts a content-length on a response with no content" $ \_ ->
             runNoContentClient
         it "closes the connection on a stream ending in the middle of a frame" $ \_ ->
@@ -361,6 +363,29 @@ runCancelPushInBodyClient = do
             C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
                 void $ timeout 1000000 $ sendRequest (C.requestNoBody methodPost "/record" []) $ \_ ->
                     return ()
+    r <- timeout 1000000 $ takeMVar recordedBody
+    r `shouldSatisfy` \x -> case x of
+        Just (Right _) -> False
+        _ -> True
+
+-- | A DATA frame after the trailers, which RFC 9114, section 4.1, makes
+-- H3_FRAME_UNEXPECTED.  Whatever followed the trailers used to be dropped
+-- unread, and the handler was told of a whole body.
+--
+-- The hook puts the DATA after every HEADERS frame: after the request's, where
+-- it is body, and after the trailers.
+runDataAfterTrailersClient :: IO ()
+runDataAfterTrailersClient = do
+    _ <- tryTakeMVar recordedBody
+    _ <- E.try @E.SomeException $ QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+            let extra = H3Frame H3FrameData "zz"
+                hooks = (confHooks conf0){C.onHeadersFrameCreated = (++ [extra])}
+                conf = conf0{confHooks = hooks}
+                req0 = C.requestBuilder methodPost "/record" [] "hello"
+                req = C.setRequestTrailersMaker req0 (trailersMaker hashInit)
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
+                void $ timeout 1000000 $ sendRequest req $ \_ -> return ()
     r <- timeout 1000000 $ takeMVar recordedBody
     r `shouldSatisfy` \x -> case x of
         Just (Right _) -> False
