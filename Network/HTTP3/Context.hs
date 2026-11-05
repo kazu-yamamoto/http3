@@ -255,10 +255,15 @@ forkManagedTimeoutFinally Context{..} label body =
 
 -- | A thread that has sent a connection error ('connectionError') ends there
 -- quietly: the connection is going, and the error has been told to the peer.
+--
+-- So does one waiting on a connection the peer has closed with no error:
+-- quic tells the wait with 'ConnectionIsClosed'.  The thread reading the
+-- peer's control stream used to die of it, reported as uncaught.
 endingOnConnectionError :: IO () -> IO ()
 endingOnConnectionError io =
     io `E.catch` \e -> case e of
         ApplicationProtocolErrorIsSent _ _ -> return ()
+        ConnectionIsClosed _ -> return ()
         _ -> E.throwIO e
 
 -- | Closing the connection with this error, and stopping here: see
