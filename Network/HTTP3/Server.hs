@@ -40,7 +40,6 @@ import Network.HTTP.Semantics.Server.Internal
 import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
-import Network.QUIC.Internal (mainDone)
 import qualified System.TimeManager as T
 
 import Imports
@@ -80,9 +79,9 @@ runIO conn conf action = withContext conn conf $ \ctx -> do
                 , sioWriteResponse = \strm rsp ->
                     sendResponseIO ctx strm rsp
                         `E.finally` atomically (modifyTVar' inflight (subtract 1))
-                , sioDone = do
-                    atomically $ writeTVar done True
-                    mainDone conn
+                -- Not quic's 'mainDone': its sender ends once that is set
+                -- and nothing is queued, before the responses still to come.
+                , sioDone = atomically $ writeTVar done True
                 }
         put strmreq = atomically $ do
             modifyTVar' inflight (+ 1)
