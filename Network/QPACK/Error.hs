@@ -36,6 +36,9 @@ data DecodeError
     | IllegalInsertCount
     | -- | A Base below zero (RFC 9204, section 4.5.1.2)
       IllegalBase
+    | -- | A field line that is cut short, or whose Huffman string or
+      -- integer is not one
+      MalformedFieldLine String
     | BlockedStreamsOverflow
     deriving (Eq, Show)
 

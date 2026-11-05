@@ -28,11 +28,42 @@ import Network.QPACK.HeaderBlock.Prefix
 import Network.QPACK.Table
 import Network.QPACK.Types
 
+-- | Errors in the encoding of a field section, as QPACK's 'DecodeError', and
+-- so QPACK_DECOMPRESSION_FAILED (RFC 9204, section 2.2).  They came out as
+-- HPACK's errors, or 'BufferOverrun' for a section cut short, which nothing
+-- took for a decoding error: the request was reset as malformed.
+asDecodeError :: IO a -> IO a
+asDecodeError io =
+    io
+        `E.catches` [ E.Handler $ \e -> case e of
+                        HPACK.TooLargeHeader -> E.throwIO FieldSectionTooLarge
+                        _
+                            | encoding e -> E.throwIO $ MalformedFieldLine $ show e
+                            -- A field section well encoded but not a valid
+                            -- one, such as a pseudo-header after a field:
+                            -- the message is malformed.
+                            | otherwise -> E.throwIO e
+                    , E.Handler $ \BufferOverrun ->
+                        E.throwIO $ MalformedFieldLine "cut short"
+                    ]
+
+-- | HPACK's errors in the encoding itself, as opposed to the fields it
+-- decodes to.
+encoding :: HPACK.DecodeError -> Bool
+encoding e =
+    e
+        `elem` [ HPACK.EosInTheMiddle
+               , HPACK.IllegalEos
+               , HPACK.TooLongEos
+               , HPACK.TooLargeInteger
+               , HPACK.HeaderBlockTruncated
+               ]
+
 decodeTokenHeader
     :: DynamicTable
     -> ReadBuffer
     -> IO (TokenHeaderTable, RequiredInsertCount)
-decodeTokenHeader dyntbl rbuf = do
+decodeTokenHeader dyntbl rbuf = asDecodeError $ do
     (reqInsertCount, bp) <- decodePrefix rbuf dyntbl
     ready <- checkRequiredInsertCountNB dyntbl reqInsertCount
     -- The count of blocked streams has to come down however the wait ends.
@@ -50,17 +81,15 @@ decodeTokenHeader dyntbl rbuf = do
     dec <- limitFieldSection dyntbl $ toTokenHeader dyntbl reqInsertCount bp hufdec
     -- HPACK's decoder refuses a section of more than 200 fields, which is
     -- the same thing as far as we are concerned: more than we will take.
-    tbl <-
-        decodeSophisticated dec rbuf `E.catch` \e -> case e of
-            HPACK.TooLargeHeader -> E.throwIO FieldSectionTooLarge
-            _ -> E.throwIO e
+    -- 'asDecodeError' says so.
+    tbl <- decodeSophisticated dec rbuf
     return (tbl, reqInsertCount)
 
 decodeTokenHeaderS
     :: DynamicTable
     -> ReadBuffer
     -> IO (Maybe ([Header], RequiredInsertCount))
-decodeTokenHeaderS dyntbl rbuf = do
+decodeTokenHeaderS dyntbl rbuf = asDecodeError $ do
     (reqInsertCount, bp) <- decodePrefix rbuf dyntbl
     ok <- checkRequiredInsertCountNB dyntbl reqInsertCount
     if ok

@@ -242,6 +242,18 @@ h3ErrorSpec qcc cconf ms served = do
                 runC qcc cconf conf ms
                     `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
         itH3
+            "MUST send QPACK_DECOMPRESSION_FAILED if a field line is cut short [QPACK 2.2.3]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader6
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+        itH3
+            "MUST send QPACK_DECOMPRESSION_FAILED if a Huffman string is badly padded [QPACK 4.1.2]"
+            $ \_ -> do
+                let conf = addHook conf0 $ setOnHeadersFrameCreated illegalHeader7
+                runC qcc cconf conf ms
+                    `shouldThrow` applicationProtocolErrorsIn [QpackDecompressionFailed]
+        itH3
             "MUST NOT buffer an over-long frame on a control stream [HTTP/3 7.1]"
             $ \_ -> do
                 let conf = addHook conf0 $ setOnControlStreamCreated overLongFrame
@@ -523,6 +535,34 @@ illegalHeader5 _ =
     [ H3Frame
         H3FrameHeaders
         "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x80"
+    ]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":authority","127.0.0.1")
+-- ,(":path","/")] ++ age with a value of five octets, of which two are there
+--
+-- Running off the end of the section raised BufferOverrun, which the server
+-- answered with a stream reset of H3_MESSAGE_ERROR.
+illegalHeader6 :: [H3Frame] -> [H3Frame]
+illegalHeader6 _ =
+    [ H3Frame
+        H3FrameHeaders
+        "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x52\x05ab"
+    ]
+
+-- [(":method","GET")
+-- ,(":scheme","https")
+-- ,(":authority","127.0.0.1")
+-- ,(":path","/")] ++ age with a one-octet Huffman value of 0x00
+--
+-- The three bits left over are padding, which must be the start of EOS:
+-- ones (RFC 7541, section 5.2).
+illegalHeader7 :: [H3Frame] -> [H3Frame]
+illegalHeader7 _ =
+    [ H3Frame
+        H3FrameHeaders
+        "\x00\x00\xd1\xd7\x50\x09\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31\xc1\x52\x81\x00"
     ]
 
 {-
