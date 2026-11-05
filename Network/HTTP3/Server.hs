@@ -5,6 +5,7 @@
 module Network.HTTP3.Server (
     -- * Runner
     run,
+    runWith,
 
     -- * Common configration
     Config (..),
@@ -26,6 +27,7 @@ module Network.HTTP3.Server (
 
     -- * Internal
     runIO,
+    runIOWith,
     ServerIO (..),
 ) where
 
@@ -53,24 +55,57 @@ import Network.QPACK.Internal
 
 -- | Running an HTTP\/3 server.
 run :: Connection -> Config -> Server -> IO ()
-run conn conf server = withContext conn conf $ \ctx -> do
+run = runServer Nothing
+
+-- | Like 'run', but the connection goes away once the 'STM' action fires:
+--   GOAWAY at once, request streams from its ID on rejected, and the
+--   connection ended when the requests taken before it are answered.
+--
+--   @since 0.1.10
+runWith :: STM () -> Connection -> Config -> Server -> IO ()
+runWith = runServer . Just
+
+runServer :: Maybe (STM ()) -> Connection -> Config -> Server -> IO ()
+runServer mstop conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
-    readerServer ctx $ \strm ->
-        -- 'processRequest' handles its own exceptions; only asynchronous ones
-        -- leave it, and the thread manager takes those that it threw.
-        forkManagedTimeoutFinally
-            ctx
-            "H3 server: processRequest"
-            (processRequest ctx server strm)
-            (closeStream strm)
+    let serve = readerServer ctx $ \strm ->
+            -- 'processRequest' handles its own exceptions; only asynchronous ones
+            -- leave it, and the thread manager takes those that it threw.
+            forkManagedTimeoutFinally
+                ctx
+                "H3 server: processRequest"
+                (processRequest ctx server strm)
+                (closeStream strm >> requestDone ctx (QUIC.streamId strm))
+    maybe serve (\stop -> race_ (goingAway ctx stop) serve) mstop
+
+-- | Once told: GOAWAY, and the requests taken before it answered.
+goingAway :: Context -> STM () -> IO ()
+goingAway ctx stop = do
+    atomically stop
+    goAway ctx
+    atomically $ drained ctx
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
-runIO conn conf action = withContext conn conf $ \ctx -> do
+runIO = runIOServer Nothing
+
+-- | Like 'runIO', but the connection goes away once the 'STM' action
+--   fires, as with 'runWith'.
+--
+--   @since 0.1.10
+runIOWith
+    :: STM () -> Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
+runIOWith = runIOServer . Just
+
+runIOServer
+    :: Maybe (STM ())
+    -> Connection
+    -> Config
+    -> (ServerIO Stream -> IO (IO ()))
+    -> IO ()
+runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     info <- getConnectionInfo conn
     reqq <- newTQueueIO
     done <- newTVarIO False
-    -- Requests handed to the application and not answered yet.
-    inflight <- newTVarIO (0 :: Int)
     let sio =
             ServerIO
                 { sioMySockAddr = localSockAddr info
@@ -78,26 +113,26 @@ runIO conn conf action = withContext conn conf $ \ctx -> do
                 , sioReadRequest = atomically $ readTQueue reqq
                 , sioWriteResponse = \strm rsp ->
                     sendResponseIO ctx strm rsp
-                        `E.finally` atomically (modifyTVar' inflight (subtract 1))
+                        `E.finally` requestDone ctx (QUIC.streamId strm)
                 -- Not quic's 'mainDone': its sender ends once that is set
                 -- and nothing is queued, before the responses still to come.
                 , sioDone = atomically $ writeTVar done True
                 }
-        put strmreq = atomically $ do
-            modifyTVar' inflight (+ 1)
-            writeTQueue reqq strmreq
-        -- Once the application is done and every request it took is
-        -- answered.  This used to wait for streams for good, and so the
+        put = atomically . writeTQueue reqq
+        -- The application being done ends the connection as being told to
+        -- does.  This used to wait for streams for good, and so the
         -- connection was left open until the peer or the idle timeout ended it.
-        drained = atomically $ do
-            readTVar done >>= check
-            readTVar inflight >>= check . (== 0)
+        appDone = readTVar done >>= check
     io <- action sio
     -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
     -- let one stream that never sent them stop every stream after it.
-    race_ drained $ concurrently_ io $ readerServer ctx $ \strm ->
-        forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th ->
-            processRequestIO ctx put strm
+    race_ (goingAway ctx $ maybe appDone (appDone <|>) mstop) $
+        concurrently_ io $
+            readerServer ctx $ \strm ->
+                forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th -> do
+                    let sid = QUIC.streamId strm
+                    handed <- processRequestIO ctx put strm `E.onException` requestDone ctx sid
+                    unless handed $ requestDone ctx sid
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
@@ -109,7 +144,15 @@ readerServer ctx action = loop
         | QUIC.isClientInitiatedUnidirectional sid =
             forkManaged ctx "H3 server: unidirectional handler" $
                 unidirectional ctx strm
-        | QUIC.isClientInitiatedBidirectional sid = action strm
+        | QUIC.isClientInitiatedBidirectional sid = do
+            admitted <- admitRequest ctx sid
+            -- At or above our GOAWAY: not processed, so the client may
+            -- retry it elsewhere (RFC 9114, section 5.2).
+            if admitted
+                then action strm
+                else do
+                    QUIC.stopStream strm H3RequestRejected
+                    QUIC.resetStream strm H3RequestRejected
         | QUIC.isServerInitiatedUnidirectional sid = return () -- error
         | otherwise = return ()
       where
@@ -177,19 +220,20 @@ processRequest ctx server strm th = E.handle reset $ do
         | Just FieldSectionTooLarge <- E.fromException se = True
         | otherwise = False
 
-processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO ()
+-- | Answers whether the request was handed to the application.
+processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO Bool
 processRequestIO ctx put strm = E.handle reset $ do
     src <- newSource strm
     emvt <- E.try $ recvHeader ctx sid src
     case emvt of
         Left FieldSectionTooLarge ->
-            void $ withHandle ctx $ refuseTooLarge ctx strm
-        Right Nothing -> QUIC.resetStream strm H3MessageError
+            False <$ withHandle ctx (refuseTooLarge ctx strm)
+        Right Nothing -> False <$ QUIC.resetStream strm H3MessageError
         Right (Just ht) -> do
             mreq <- mkRequest ctx strm src ht
             case mreq of
-                Nothing -> return ()
-                Just req -> put (strm, req)
+                Nothing -> return False
+                Just req -> True <$ put (strm, req)
   where
     sid = QUIC.streamId strm
     reset se
@@ -201,8 +245,8 @@ processRequestIO ctx put strm = E.handle reset $ do
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
         | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
-            return ()
-        | otherwise = QUIC.resetStream strm H3MessageError
+            return False
+        | otherwise = False <$ QUIC.resetStream strm H3MessageError
 
 -- | Answering a request whose header section is more than we said we would
 --   take.

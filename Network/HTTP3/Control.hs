@@ -32,7 +32,11 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 setupUnidirectional
     :: Connection
     -> H3.Config
-    -> IO (EncodedEncoderInstruction -> IO (), EncodedDecoderInstruction -> IO ())
+    -> IO
+        ( EncodedEncoderInstruction -> IO ()
+        , EncodedDecoderInstruction -> IO ()
+        , [H3Frame] -> IO ()
+        )
 setupUnidirectional conn conf@H3.Config{..} = do
     let QDecoderConfig{..} = confQDecoderConfig
     settings <-
@@ -60,6 +64,7 @@ setupUnidirectional conn conf@H3.Config{..} = do
     return
         ( critical $ sendStream sE
         , critical $ \bs -> withMVar lockD $ \_ -> sendStream sD bs
+        , critical $ sendStreamMany sC . encodeH3Frames
         )
   where
     -- The sending part of one of our QPACK streams is closed only when the

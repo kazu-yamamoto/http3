@@ -26,14 +26,23 @@ module Network.HTTP3.Context (
     forkManagedTimeout,
     forkManagedTimeoutFinally,
     isAsyncException,
+    admitRequest,
+    requestDone,
+    goAway,
+    drained,
 ) where
 
+import Control.Concurrent.STM
 import qualified Control.Exception as E
-import Control.Monad (void)
+import Control.Monad (forM_, void)
 import Data.IORef
+import Data.Maybe (isJust)
+import Data.IntSet (IntSet)
+import qualified Data.IntSet as IntSet
+import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
 import Network.QUIC
-import Network.QUIC.Internal (isClient, isServer)
+import Network.QUIC.Internal (encodeInt', isClient, isServer)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
@@ -68,6 +77,13 @@ data Context = Context
     -- ^ The peer's SETTINGS_MAX_FIELD_SECTION_SIZE, or 'maxBound' until its
     -- SETTINGS have arrived
     -- ^ Sending a Stream Cancellation on our QPACK decoder stream
+    , ctxSendControl :: [H3Frame] -> IO ()
+    , ctxGoAway :: TVar (Maybe StreamId)
+    -- ^ Server only: the ID of our GOAWAY, from which no request is taken.
+    , ctxLastRequest :: TVar (Maybe StreamId)
+    -- ^ Server only: the largest request stream taken.
+    , ctxInFlight :: TVar IntSet
+    -- ^ Server only: the request streams taken and not yet done with.
     }
 
 -- | Running an action with a context, and seeing this connection's own
@@ -93,7 +109,7 @@ stopTimeout = 5000000
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
-    (sendEI, sendDI) <- setupUnidirectional conn conf
+    (sendEI, sendDI, ctxSendControl) <- setupUnidirectional conn conf
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
@@ -121,6 +137,9 @@ newContext conn conf = do
                 (encodeDecoderInstructions [StreamCancellation sid] >>= sendDI)
                     `E.catch` ignoreSync
     ctxThreadManager <- T.newThreadManager
+    ctxGoAway <- newTVarIO Nothing
+    ctxLastRequest <- newTVarIO Nothing
+    ctxInFlight <- newTVarIO IntSet.empty
     let ctxTimeoutManager = confTimeoutManager conf
     let ctxConnection = conn
     return Context{..}
@@ -285,3 +304,44 @@ getMaxFieldSectionSize = ctxMaxFieldSectionSize
 
 getPeerMaxFieldSectionSize :: Context -> IO Int
 getPeerMaxFieldSectionSize = ctxPeerMaxFieldSectionSize
+
+----------------------------------------------------------------
+-- GOAWAY of ours (RFC 9114, section 5.2)
+
+-- | Taking a request stream, unless our GOAWAY has gone out at or below
+--   it.  One that is not taken must be rejected, not processed.
+admitRequest :: Context -> StreamId -> IO Bool
+admitRequest Context{..} sid = atomically $ do
+    lim <- readTVar ctxGoAway
+    if maybe False (sid >=) lim
+        then return False
+        else do
+            modifyTVar' ctxLastRequest $ Just . maybe sid (max sid)
+            modifyTVar' ctxInFlight $ IntSet.insert sid
+            return True
+
+-- | Done with a request stream taken by 'admitRequest'.
+requestDone :: Context -> StreamId -> IO ()
+requestDone Context{..} sid = atomically $ modifyTVar' ctxInFlight $ IntSet.delete sid
+
+-- | Sending GOAWAY once, with the first request stream not taken: the
+--   streams taken so far are still answered.
+goAway :: Context -> IO ()
+goAway Context{..} = do
+    mlim <- atomically $ do
+        old <- readTVar ctxGoAway
+        case old of
+            Just _ -> return Nothing
+            Nothing -> do
+                lim <- maybe 0 (+ 4) <$> readTVar ctxLastRequest
+                writeTVar ctxGoAway $ Just lim
+                return $ Just lim
+    forM_ mlim $ \lim -> do
+        payload <- withWriteBuffer 8 $ \wbuf -> encodeInt' wbuf $ fromIntegral lim
+        ctxSendControl [H3Frame H3FrameGoaway payload]
+
+-- | Waiting until our GOAWAY is out and no request taken is left.
+drained :: Context -> STM ()
+drained Context{..} = do
+    readTVar ctxGoAway >>= check . isJust
+    readTVar ctxInFlight >>= check . IntSet.null
