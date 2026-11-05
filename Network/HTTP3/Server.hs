@@ -35,6 +35,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import Data.IORef
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
@@ -68,15 +69,26 @@ runWith = runServer . Just
 runServer :: Maybe (STM ()) -> Connection -> Config -> Server -> IO ()
 runServer mstop conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
-    let serve = readerServer ctx $ \strm ->
+    let serve = readerServer ctx $ \strm -> do
+            started <- newIORef False
             -- 'processRequest' handles its own exceptions; only asynchronous ones
             -- leave it, and the thread manager takes those that it threw.
             forkManagedTimeoutFinally
                 ctx
                 "H3 server: processRequest"
-                (processRequest ctx server strm)
-                (closeStream strm >> requestDone ctx (QUIC.streamId strm))
+                (\th -> writeIORef started True >> processRequest ctx server strm th)
+                (finish ctx strm started)
     maybe serve (\stop -> race_ (goingAway ctx stop) serve) mstop
+  where
+    -- A thread stopped before it began, as the connection goes, has not
+    -- looked at the request: it is rejected, which tells the client it may
+    -- retry (RFC 9114, section 4.1.1).  The stream used to end with a FIN
+    -- and nothing on it, which the client could only take for malformed.
+    finish ctx strm started = do
+        s <- readIORef started
+        unless s $ QUIC.resetStream strm H3RequestRejected
+        closeStream strm
+        requestDone ctx (QUIC.streamId strm)
 
 -- | Once told: GOAWAY, and the requests taken before it answered.
 goingAway :: Context -> STM () -> IO ()
@@ -114,9 +126,9 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
                 , sioWriteResponse = \strm rsp ->
                     sendResponseIO ctx strm rsp
                         `E.finally` requestDone ctx (QUIC.streamId strm)
-                -- Not quic's 'mainDone': its sender ends once that is set
-                -- and nothing is queued, before the responses still to come.
-                , sioDone = atomically $ writeTVar done True
+                , -- Not quic's 'mainDone': its sender ends once that is set
+                  -- and nothing is queued, before the responses still to come.
+                  sioDone = atomically $ writeTVar done True
                 }
         put = atomically . writeTQueue reqq
         -- The application being done ends the connection as being told to
