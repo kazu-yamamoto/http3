@@ -205,6 +205,7 @@ test-suite spec
     hs-source-dirs:     test util
     other-modules:
         HQ.ServerSpec
+        HTTP3.ClientSpec
         HTTP3.Config
         HTTP3.Error
         HTTP3.ErrorSpec

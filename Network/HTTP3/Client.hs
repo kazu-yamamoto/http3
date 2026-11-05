@@ -178,6 +178,12 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
             mvt <- recvFinalHeader ctx strm src
             case mvt of
                 Nothing -> do
+                    -- The server reset the stream before answering: its code
+                    -- goes to the application, which may retry a request
+                    -- rejected with H3_REQUEST_REJECTED (RFC 9114, section
+                    -- 4.1.1).  It used to be dropped for H3_MESSAGE_ERROR.
+                    mreset <- QUIC.resetReceived strm
+                    forM_ mreset $ E.throwIO . StreamResetIsReceived
                     QUIC.resetStream strm H3MessageError
                     threadDelay 100000
                     -- just for type inference
