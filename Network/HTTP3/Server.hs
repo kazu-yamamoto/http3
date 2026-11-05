@@ -69,19 +69,34 @@ runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO conn conf action = withContext conn conf $ \ctx -> do
     info <- getConnectionInfo conn
     reqq <- newTQueueIO
+    done <- newTVarIO False
+    -- Requests handed to the application and not answered yet.
+    inflight <- newTVarIO (0 :: Int)
     let sio =
             ServerIO
                 { sioMySockAddr = localSockAddr info
                 , sioPeerSockAddr = remoteSockAddr info
                 , sioReadRequest = atomically $ readTQueue reqq
-                , sioWriteResponse = sendResponseIO ctx
-                , sioDone = mainDone conn
+                , sioWriteResponse = \strm rsp ->
+                    sendResponseIO ctx strm rsp
+                        `E.finally` atomically (modifyTVar' inflight (subtract 1))
+                , sioDone = do
+                    atomically $ writeTVar done True
+                    mainDone conn
                 }
-        put strmreq = atomically $ writeTQueue reqq strmreq
+        put strmreq = atomically $ do
+            modifyTVar' inflight (+ 1)
+            writeTQueue reqq strmreq
+        -- Once the application is done and every request it took is
+        -- answered.  This used to wait for streams for good, and so the
+        -- connection was left open until the peer or the idle timeout ended it.
+        drained = atomically $ do
+            readTVar done >>= check
+            readTVar inflight >>= check . (== 0)
     io <- action sio
     -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
     -- let one stream that never sent them stop every stream after it.
-    concurrently_ io $ readerServer ctx $ \strm ->
+    race_ drained $ concurrently_ io $ readerServer ctx $ \strm ->
         forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th ->
             processRequestIO ctx put strm
 
