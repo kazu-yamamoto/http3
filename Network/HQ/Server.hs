@@ -50,6 +50,7 @@ import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Config
+import Network.HTTP3.Error (ApplicationProtocolError (H3InternalError))
 import Network.HTTP3.Recv (newSource, readSource')
 
 -- | Running an HQ server.
@@ -61,57 +62,93 @@ run conn conf server = do
     forever $ do
         strm <- QUIC.acceptStream conn
         forkFinally
-            (labelMe "H3 processRequest" >> processRequest conf mysa peersa server strm)
-            (\_ -> QUIC.closeStream strm)
+            (labelMe "HQ processRequest" >> processRequest conf mysa peersa server strm)
+            (finish strm)
+  where
+    -- Only a response sent in full ends with a FIN.  One whose handler
+    -- failed or timed out used to end so too, and the client took what it
+    -- had for the whole response.
+    finish strm (Right True) = QUIC.closeStream strm
+    finish strm _ = do
+        QUIC.resetStream strm H3InternalError
+        QUIC.closeStream strm
 
 labelMe :: String -> IO ()
 labelMe label = do
     tid <- myThreadId
     labelThread tid label
 
-processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO ()
+-- | Whether the response went out in full.
+--
+-- The handler is killed when the timeout manager says so; it used to be
+-- given a timeout that did nothing, so a client that never finished its
+-- request line kept the thread for as long as the connection lasted.
+processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO Bool
 processRequest conf mysa peersa server strm
-    | QUIC.isClientInitiatedBidirectional sid =
-        void $ T.withHandle (confTimeoutManager conf) (return ()) $ \th -> do
-            vt <- recvHeader strm mysa
-            src <- newSource strm
-            refH <- newIORef Nothing
-            let readB = readSource' src
-                req = Request $ InpObj vt Nothing readB refH
-                aux =
-                    defaultAux
-                        { auxTimeHandle = th
-                        , auxMySockAddr = mysa
-                        , auxPeerSockAddr = peersa
-                        }
-            server req aux $ sendResponse conf strm
-    | otherwise = return () -- fixme: should consume the data?
+    | QUIC.isClientInitiatedBidirectional sid = do
+        done <- newIORef False
+        T.withHandleKillThread (confTimeoutManager conf) (return ()) $ \th -> do
+            mvt <- recvHeader strm mysa
+            forM_ mvt $ \vt -> do
+                src <- newSource strm
+                refH <- newIORef Nothing
+                let readB = readSource' src
+                    req = Request $ InpObj vt Nothing readB refH
+                    aux =
+                        defaultAux
+                            { auxTimeHandle = th
+                            , auxMySockAddr = mysa
+                            , auxPeerSockAddr = peersa
+                            }
+                server req aux $ sendResponse conf strm
+                writeIORef done True
+        readIORef done
+    | otherwise = return True -- fixme: should consume the data?
   where
     sid = QUIC.streamId strm
 
-recvHeader :: Stream -> SockAddr -> IO TokenHeaderTable
+-- | The request line, as a header table, or 'Nothing' when it is not one.
+recvHeader :: Stream -> SockAddr -> IO (Maybe TokenHeaderTable)
 recvHeader strm myaddr = do
-    (method, path) <- recvRequestLine id
-    let auth = showSockAddrBS myaddr
-        vt =
-            (":path", path)
-                : (":method", method)
-                : (":scheme", "https")
-                : (":authority", auth)
-                : []
-    toTokenHeaderTable vt
+    mpath <- recvRequestLine strm
+    forM mpath $ \path -> do
+        let auth = showSockAddrBS myaddr
+            vt =
+                (":path", path)
+                    : (":method", "GET")
+                    : (":scheme", "https")
+                    : (":authority", auth)
+                    : []
+        toTokenHeaderTable vt
+
+-- | The path of an HTTP/0.9 request line, "GET" and the path, ending in CRLF
+-- or LF, or at the end of the stream.
+--
+-- It was taken to be the octets after the first four, less the last two,
+-- of everything up to the end of the stream: no check that the method was
+-- GET, a version taken as part of the path, the last octet of the path lost
+-- to a bare LF, and no limit on what was held.
+recvRequestLine :: Stream -> IO (Maybe ByteString)
+recvRequestLine strm = loop ""
   where
-    recvRequestLine builder = do
+    maxLength = 8192
+    loop acc = do
         bs <- QUIC.recvStream strm 1024
-        if bs == ""
-            then do
-                return $ parseRequestLine $ BS.concat $ builder []
-            else recvRequestLine (builder . (bs :))
-    parseRequestLine bs = (method, path)
+        let acc' = acc <> bs
+        case BS.elemIndex 0x0a acc' of
+            Just i -> return $ parse $ BS.take i acc'
+            Nothing
+                | BS.null bs -> return $ parse acc'
+                | BS.length acc' > maxLength -> return Nothing
+                | otherwise -> loop acc'
+    parse line0 = case BS.stripPrefix "GET " line of
+        Just rest
+            | path <- BS.takeWhile (/= 0x20) rest
+            , "/" `BS.isPrefixOf` path ->
+                Just path
+        _ -> Nothing
       where
-        method = "GET"
-        path0 = BS.drop 4 bs
-        path = BS.take (BS.length path0 - 2) path0
+        line = fromMaybe line0 $ BS.stripSuffix "\r" line0
 
 sendResponse :: Config -> Stream -> Response -> [PushPromise] -> IO ()
 sendResponse conf strm (Response outobj) _ = case outObjBody outobj of

@@ -204,6 +204,7 @@ test-suite spec
     build-tool-depends: hspec-discover:hspec-discover
     hs-source-dirs:     test util
     other-modules:
+        HQ.ServerSpec
         HTTP3.Config
         HTTP3.Error
         HTTP3.ErrorSpec
