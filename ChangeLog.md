@@ -1,5 +1,29 @@
 # Revision history for http3
 
+## 0.1.10
+
+These changes were made on main without PRs.
+
+* New `runWith` and `runIOWith`: the connection goes away with two
+  GOAWAYs and ends once the requests taken are answered.
+* `runIO` processes each request stream in a thread of its own and
+  returns once `sioDone` is called and every request is answered.
+* Request streams are closed with H3_NO_ERROR (server) and
+  H3_REQUEST_CANCELLED (client).
+* A request that the server never started is rejected with
+  H3_REQUEST_REJECTED, and the client gets the reset code as
+  `StreamResetIsReceived`.
+* A connection error stops where it is sent.
+* Validate PUSH_PROMISE, CANCEL_PUSH, GOAWAY and MAX_PUSH_ID, and skip
+  unknown frames.
+* Answer 431 to a HEADERS frame longer than the limit, and check what
+  follows the trailers.
+* QPACK: validate the prefix, references and Insert Count Increment, and
+  make a badly encoded field section QPACK_DECOMPRESSION_FAILED.
+* HQ server: reset unfinished responses, and parse and bound the request
+  line.
+* Requires `quic` 0.3.20. The library's dependencies are bounded.
+
 ## 0.1.9
 
 * A connection's threads are waited for, up to five seconds, before `run`

@@ -34,8 +34,8 @@ module Network.HTTP3.Server (
 import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import qualified Control.Monad.STM as STM
 import qualified Control.Exception as E
+import qualified Control.Monad.STM as STM
 import Data.IORef
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
@@ -60,8 +60,9 @@ run :: Connection -> Config -> Server -> IO ()
 run = runServer Nothing
 
 -- | Like 'run', but the connection goes away once the 'STM' action fires:
---   GOAWAY at once, request streams from its ID on rejected, and the
---   connection ended when the requests taken before it are answered.
+--   two GOAWAYs a PTO apart (RFC 9114, section 5.2), request streams from
+--   the second one's ID on rejected, and the connection ended when the
+--   requests taken before it are answered.
 --
 --   @since 0.1.10
 runWith :: STM () -> Connection -> Config -> Server -> IO ()
