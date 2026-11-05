@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module QPACK.QIF2Spec where
 
@@ -15,7 +16,7 @@ import Data.Maybe
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Client.Internal
 import Network.HTTP.Semantics.Server
-import Network.HTTP.Types (RequestHeaders, notFound404, ok200)
+import Network.HTTP.Types (RequestHeaders, ok200)
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
 import qualified Network.HTTP3.Server as S
@@ -70,7 +71,9 @@ client hdl sendRequest _aux = do
     -- delay for set table capacity
     threadDelay 10000
     ms <- forkClient 0 id
-    mapM_ takeMVar ms
+    -- A failure in a request's thread is brought back here.  It used to
+    -- kill the thread before it said it was done, and the test hung.
+    mapM takeMVar ms >>= mapM_ (either E.throwIO return)
   where
     forkClient n build = do
         hs <- headerlist hdl
@@ -80,16 +83,23 @@ client hdl sendRequest _aux = do
                 var <- newEmptyMVar
                 _ <- forkIO $ do
                     let req = requestBuilder2 hs mempty
-                    _ <- sendRequest req $ checkHeader hs
-                    putMVar var ()
+                    r <- E.try @E.SomeException $ sendRequest req $ checkHeader hs
+                    putMVar var $ void r
                 when ((n :: Int) `mod` 50 == 0) $ threadDelay 100000
                 forkClient (n + 1) (build . (var :))
     checkHeader hs rsp = do
         bs <- getBody
-        let hs0 = map keyValue $ split bs
-            hs0' = sort $ filter (\(k, _) -> k == "cookie:") hs0
-            hs' = sort $ filter (\(k, _) -> k == "cookie:") hs
-        hs0' `shouldBe` hs'
+        -- Every field but the pseudo-header ones, which the client may
+        -- add to or rewrite.  This compared fields named "cookie:", which
+        -- there are none of, and so compared two empty lists.
+        -- Cookies are split into crumbs on both sides: the server joins
+        -- them with "; " (RFC 9114, section 4.2.1).
+        let regular = sort . concatMap crumbs . filter ((/= ":") . B.take 1 . foldedCase . fst)
+            crumbs (k, v)
+                | k == "cookie" = map ((,) k) $ splitOn "; " v
+                | otherwise = [(k, v)]
+            hs0 = map keyValue $ split bs
+        regular hs0 `shouldBe` regular hs
       where
         getBody = B.concat <$> loop id
         loop build = do
@@ -104,15 +114,18 @@ client hdl sendRequest _aux = do
               where
                 (l, ls') = C8.break (== '\n') ls
                 ls'' = C8.drop 1 ls'
+        splitOn sep s = case B.breakSubstring sep s of
+            (x, "") -> [x]
+            (x, rest) -> x : splitOn sep (B.drop (B.length sep) rest)
         keyValue kv = (mk k, v)
           where
             (k, v') = C8.break (== ' ') kv
             v = C8.drop 1 v'
 
+-- | Answering with the fields of the request, whatever its method: the QIF
+-- file has POSTs as well as GETs.
 server :: Server
-server req _aux sendResponse = case requestMethod req of
-    Just "GET" -> sendResponse (responseSection req) []
-    _ -> sendResponse (responseNoBody notFound404 []) []
+server req _aux sendResponse = sendResponse (responseSection req) []
 
 responseSection :: S.Request -> S.Response
 responseSection req = responseBuilder ok200 header body
