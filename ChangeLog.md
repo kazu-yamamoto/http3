@@ -1,5 +1,10 @@
 # Revision history for http3
 
+## Unreleased
+
+* Do not take a closed connection for a QPACK stream error
+  [#57](https://github.com/kazu-yamamoto/http3/pull/57)
+
 ## 0.1.10
 
 These changes were made on main without PRs.
