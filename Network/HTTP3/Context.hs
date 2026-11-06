@@ -152,8 +152,11 @@ newContext conn conf = do
         | isAsyncException se = E.throwIO se
         | otherwise = return ()
     abortWith :: ApplicationProtocolError -> E.SomeException -> IO ()
+    -- A QUIC exception says the connection is over, not that the peer's
+    -- instructions were bad: passed on, as the control stream's are.
     abortWith aerr se
         | isAsyncException se = E.throwIO se
+        | isJust (E.fromException se :: Maybe QUICException) = E.throwIO se
         | otherwise = connectionError conn aerr
 
 isAsyncException :: E.Exception e => e -> Bool
