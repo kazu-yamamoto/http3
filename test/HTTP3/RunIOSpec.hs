@@ -8,7 +8,7 @@ import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
-import Data.ByteString.Builder (byteString)
+import Data.ByteString.Builder (Builder, byteString)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (
@@ -138,7 +138,8 @@ setupFailing = do
             let conf = defaultConfig{confTimeoutManager = mgr}
             runIO conn conf $ \sio -> return $ forever $ do
                 (strm, req) <- sioReadRequest sio
-                let body write flush = do
+                let body :: (Builder -> IO ()) -> IO () -> IO ()
+                    body write flush = do
                         write $ byteString "partial"
                         flush
                         -- Let the DATA frame arrive ahead of the reset.
