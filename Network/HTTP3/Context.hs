@@ -12,6 +12,7 @@ module Network.HTTP3.Context (
     qpackEncode,
     qpackDecode,
     withHandle,
+    withHandleKillThread,
     newStream,
     closeStream,
     pReadMaker,
@@ -256,6 +257,11 @@ unidirectional Context{..} strm = do
 
 withHandle :: Context -> (TM.Handle -> IO ()) -> IO ()
 withHandle Context{..} action = void $ TM.withHandle ctxTimeoutManager (return ()) action
+
+-- | Like 'withHandle', but the timeout stops the action: this thread is
+--   interrupted, and this returns.
+withHandleKillThread :: Context -> (TM.Handle -> IO ()) -> IO ()
+withHandleKillThread Context{..} = TM.withHandleKillThread ctxTimeoutManager (return ())
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection

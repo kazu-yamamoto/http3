@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.RunIOSpec where
 
@@ -6,13 +8,19 @@ import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
+import Data.ByteString.Builder (byteString)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
+import Network.HTTP3.Internal (
+    StreamResetIsReceived (..),
+    pattern H3InternalError,
+ )
 import Network.HTTP3.Server
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
 import qualified Network.QUIC.Internal as QUIC
 import qualified Network.QUIC.Server as QUICS
+import qualified System.TimeManager as T
 import System.Timeout (timeout)
 import Test.Hspec hiding (runIO)
 
@@ -32,6 +40,12 @@ spec =
                 -- answered, and only then does runIO return.
                 timeout 3000000 oneRequest `shouldReturn` Just ()
                 timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
+        it "resets a response whose body throws" $
+            E.bracket setupFailing teardown $ \_ ->
+                timeout 3000000 (resetResponse "/throw") `shouldReturn` Just ()
+        it "resets a response that times out" $
+            E.bracket setupFailing teardown $ \_ ->
+                timeout 5000000 (resetResponse "/stall") `shouldReturn` Just ()
         it "gives back the stream of a request refused with 431" $
             E.bracket setupFewStreams teardown $ \_ ->
                 timeout 5000000 tooLongRequests `shouldReturn` Just ()
@@ -112,3 +126,46 @@ tooLongRequests = QUICC.run testClientConfig $ \conn ->
                 let req = C.requestNoBody methodGet "/" [("x-a", B.replicate 40000 0x7e)]
                 sendRequest req $ \rsp ->
                     C.responseStatus rsp `shouldBe` Just requestHeaderFieldsTooLarge431
+
+-- | A server whose responses fail after one DATA frame: the body throws
+-- (\"/throw\"), or stops for longer than the timeout of a second (\"/stall\").
+-- Each is answered on a thread of its own, as an application would.
+setupFailing :: IO ThreadId
+setupFailing = do
+    sc <- makeTestServerConfig
+    tid <- forkIO $ QUICS.run sc $ \conn ->
+        T.initialize 1000000 >>= \mgr -> do
+            let conf = defaultConfig{confTimeoutManager = mgr}
+            runIO conn conf $ \sio -> return $ forever $ do
+                (strm, req) <- sioReadRequest sio
+                let body write flush = do
+                        write $ byteString "partial"
+                        flush
+                        -- Let the DATA frame arrive ahead of the reset.
+                        threadDelay 200000
+                        case requestPath req of
+                            Just "/throw" -> E.throwIO $ userError "body failed"
+                            _ -> threadDelay 10000000
+                void $
+                    forkIO $
+                        void $
+                            E.try @E.SomeException $
+                                sioWriteResponse sio strm $
+                                    responseStreaming ok200 [] body
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | The response is reset after its first DATA frame, and the client is told
+-- so.  It used to be left neither ended nor reset, and the client waited.
+resetResponse :: Method -> IO ()
+resetResponse path = QUICC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            r <- E.try $ sendRequest (C.requestNoBody methodGet path []) $ \rsp -> do
+                let drain = do
+                        bs <- C.getResponseBodyChunk rsp
+                        unless (B.null bs) drain
+                drain
+            case r of
+                Left (StreamResetIsReceived e) -> e `shouldBe` H3InternalError
+                Right () -> expectationFailure "the response was taken as whole"
