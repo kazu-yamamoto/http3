@@ -329,13 +329,14 @@ sendResponse
     :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
 sendResponse ctx strm th (Response outobj) _pp = do
     sendHeader ctx strm th $ outObjHeaders outobj
-    sendBody ctx strm th outobj
-    QUIC.shutdownStream strm
+    done <- sendBody ctx strm th outobj
+    when done $ QUIC.shutdownStream strm
 
 sendResponseIO
     :: Context -> Stream -> Response -> IO ()
 sendResponseIO ctx strm (Response outobj) =
     void $ withHandle ctx $ \th -> do
         sendHeader ctx strm th $ outObjHeaders outobj
-        sendBody ctx strm th outobj
+        -- A cancelled body has reset the stream, and this only releases it.
+        _ <- sendBody ctx strm th outobj
         QUIC.closeStreamWith strm H3NoError

@@ -20,6 +20,7 @@ import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Context
+import Network.HTTP3.Error
 import Network.HTTP3.Frame
 import Network.QPACK
 
@@ -46,16 +47,19 @@ sendHeader ctx strm th hdrs = do
     sendStreamMany strm bss
     T.tickle th
 
-sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO ()
+-- | Sending the body and its trailers.  'False' when the application
+--   cancelled the stream ('outBodyCancel'), which has reset it: the caller
+--   must not end it with a FIN.
+sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO Bool
 sendBody ctx strm th outobj = case outObjBody outobj of
-    OutBodyNone -> return ()
+    OutBodyNone -> return True
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel) <- pReadMaker ctx path
         let next = fillFileBodyGetNext pread fileoff bytecount sentinel
-        sendNext ctx strm th next tlrmkr
+        True <$ sendNext ctx strm th next tlrmkr
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
-        sendNext ctx strm th next tlrmkr
+        True <$ sendNext ctx strm th next tlrmkr
     OutBodyStreaming strmbdy ->
         sendStreaming
             ctx
@@ -128,9 +132,10 @@ sendStreaming
     -> T.Handle
     -> TrailersMaker
     -> (OutBodyIface -> IO ())
-    -> IO ()
+    -> IO Bool
 sendStreaming ctx strm th tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
+    cancelled <- newIORef False
     E.mask $ \unmask -> do
         let iface =
                 OutBodyIface
@@ -138,19 +143,27 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
                     , outBodyPush = write ref
                     , outBodyPushFinal = write ref -- fixme
                     , outBodyFlush = flush
-                    , outBodyCancel = cancel
+                    , outBodyCancel = cancel cancelled
                     }
         strmbdy iface
-    tlrmkr <- readIORef ref
-    tm <- tlrmkr Nothing
-    let trailers = case tm of
-            Trailers t -> t
-            _ -> []
-    unless (null trailers) $ sendHeader ctx strm th trailers
+    done <- not <$> readIORef cancelled
+    when done $ do
+        tlrmkr <- readIORef ref
+        tm <- tlrmkr Nothing
+        let trailers = case tm of
+                Trailers t -> t
+                _ -> []
+        unless (null trailers) $ sendHeader ctx strm th trailers
+    return done
   where
-    -- fixme: how to implement flush and cancel?
+    -- fixme: how to implement flush?
     flush = return ()
-    cancel _ = return ()
+    -- The stream is reset, with H3_INTERNAL_ERROR for an exception and
+    -- H3_REQUEST_CANCELLED otherwise, as HTTP/2 does with RST_STREAM.
+    -- It did nothing, and the body cut short was ended with a FIN.
+    cancel cancelled merr = do
+        writeIORef cancelled True
+        resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write ref builder = do
         tlrmkr1 <- readIORef ref
         tlrmkr2 <- newByteStringAndSend strm th tlrmkr1 (B.runBuilder builder) >>= loop
