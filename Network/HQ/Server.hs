@@ -29,14 +29,12 @@ module Network.HQ.Server (
     responseBuilder,
 ) where
 
-import Control.Concurrent
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
-import GHC.Conc.Sync
 import Network.HPACK.Internal (toTokenHeaderTable)
 import Network.HTTP.Semantics.IO
 import Network.HTTP.Semantics.Server
@@ -46,7 +44,9 @@ import Network.QUIC (Connection, Stream)
 import qualified Network.QUIC as QUIC
 import Network.SockAddr (showSockAddrBS)
 import Network.Socket (SockAddr)
+import qualified System.ThreadManager as TM
 import qualified System.TimeManager as T
+import System.Timeout (timeout)
 
 import Imports
 import Network.HTTP3.Config
@@ -59,37 +59,37 @@ run conn conf server = do
     info <- QUIC.getConnectionInfo conn
     let mysa = QUIC.localSockAddr info
         peersa = QUIC.remoteSockAddr info
-    forever $ do
-        strm <- QUIC.acceptStream conn
-        forkFinally
-            (labelMe "HQ processRequest" >> processRequest conf mysa peersa server strm)
-            (finish strm)
+    mgr <- TM.newThreadManager
+    -- The handlers are stopped once the connection is gone, as with HTTP/3.
+    -- They were plain threads, left running after it.
+    TM.stopAfter mgr (accept mgr mysa peersa) $ \_ ->
+        void $ timeout 5000000 $ TM.waitUntilAllGone mgr
   where
+    accept mgr mysa peersa = forever $ do
+        strm <- QUIC.acceptStream conn
+        done <- newIORef False
+        TM.forkManagedTimeoutFinally
+            mgr
+            (confTimeoutManager conf)
+            "HQ processRequest"
+            (processRequest conf mysa peersa server strm >=> writeIORef done)
+            (finish strm done)
     -- Only a response sent in full ends with a FIN.  One whose handler
-    -- failed or timed out used to end so too, and the client took what it
-    -- had for the whole response.
-    finish strm (Right True) = QUIC.closeStream strm
-    finish strm _ = do
-        QUIC.resetStream strm H3InternalError
+    -- failed, timed out or was stopped is reset.
+    finish strm done = do
+        ok <- readIORef done
+        unless ok $ QUIC.resetStream strm H3InternalError
         QUIC.closeStream strm
 
-labelMe :: String -> IO ()
-labelMe label = do
-    tid <- myThreadId
-    labelThread tid label
-
 -- | Whether the response went out in full.
---
--- The handler is killed when the timeout manager says so; it used to be
--- given a timeout that did nothing, so a client that never finished its
--- request line kept the thread for as long as the connection lasted.
-processRequest :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO Bool
-processRequest conf mysa peersa server strm
+processRequest
+    :: Config -> SockAddr -> SockAddr -> Server -> Stream -> T.Handle -> IO Bool
+processRequest conf mysa peersa server strm th
     | QUIC.isClientInitiatedBidirectional sid = do
-        done <- newIORef False
-        T.withHandleKillThread (confTimeoutManager conf) (return ()) $ \th -> do
-            mvt <- recvHeader strm mysa
-            forM_ mvt $ \vt -> do
+        mvt <- recvHeader strm mysa
+        case mvt of
+            Nothing -> return False
+            Just vt -> do
                 src <- newSource strm
                 refH <- newIORef Nothing
                 let readB = readSource' src
@@ -101,8 +101,7 @@ processRequest conf mysa peersa server strm
                             , auxPeerSockAddr = peersa
                             }
                 server req aux $ sendResponse conf strm
-                writeIORef done True
-        readIORef done
+                return True
     | otherwise = return True -- fixme: should consume the data?
   where
     sid = QUIC.streamId strm
