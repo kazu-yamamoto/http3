@@ -168,14 +168,10 @@ sendNext :: Stream -> DynaNext -> IO ()
 sendNext strm action = do
     fp <- BS.mallocByteString 2048
     Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048
-    if len == 0
-        then return ()
-        else do
-            let bs = PS fp 0 len
-            QUIC.sendStream strm bs
-            case mnext of
-                Nothing -> return ()
-                Just next -> sendNext strm next
+    -- Nothing this time is not the end: a builder fills nothing before a
+    -- large chunk.  The body used to end here, and went out empty.
+    when (len /= 0) $ QUIC.sendStream strm $ PS fp 0 len
+    forM_ mnext $ sendNext strm
 
 sendStreaming :: Stream -> ((Builder -> IO ()) -> IO () -> IO ()) -> IO ()
 sendStreaming strm strmbdy = do

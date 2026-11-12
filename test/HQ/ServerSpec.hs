@@ -23,6 +23,9 @@ spec = beforeAll setupHQ $
         describe "HQ server" $ do
             it "answers a request" $ \_ ->
                 request "GET /\r\n" `shouldReturn` Just ("hello", Nothing)
+            it "sends a body whose first chunk fills nothing" $ \_ ->
+                fmap (BS.length . fst) <$> request "GET /large\r\n"
+                    `shouldReturn` Just largeSize
             it "takes the path alone from a request line with a version" $ \_ ->
                 request "GET /path HTTP/1.0\r\n" `shouldReturn` Just ("/path", Nothing)
             it "takes a request line ending in LF alone" $ \_ ->
@@ -47,12 +50,21 @@ setupHQ = do
     threadDelay 500000 -- give enough time to the server
     return tid
 
--- | "/" answers hello, "/fail" fails after part of its response, and
--- anything else answers with its path.
+-- | Large enough for 'byteString' to insert it as a chunk of its own: the
+-- builder then fills nothing in its first step.
+largeSize :: Int
+largeSize = 20000
+
+-- | "/" answers hello, "/fail" fails after part of its response, "/large"
+-- answers 'largeSize' octets, and anything else answers with its path.
 hqServer :: HQ.Server
 hqServer req _aux sendResponse = case HQ.requestPath req of
     Just "/" -> sendResponse (HQ.responseBuilder ok200 [] "hello") []
     Just "/fail" -> sendResponse (HQ.responseStreaming ok200 [] failing) []
+    Just "/large" ->
+        sendResponse
+            (HQ.responseBuilder ok200 [] (byteString (BS.replicate largeSize 0x62)))
+            []
     Just path -> sendResponse (HQ.responseBuilder ok200 [] (byteString path)) []
     Nothing -> sendResponse (HQ.responseNoBody badRequest400 []) []
   where
