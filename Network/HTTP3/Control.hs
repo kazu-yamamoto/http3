@@ -91,14 +91,16 @@ connectionError conn aerr = do
     abortConnection conn aerr ""
     E.throwIO $ ApplicationProtocolErrorIsSent aerr ""
 
--- | The last GOAWAY and MAX_PUSH_ID the peer sent on its control stream.
+-- | The last GOAWAY and MAX_PUSH_ID the peer sent on its control stream,
+--   and what to do with a GOAWAY.
 data ControlState = ControlState
     { lastGoaway :: IORef (Maybe Int64)
     , lastMaxPushId :: IORef (Maybe Int64)
+    , onGoaway :: Int64 -> IO ()
     }
 
-newControlState :: IO ControlState
-newControlState = ControlState <$> newIORef Nothing <*> newIORef Nothing
+newControlState :: (Int64 -> IO ()) -> IO ControlState
+newControlState hook = ControlState <$> newIORef Nothing <*> newIORef Nothing <*> pure hook
 
 -- DynamicTable for Encoder
 controlStream
@@ -179,12 +181,12 @@ controlStream conn lim tblop cst ref recv = loop0
         unless (maybe False (pid <=) allowed) $ connectionError conn H3IdError
     -- Section 5.2: from a server, the ID of a client-initiated bidirectional
     -- stream; and in either direction, no larger than one sent before.
-    -- What to do on GOAWAY is left to the caller of the connection.
     goaway i = do
         when (not server && i `mod` 4 /= 0) $ connectionError conn H3IdError
         prev <- readIORef (lastGoaway cst)
         when (maybe False (i >) prev) $ connectionError conn H3IdError
         writeIORef (lastGoaway cst) (Just i)
+        onGoaway cst i
     -- Section 7.2.7: only a server takes MAX_PUSH_ID, and it may not go down.
     maxPushId i = do
         unless server $ connectionError conn H3FrameUnexpected
