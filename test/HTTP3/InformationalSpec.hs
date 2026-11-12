@@ -10,9 +10,9 @@ import Network.HTTP3.Internal (
     ApplicationProtocolError (..),
     H3Frame (..),
     H3FrameType (..),
+    StreamResetIsSent (..),
  )
 import Network.HTTP3.Server
-import qualified Network.QUIC as Q
 import qualified Network.QUIC.Client as QUIC
 import System.Timeout (timeout)
 import Test.Hspec
@@ -45,11 +45,13 @@ spec = do
                     -- them for ever.
                     r <- get
                     case r of
-                        Just (Left (Q.ApplicationProtocolErrorIsSent H3ExcessiveLoad _)) ->
-                            return ()
+                        -- A stream error: the connection goes on.
+                        Just (Left se)
+                            | Just (StreamResetIsSent H3ExcessiveLoad) <- E.fromException se ->
+                                return ()
                         _ -> expectationFailure $ "unexpected: " ++ show r
   where
-    get :: IO (Maybe (Either Q.QUICException (Maybe Status, B.ByteString)))
+    get :: IO (Maybe (Either E.SomeException (Maybe Status, B.ByteString)))
     get = timeout 3000000 $ E.try $ QUIC.run testClientConfig $ \conn ->
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
             C.run conn testH3ClientConfig conf $ \sendRequest _aux ->

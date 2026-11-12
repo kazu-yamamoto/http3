@@ -32,7 +32,6 @@ module Network.HTTP3.Client (
     module Network.HTTP.Semantics.Client,
 ) where
 
-import Control.Concurrent
 import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
@@ -129,10 +128,7 @@ recvFinalHeader ctx strm src = loop (0 :: Int)
                         then loop (n + 1)
                         else do
                             QUIC.resetStream strm H3ExcessiveLoad
-                            E.throwIO $
-                                QUIC.ApplicationProtocolErrorIsSent
-                                    H3ExcessiveLoad
-                                    "too many informational responses"
+                            E.throwIO $ StreamResetIsSent H3ExcessiveLoad
             _ -> return mvt
     informational status = C8.length status == 3 && C8.head status == '1'
 
@@ -179,22 +175,13 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
             mvt <- recvFinalHeader ctx strm src
             case mvt of
                 Nothing -> do
-                    -- The server reset the stream before answering: its code
-                    -- goes to the application, which may retry a request
-                    -- rejected with H3_REQUEST_REJECTED (RFC 9114, section
-                    -- 4.1.1).  It used to be dropped for H3_MESSAGE_ERROR.
-                    --
-                    -- Not at once: a server closing the connection may reset
-                    -- its streams first, and the connection error, which says
-                    -- more, comes to this thread in the meantime.
+                    -- Reset before answering: the code goes to the application,
+                    -- which may retry H3_REQUEST_REJECTED (RFC 9114, 4.1.1).
                     mreset <- QUIC.resetReceived strm
-                    forM_ mreset $ \aerr -> do
-                        threadDelay 100000
-                        E.throwIO $ StreamResetIsReceived aerr
+                    forM_ mreset $ E.throwIO . StreamResetIsReceived
+                    -- Ended with no response: malformed, a stream error only.
                     QUIC.resetStream strm H3MessageError
-                    threadDelay 100000
-                    -- just for type inference
-                    E.throwIO $ QUIC.ApplicationProtocolErrorIsSent H3MessageError ""
+                    E.throwIO $ StreamResetIsSent H3MessageError
                 Just vt
                     -- Malformed (RFC 9114, section 4.2).
                     | Just name <- connectionSpecificField vt -> do

@@ -4,6 +4,7 @@ module Network.HTTP3.Error (
     ContentLengthMismatch (..),
     ConnectionSpecificField (..),
     StreamResetIsReceived (..),
+    StreamResetIsSent (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -61,6 +62,14 @@ newtype StreamResetIsReceived = StreamResetIsReceived ApplicationProtocolError
     deriving (Eq, Show)
 
 instance E.Exception StreamResetIsReceived
+
+-- | We reset the stream with this error code: the peer's message on it was
+--   not one we could take.  A stream error, unlike 'ApplicationProtocolErrorIsSent',
+--   which says the connection was closed.
+newtype StreamResetIsSent = StreamResetIsSent ApplicationProtocolError
+    deriving (Eq, Show)
+
+instance E.Exception StreamResetIsSent
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError
