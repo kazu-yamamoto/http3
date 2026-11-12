@@ -62,9 +62,9 @@ runCReqOk
     -> IO (Maybe ())
 runCReqOk = runCWith False
 
--- | With 'True', a test that expects a connection error: a reset of the
--- request does not end it, since a server closing the connection may reset
--- its streams first.
+-- | With 'True', a test that expects a connection error: a stream error on
+-- the request does not end it, since a server closing the connection may
+-- end its streams first.
 runCWith
     :: Bool
     -> H3.Request
@@ -85,7 +85,12 @@ runCWith expectError req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
     client :: H3.Client ()
     client sendRequest _aux
         | expectError = do
-            _ <- E.try @StreamResetIsReceived $ sendRequest req $ \_rsp -> return ()
+            -- A stream error, ours or the server's, comes before the
+            -- connection error when the server ends the stream first.
+            sendRequest req (\_rsp -> return ())
+                `E.catches` [ E.Handler $ \(StreamResetIsReceived _) -> return ()
+                            , E.Handler $ \(StreamResetIsSent _) -> return ()
+                            ]
             threadDelay us
         | otherwise = do
             ret <- sendRequest req $ \_rsp -> return ()
