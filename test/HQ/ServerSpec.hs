@@ -11,6 +11,7 @@ import Network.HTTP.Types
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
 import qualified Network.QUIC.Server as QUICS
+import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
 import Test.Hspec
 
@@ -26,6 +27,14 @@ spec = beforeAll setupHQ $
             it "sends a body whose first chunk fills nothing" $ \_ ->
                 fmap (BS.length . fst) <$> request "GET /large\r\n"
                     `shouldReturn` Just largeSize
+            it "stops a handler once the connection is gone" $ \_ -> do
+                _ <- tryTakeMVar stallStopped
+                QUICC.run testClientConfig $ \conn -> do
+                    strm <- QUIC.stream conn
+                    QUIC.sendStream strm "GET /stall\r\n"
+                    QUIC.shutdownStream strm
+                    threadDelay 200000
+                timeout 2000000 (takeMVar stallStopped) `shouldReturn` Just ()
             it "takes the path alone from a request line with a version" $ \_ ->
                 request "GET /path HTTP/1.0\r\n" `shouldReturn` Just ("/path", Nothing)
             it "takes a request line ending in LF alone" $ \_ ->
@@ -56,11 +65,14 @@ largeSize :: Int
 largeSize = 20000
 
 -- | "/" answers hello, "/fail" fails after part of its response, "/large"
--- answers 'largeSize' octets, and anything else answers with its path.
+-- answers 'largeSize' octets, "/stall" never answers, and anything else
+-- answers with its path.
 hqServer :: HQ.Server
 hqServer req _aux sendResponse = case HQ.requestPath req of
     Just "/" -> sendResponse (HQ.responseBuilder ok200 [] "hello") []
     Just "/fail" -> sendResponse (HQ.responseStreaming ok200 [] failing) []
+    Just "/stall" ->
+        threadDelay 10000000 `E.onException` putMVar stallStopped ()
     Just "/large" ->
         sendResponse
             (HQ.responseBuilder ok200 [] (byteString (BS.replicate largeSize 0x62)))
@@ -73,6 +85,11 @@ hqServer req _aux sendResponse = case HQ.requestPath req of
         write "partial"
         flush
         E.throwIO $ userError "failing"
+
+-- | Filled when the handler of "/stall" is stopped.
+{-# NOINLINE stallStopped #-}
+stallStopped :: MVar ()
+stallStopped = unsafePerformIO newEmptyMVar
 
 -- | Sending the octets as a request, and reading the response: what came,
 -- and the code of a reset if there was one.
