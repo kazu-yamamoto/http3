@@ -30,6 +30,11 @@ module Network.HTTP3.Context (
     requestDone,
     goAway,
     goAwayAll,
+    Answer,
+    refuseIfGoingAway,
+    startRequest,
+    answered,
+    endRequest,
     waitPTO,
     drained,
 ) where
@@ -37,9 +42,11 @@ module Network.HTTP3.Context (
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import qualified Control.Exception as E
-import Control.Monad (forM_, void)
+import Control.Monad (forM, forM_, void, when)
 import Data.IORef
 import Data.Maybe (isJust)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Network.ByteOrder (withWriteBuffer)
@@ -87,7 +94,14 @@ data Context = Context
     -- ^ Server only: the largest request stream taken.
     , ctxInFlight :: TVar IntSet
     -- ^ Server only: the request streams taken and not yet done with.
+    , ctxPeerGoAway :: TVar (Maybe StreamId)
+    -- ^ Client only: the ID of the server's last GOAWAY.
+    , ctxRequests :: TVar (IntMap (Stream, TVar Answer))
+    -- ^ Client only: the requests sent and not yet done with.
     }
+
+-- | Where a request of a client stands with its response.
+data Answer = Waiting | Answered | Rejected deriving (Eq)
 
 -- | Running an action with a context, and seeing this connection's own
 --   threads out before returning: they are using the connection, which
@@ -117,7 +131,12 @@ newContext conn conf = do
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
-    cst <- newControlState
+    ctxPeerGoAway <- newTVarIO Nothing
+    ctxRequests <- newTVarIO IntMap.empty
+    let onGoaway
+            | isClient conn = rejectAbove ctxPeerGoAway ctxRequests . fromIntegral
+            | otherwise = \_ -> return ()
+    cst <- newControlState onGoaway
     ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE cst <$> newIORef IInit
     let ctxPeerMaxFieldSectionSize = getHeaderSize dyntblE
     seen <- newIORef []
@@ -366,3 +385,61 @@ drained :: Context -> STM ()
 drained Context{..} = do
     readTVar ctxGoAway >>= check . isJust
     readTVar ctxInFlight >>= check . IntSet.null
+
+----------------------------------------------------------------
+-- GOAWAY of the server's (RFC 9114, section 5.2)
+
+-- | No new request after the server's GOAWAY: "Endpoints MUST NOT initiate
+--   new requests or promises on the connection after receipt of a GOAWAY".
+refuseIfGoingAway :: Context -> IO ()
+refuseIfGoingAway Context{..} = do
+    goingaway <- isJust <$> readTVarIO ctxPeerGoAway
+    when goingaway $ E.throwIO goneAway
+
+-- | Taking a request stream on, or refusing it: no request is made after
+--   the server's GOAWAY, and one at or above its ID will not be processed.
+--   'ConnectionIsClosed' says the request may be retried elsewhere.
+startRequest :: Context -> Stream -> IO (TVar Answer)
+startRequest Context{..} strm = do
+    mans <- atomically $ do
+        lim <- readTVar ctxPeerGoAway
+        if maybe False (streamId strm >=) lim
+            then return Nothing
+            else do
+                ans <- newTVar Waiting
+                modifyTVar' ctxRequests $ IntMap.insert (streamId strm) (strm, ans)
+                return $ Just ans
+    maybe (E.throwIO goneAway) return mans
+
+-- | The response has begun; or, if the GOAWAY rejected the request,
+--   'ConnectionIsClosed'.
+answered :: TVar Answer -> IO ()
+answered ans = atomically $ do
+    a <- readTVar ans
+    when (a == Rejected) $ throwSTM goneAway
+    writeTVar ans Answered
+
+endRequest :: Context -> Stream -> IO ()
+endRequest Context{..} strm =
+    atomically $ modifyTVar' ctxRequests $ IntMap.delete $ streamId strm
+
+-- | Requests at or above the GOAWAY's ID still waiting for a response are
+--   rejected, and their streams reset so that the wait ends.
+rejectAbove
+    :: TVar (Maybe StreamId)
+    -> TVar (IntMap (Stream, TVar Answer))
+    -> StreamId
+    -> IO ()
+rejectAbove peerGoAway requests lim = do
+    strms <- atomically $ do
+        modifyTVar' peerGoAway $ Just . maybe lim (min lim)
+        (_, above) <- IntMap.split (lim - 1) <$> readTVar requests
+        fmap concat $ forM (IntMap.elems above) $ \(strm, ans) -> do
+            a <- readTVar ans
+            if a == Waiting
+                then [strm] <$ writeTVar ans Rejected
+                else return []
+    forM_ strms $ \strm -> resetStream strm H3RequestCancelled
+
+goneAway :: QUICException
+goneAway = ConnectionIsClosed "GOAWAY"

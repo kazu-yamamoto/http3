@@ -7,9 +7,11 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import Control.Monad (forever, when)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
+import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
 import qualified Network.QUIC.Server as QUICS
 import System.Timeout (timeout)
@@ -19,7 +21,13 @@ import HTTP3.Config
 import HTTP3.Server (teardown)
 
 spec :: Spec
-spec =
+spec = do
+    describe "H3 client told to go away" $
+        -- RFC 9114, section 5.2: a request at or above the GOAWAY's ID will
+        -- not be processed, and none is to be made after it.
+        it "fails a request the server will not process, and refuses new ones" $
+            E.bracket setupIgnoring teardown $ \_ ->
+                timeout 3000000 ignoredRequests `shouldReturn` Just (True, True)
     describe "H3 server going away" $
         -- RFC 9114, section 5.2: the request taken before GOAWAY is answered,
         -- one opened after it is rejected, and the connection then ends.
@@ -29,7 +37,8 @@ spec =
                 returned <- newEmptyMVar
                 E.bracket (setupGoAway stop returned) teardown $ \_ -> do
                     -- Long after the second GOAWAY.
-                    timeout 5000000 (slowThenFast 500000 stop) `shouldReturn` Just (Just ok200, False)
+                    timeout 5000000 (slowThenFast 500000 stop)
+                        `shouldReturn` Just (Just ok200, False)
                     timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
             -- The first GOAWAY has the largest identifier, and the second
             -- comes a PTO later: a request sent in between is taken.
@@ -73,3 +82,32 @@ slowThenFast delay stop = QUICC.run testClientConfig $ \conn ->
             fast <- E.try $ get "/"
             s <- wait slow
             return (s, either (\(_ :: E.SomeException) -> False) (const True) fast)
+
+-- | A bare HTTP/3 server: SETTINGS, and a GOAWAY with ID 0 for each request,
+-- which it never answers.
+setupIgnoring :: IO ThreadId
+setupIgnoring = do
+    sc <- makeTestServerConfig
+    tid <- forkIO $ QUICS.run sc $ \conn -> do
+        ctl <- QUIC.unidirectionalStream conn
+        -- Control stream, then SETTINGS with no parameters.
+        QUIC.sendStream ctl "\x00\x04\x00"
+        forever $ do
+            strm <- QUIC.acceptStream conn
+            when (QUIC.isClientInitiatedBidirectional $ QUIC.streamId strm) $
+                QUIC.sendStream ctl "\x07\x01\x00"
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | Whether a request the GOAWAY came after, and one made after it, each
+-- ended in 'QUIC.ConnectionIsClosed'.  The first used to wait for ever.
+ignoredRequests :: IO (Bool, Bool)
+ignoredRequests = QUICC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            let get = E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+                gone (Left (QUIC.ConnectionIsClosed _)) = True
+                gone _ = False
+            r1 <- get
+            r2 <- get
+            return (gone r1, gone r2)

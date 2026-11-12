@@ -145,7 +145,9 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     -- the one told.
     checkHeaderSize ctx hdr'
     sent <- newIORef False
+    refuseIfGoingAway ctx
     E.bracket (newStream ctx) (done sent) $ \strm -> do
+        ans <- startRequest ctx strm
         forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
             ( do
                 sendHeader ctx strm th hdr'
@@ -173,6 +175,8 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
             mvt <- recvFinalHeader ctx strm src
+            -- A request the GOAWAY rejected had its stream reset to get here.
+            answered ans
             case mvt of
                 Nothing -> do
                     -- Reset before answering: the code goes to the application,
@@ -213,6 +217,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     -- took a request body cut short for a whole one.  The sender, if it is
     -- still at it, finds the stream closed and stops.
     done sent strm = do
+        endRequest ctx strm
         complete <- readIORef sent
         if complete
             then QUIC.closeStreamWith strm H3RequestCancelled
