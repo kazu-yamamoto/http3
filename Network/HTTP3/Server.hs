@@ -253,8 +253,11 @@ processRequestIO ctx put strm = E.handle reset $ do
     src <- newSource strm
     emvt <- E.try $ recvHeader ctx sid src
     case emvt of
-        Left FieldSectionTooLarge ->
-            False <$ withHandle ctx (refuseTooLarge ctx strm)
+        -- Closed here, as 'run' does in 'finish': only a closed stream is
+        -- given back to the client's limit on request streams.
+        Left FieldSectionTooLarge -> do
+            withHandle ctx (refuseTooLarge ctx strm)
+            False <$ QUIC.closeStreamWith strm H3NoError
         Right Nothing -> False <$ QUIC.resetStream strm H3MessageError
         Right (Just ht) -> do
             mreq <- mkRequest ctx strm src ht

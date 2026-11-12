@@ -5,6 +5,7 @@ module HTTP3.Server (
     setup,
     setupWith,
     setupShortTimeout,
+    hideLimit,
     server,
     countingServer,
     recordedBody,
@@ -30,6 +31,7 @@ import Data.IORef
 import Data.IP ()
 import Network.HPACK
 import Network.HTTP.Types
+import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
 import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
@@ -38,6 +40,16 @@ import qualified System.TimeManager as T
 import Test.Hspec
 
 import HTTP3.Config
+
+-- | SETTINGS with the dynamic table as the test server has it, and without
+-- SETTINGS_MAX_FIELD_SECTION_SIZE: QPACK_MAX_TABLE_CAPACITY 4096 and
+-- QPACK_BLOCKED_STREAMS 100.
+hideLimit :: Config -> Config
+hideLimit conf = conf{confHooks = (confHooks conf){onControlFrameCreated = map replace}}
+  where
+    replace (H3Frame H3FrameSettings _) =
+        H3Frame H3FrameSettings "\x01\x50\x00\x07\x40\x64"
+    replace frame = frame
 
 setup :: Server -> Int -> IO ThreadId
 setup = setupWith id

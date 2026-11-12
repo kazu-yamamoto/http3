@@ -6,7 +6,6 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
 import qualified Network.QUIC.Client as QUIC
 import Test.Hspec
@@ -30,16 +29,6 @@ spec =
         it "answers 431 to a HEADERS frame longer than its limit" $
             E.bracket (setupWith hideLimit server 4096) teardown $
                 \_ -> runTooLongFrameClient
-
--- | SETTINGS with the dynamic table as the test server has it, and without
--- SETTINGS_MAX_FIELD_SECTION_SIZE: QPACK_MAX_TABLE_CAPACITY 4096 and
--- QPACK_BLOCKED_STREAMS 100.
-hideLimit :: Config -> Config
-hideLimit conf = conf{confHooks = (confHooks conf){onControlFrameCreated = map replace}}
-  where
-    replace (H3Frame H3FrameSettings _) =
-        H3Frame H3FrameSettings "\x01\x50\x00\x07\x40\x64"
-    replace frame = frame
 
 -- | 150 copies of one field with a 300-octet value.  After the first two,
 -- each is a reference to the dynamic table of an octet or so, so the HEADERS
