@@ -57,6 +57,8 @@ h3spec = do
             runCancelClient
         it "cancels a stream reset between two frames" $ \_ ->
             runResetCancelClient
+        it "resets a response whose handler cancels it" $ \_ ->
+            runHandlerCancelClient
         it "tells the handler of a request body cut short by a reset" $ \_ ->
             runResetRequestClient
         it "resets a request interrupted before its body is sent" $ \_ ->
@@ -310,6 +312,23 @@ runResetCancelClient = do
                 threadDelay 100000
     bs <- B.concat <$> readIORef sentOnDecoderStream
     B.elem 0x40 bs `shouldBe` True
+
+-- | A response the handler cancels after a DATA frame ('outBodyCancel'):
+-- the stream is reset, not ended with a FIN as though the body were whole.
+runHandlerCancelClient :: IO ()
+runHandlerCancelClient =
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestNoBody methodGet "/cancel" []
+                r <- E.try $ sendRequest req $ \rsp -> do
+                    let drain = do
+                            bs <- C.getResponseBodyChunk rsp
+                            unless (B.null bs) drain
+                    drain
+                case r of
+                    Left (StreamResetIsReceived e) -> e `shouldBe` H3RequestCancelled
+                    Right () -> expectationFailure "the cancelled body was taken as whole"
 
 -- | A request body that throws part-way, so that the client resets the
 -- stream: the handler must not take what it read for the whole body.

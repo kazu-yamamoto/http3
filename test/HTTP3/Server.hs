@@ -104,6 +104,9 @@ server req aux sendResponse = case requestMethod req of
         -- frames: the body throws, and the stream is reset.
         Just "/reset" ->
             sendResponse (responseStreaming ok200 [] resetAfterOne) []
+        -- The same, but the handler cancels the stream itself.
+        Just "/cancel" ->
+            sendResponse (responseStreamingIface ok200 [] cancelAfterOne) []
         -- No content, and a content-length describing content it does not
         -- have: allowed for a 304 (RFC 9114, section 4.1.2).
         Just "/not-modified" ->
@@ -177,6 +180,14 @@ resetAfterOne write flush = do
     -- then the client sees neither HEADERS nor DATA.  Let them arrive first.
     threadDelay 200000
     E.throwIO $ userError "reset after one DATA frame"
+
+cancelAfterOne :: OutBodyIface -> IO ()
+cancelAfterOne iface = do
+    outBodyPush iface $ byteString "partial"
+    outBodyFlush iface
+    -- As in 'resetAfterOne'.
+    threadDelay 200000
+    outBodyCancel iface Nothing
 
 responseHello :: Response
 responseHello = responseBuilder ok200 header body
