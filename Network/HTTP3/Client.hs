@@ -153,8 +153,8 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
             ( do
                 sendHeader ctx strm th hdr'
-                done <- sendBody ctx strm th outobj
-                when done $ do
+                whole <- sendBody ctx strm th outobj
+                when whole $ do
                     QUIC.shutdownStream strm
                     writeIORef sent True
             )
