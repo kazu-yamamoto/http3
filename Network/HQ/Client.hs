@@ -13,7 +13,12 @@ module Network.HQ.Client (
     Scheme,
 
     -- * Common configuration
-    H3.Config (..),
+    H3.Config,
+    H3.confHooks,
+    H3.confQEncoderConfig,
+    H3.confQDecoderConfig,
+    H3.confPositionReadMaker,
+    H3.confTimeoutManager,
     H3.allocSimpleConfig,
     H3.freeSimpleConfig,
 

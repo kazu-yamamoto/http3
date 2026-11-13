@@ -6,7 +6,12 @@ module Network.HQ.Server (
     run,
 
     -- * Common configuration
-    Config (..),
+    Config,
+    confHooks,
+    confQEncoderConfig,
+    confQDecoderConfig,
+    confPositionReadMaker,
+    confTimeoutManager,
     allocSimpleConfig,
     freeSimpleConfig,
 
