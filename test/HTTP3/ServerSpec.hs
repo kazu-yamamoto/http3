@@ -53,6 +53,8 @@ h3spec = do
             runSockAddrClient
         it "reads a body past a DATA frame that is empty" $ \_ ->
             runEmptyDataClient
+        it "sends nothing on a stream it closes the connection for" $ \_ ->
+            runAbortClient
         it "cancels a stream whose response it does not read to the end" $ \_ ->
             runCancelClient
         it "cancels a stream reset between two frames" $ \_ ->
@@ -137,6 +139,22 @@ runEmptyDataClient = QUIC.run testClientConfig $ \conn ->
                 C.getResponseBodyChunk rsp `shouldReturn` "5"
   where
     emptyData = H3Frame H3FrameData ""
+
+-- | DATA before HEADERS on a request stream is a connection error of type
+-- H3_FRAME_UNEXPECTED (RFC 9114, section 4.1).  The stream used to be ended
+-- with a FIN, which could reach the client before the CONNECTION_CLOSE: an
+-- empty response.
+runAbortClient :: IO ()
+runAbortClient = do
+    r <- E.try $ QUIC.run testClientConfig $ \conn -> do
+        strm <- Q.stream conn
+        Q.sendStream strm "\x00\x00"
+        Q.shutdownStream strm
+        timeout 2000000 $ Q.recvStream strm 1024
+    case r of
+        Left (Q.ApplicationProtocolErrorIsReceived aerr _) ->
+            aerr `shouldBe` H3FrameUnexpected
+        _ -> expectationFailure $ "not the connection error: " ++ show r
 
 -- | RFC 9204, section 4.4.2: a decoder that gives up on a stream sends a
 -- Stream Cancellation, so that the encoder stops keeping the entries the

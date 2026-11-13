@@ -73,14 +73,23 @@ runServer :: Maybe (STM ()) -> Connection -> Config -> Server -> IO ()
 runServer mstop conn conf server = withContext conn conf $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
     let serve = readerServer ctx $ \strm -> do
-            started <- newIORef False
+            state <- newIORef NotStarted
             -- 'processRequest' handles its own exceptions; only asynchronous ones
-            -- leave it, and the thread manager takes those that it threw.
+            -- and a connection error leave it, and the thread manager takes the
+            -- asynchronous ones that it threw.
             forkManagedTimeoutFinally
                 ctx
                 "H3 server: processRequest"
-                (\th -> writeIORef started True >> processRequest ctx server strm th)
-                (finish ctx strm started)
+                ( \th -> do
+                    writeIORef state Started
+                    processRequest ctx server strm th
+                        `E.catch` \e -> case e of
+                            QUIC.ApplicationProtocolErrorIsSent _ _ -> do
+                                writeIORef state ConnectionClosed
+                                E.throwIO e
+                            _ -> E.throwIO e
+                )
+                (finish ctx strm state)
     maybe serve (\stop -> race_ (goingAway ctx (True <$ stop)) serve) mstop
   where
     -- A thread stopped before it began, as the connection goes, has not
@@ -88,15 +97,25 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
     -- retry (RFC 9114, section 4.1.1).  The stream used to end with a FIN
     -- and nothing on it, which the client could only take for malformed.
     --
+    -- A thread that closed the connection leaves the stream alone: a FIN
+    -- could reach the client before the CONNECTION_CLOSE, as an empty response.
+    --
     -- The request is done with however that goes: a stream or connection
     -- already gone must not leave it in flight for a GOAWAY to wait on.
-    finish ctx strm started =
+    finish ctx strm state =
         ( do
-            s <- readIORef started
-            unless s $ QUIC.resetStream strm H3RequestRejected
-            QUIC.closeStreamWith strm H3NoError
+            s <- readIORef state
+            case s of
+                NotStarted -> do
+                    QUIC.resetStream strm H3RequestRejected
+                    QUIC.closeStreamWith strm H3NoError
+                Started -> QUIC.closeStreamWith strm H3NoError
+                ConnectionClosed -> return ()
         )
             `E.finally` requestDone ctx (QUIC.streamId strm)
+
+-- | How far a request thread of 'run' got.
+data RequestState = NotStarted | Started | ConnectionClosed
 
 -- | Once told: GOAWAY, and the requests taken before it answered.
 --
@@ -245,7 +264,7 @@ processRequest ctx server strm th = E.handle reset $ do
             abort ctx QpackDecompressionFailed
         -- A connection error has been sent: the stream goes with it.
         | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
-            return ()
+            E.throwIO se
         -- The response was more than the client will take, and the
         -- application did nothing about it.  Our failure, not the client's.
         | Just (_ :: FieldSectionTooLargeForPeer) <- E.fromException se =
