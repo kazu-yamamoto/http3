@@ -37,6 +37,7 @@ import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Control.Monad.STM as STM
 import Data.IORef
+import qualified Data.IntMap.Strict as IntMap
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
@@ -133,19 +134,33 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     info <- getConnectionInfo conn
     reqq <- newTQueueIO
     done <- newTVarIO False
-    let sio =
+    -- The bodies of the requests handed over, as 'run' keeps each in its
+    -- handler: a Stream Cancellation is owed for one not read to its end
+    -- (RFC 9204, section 4.4.2).  None was ever sent.
+    srcs <- newTVarIO IntMap.empty
+    let finish sid msrc = do
+            forM_ msrc $ cancelUnlessReadToEnd ctx sid
+            requestDone ctx sid
+        sio =
             ServerIO
                 { sioMySockAddr = localSockAddr info
                 , sioPeerSockAddr = remoteSockAddr info
                 , sioReadRequest = atomically $ readTQueue reqq
-                , sioWriteResponse = \strm rsp ->
-                    sendResponseIO ctx strm rsp
-                        `E.finally` requestDone ctx (QUIC.streamId strm)
+                , sioWriteResponse = \strm rsp -> do
+                    let sid = QUIC.streamId strm
+                    sendResponseIO ctx strm rsp `E.finally` do
+                        msrc <- atomically $ do
+                            m <- readTVar srcs
+                            writeTVar srcs $ IntMap.delete sid m
+                            return $ IntMap.lookup sid m
+                        finish sid msrc
                 , -- Not quic's 'mainDone': its sender ends once that is set
                   -- and nothing is queued, before the responses still to come.
                   sioDone = atomically $ writeTVar done True
                 }
-        put = atomically . writeTQueue reqq
+        put src (strm, req) = atomically $ do
+            modifyTVar' srcs $ IntMap.insert (QUIC.streamId strm) src
+            writeTQueue reqq (strm, req)
         -- The application being done ends the connection as being told to
         -- does.  This used to wait for streams for good, and so the
         -- connection was left open until the peer or the idle timeout ended it.
@@ -158,8 +173,11 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
             readerServer ctx $ \strm ->
                 forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th -> do
                     let sid = QUIC.streamId strm
-                    handed <- processRequestIO ctx put strm `E.onException` requestDone ctx sid
-                    unless handed $ requestDone ctx sid
+                    src <- newSource strm
+                    handed <-
+                        processRequestIO ctx (put src) strm src
+                            `E.onException` finish sid (Just src)
+                    unless handed $ finish sid (Just src)
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
@@ -248,9 +266,9 @@ processRequest ctx server strm th = E.handle reset $ do
         | otherwise = False
 
 -- | Answers whether the request was handed to the application.
-processRequestIO :: Context -> ((Stream, Request) -> IO ()) -> Stream -> IO Bool
-processRequestIO ctx put strm = E.handle reset $ do
-    src <- newSource strm
+processRequestIO
+    :: Context -> ((Stream, Request) -> IO ()) -> Stream -> Source -> IO Bool
+processRequestIO ctx put strm src = E.handle reset $ do
     emvt <- E.try $ recvHeader ctx sid src
     case emvt of
         -- Closed here, as 'run' does in 'finish': only a closed stream is
