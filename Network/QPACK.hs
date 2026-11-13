@@ -54,6 +54,7 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.CaseInsensitive hiding (map)
 import qualified Data.CaseInsensitive as CI
+import Data.IORef
 import Network.ByteOrder
 import Network.HPACK.Internal (
     GCBuffer,
@@ -154,9 +155,21 @@ newQEncoder QEncoderConfig{..} sendEI = do
         bufsiz2 = ecInstructionBufferSize
     gcbuf1 <- mallocPlainForeignPtrBytes bufsiz1
     gcbuf2 <- mallocPlainForeignPtrBytes bufsiz2
-    dyntbl <- newDynamicTableForEncoding sendEI
+    -- The instructions are queued under the lock, in the order of the
+    -- insertions, and sent after it is released.  Sending under it used to
+    -- stop every encoding and acknowledgement while the encoder stream
+    -- waited for flow control.
+    pending <- newIORef []
+    sendLock <- newMVar ()
+    let enqueue bs = atomicModifyIORef' pending $ \bss -> (bs : bss, ())
+        flush = do
+            none <- null <$> readIORef pending
+            unless none $ withMVar sendLock $ \_ -> do
+                bss <- atomicModifyIORef' pending $ \bss -> ([], reverse bss)
+                unless (null bss) $ sendEI $ BS.concat bss
+    dyntbl <- newDynamicTableForEncoding enqueue
     lock <- newMVar ()
-    let enc =
+    let enc sid ts =
             qpackEncoder
                 gcbuf1
                 bufsiz1
@@ -165,10 +178,13 @@ newQEncoder QEncoderConfig{..} sendEI = do
                 ecUseHuffman
                 dyntbl
                 lock
+                sid
+                ts
+                <* flush
         handler = decoderInstructionHandler dyntbl lock
         ctl =
             TableOperation
-                { setCapacity = \n -> withMVar lock $ \_ -> do
+                { setCapacity = \n -> (<* flush) $ withMVar lock $ \_ -> do
                     -- "n" is decoder-proposed size via settings.
                     -- It, not the capacity chosen below, determines
                     -- MaxEntries.
