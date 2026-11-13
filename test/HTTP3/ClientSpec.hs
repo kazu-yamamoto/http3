@@ -11,7 +11,7 @@ import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (
+import Network.HTTP3.Client (
     ApplicationProtocolError (..),
     StreamResetIsReceived (..),
     StreamResetIsSent (..),

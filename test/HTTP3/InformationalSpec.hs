@@ -5,13 +5,9 @@ module HTTP3.InformationalSpec where
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Network.HTTP.Types
+import Network.HTTP3.Client (StreamResetIsSent (..))
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (
-    ApplicationProtocolError (..),
-    H3Frame (..),
-    H3FrameType (..),
-    StreamResetIsSent (..),
- )
+import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
 import qualified Network.QUIC.Client as QUIC
 import System.Timeout (timeout)

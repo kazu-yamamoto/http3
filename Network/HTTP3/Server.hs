@@ -25,6 +25,13 @@ module Network.HTTP3.Server (
     -- * HTTP semantics
     module Network.HTTP.Semantics.Server,
 
+    -- * Exceptions
+    StreamResetIsReceived (..),
+    ContentLengthMismatch (..),
+    ConnectionSpecificField (..),
+    FieldSectionTooLargeForPeer (..),
+    ApplicationProtocolError (..),
+
     -- * Internal
     runIO,
     runIOWith,

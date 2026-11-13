@@ -13,18 +13,9 @@ import Data.IORef
 import Data.List (isInfixOf)
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (
-    ApplicationProtocolError (..),
-    ContentLengthMismatch (..),
-    H3Frame (..),
-    H3FrameType (..),
-    StreamResetIsReceived (..),
- )
+import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
-import Network.QPACK (
-    FieldSectionTooLargeForPeer (..),
-    QDecoderConfig (..),
- )
+import Network.QPACK (QDecoderConfig (..))
 import qualified Network.QUIC as Q
 import qualified Network.QUIC.Client as QUIC
 import Network.QUIC.Internal (
