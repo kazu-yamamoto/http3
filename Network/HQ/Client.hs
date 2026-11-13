@@ -31,6 +31,9 @@ module Network.HQ.Client (
 
     -- ** Accessing response
     getResponseBodyChunk,
+
+    -- * Exception
+    UnsupportedRequest (..),
 ) where
 
 import qualified Control.Exception as E
@@ -45,6 +48,7 @@ import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Internal as QUIC
 
 import qualified Network.HTTP3.Client as H3
+import Network.HTTP3.Error (UnsupportedRequest (..))
 import Network.HTTP3.Recv (newSource, readSource')
 
 -- | Running an HQ client.
@@ -63,7 +67,7 @@ sendRequest conn (Request outobj) processResponse = do
     -- path failed in 'fromJust', and one of another method was sent as GET.
     path <- case (lookup ":method" hdr, lookup ":path" hdr) of
         (Just "GET", Just p) -> return p
-        _ -> E.throwIO $ userError "HQ: only GET with a path can be sent"
+        _ -> E.throwIO $ UnsupportedRequest "only GET with a path can be sent"
     E.bracket open close $ \strm -> sendRequest' strm path
   where
     hdr = outObjHeaders outobj

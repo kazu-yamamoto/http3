@@ -10,7 +10,6 @@ import Network.HTTP.Semantics.Client (requestNoBody)
 import Network.HTTP.Semantics.Client.Internal (Request (..))
 import Network.HTTP.Types
 import qualified Network.QUIC.Client as QUICC
-import System.IO.Error (isUserError)
 import System.Timeout (timeout)
 import Test.Hspec
 
@@ -27,15 +26,18 @@ spec = beforeAll setupHQ $
                     `shouldReturn` Just "hello"
             -- It was sent as GET.
             it "refuses a request that is not GET" $ \_ ->
-                send (requestNoBody methodPost "/" []) `shouldThrow` isUserError
+                send (requestNoBody methodPost "/" []) `shouldThrow` unsupported
             -- It failed in 'fromJust'.
             it "refuses a request without a path" $ \_ -> do
                 let Request outobj = requestNoBody methodGet "/" []
                     noPath = filter ((/= ":path") . fst) $ outObjHeaders outobj
-                send (Request outobj{outObjHeaders = noPath}) `shouldThrow` isUserError
+                send (Request outobj{outObjHeaders = noPath}) `shouldThrow` unsupported
 
 send :: HQ.Request -> IO ByteString
 send req = QUICC.run testClientConfig $ \conn ->
     E.bracket HQ.allocSimpleConfig HQ.freeSimpleConfig $ \conf ->
         HQ.run conn HQ.defaultClientConfig conf $ \sendRequest _aux ->
             sendRequest req HQ.getResponseBodyChunk
+
+unsupported :: Selector HQ.UnsupportedRequest
+unsupported = const True

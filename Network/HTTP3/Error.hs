@@ -5,6 +5,7 @@ module Network.HTTP3.Error (
     ConnectionSpecificField (..),
     StreamResetIsReceived (..),
     StreamResetIsSent (..),
+    UnsupportedRequest (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -70,6 +71,13 @@ newtype StreamResetIsSent = StreamResetIsSent ApplicationProtocolError
     deriving (Eq, Show)
 
 instance E.Exception StreamResetIsSent
+
+-- | A request HTTP/0.9 cannot carry: a method other than GET, or no path.
+--   The HQ client throws it before opening a stream.
+newtype UnsupportedRequest = UnsupportedRequest String
+    deriving (Eq, Show)
+
+instance E.Exception UnsupportedRequest
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError
