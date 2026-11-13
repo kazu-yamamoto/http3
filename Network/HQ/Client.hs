@@ -44,7 +44,6 @@ import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Internal as QUIC
 
-import Imports
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Recv (newSource, readSource')
 
@@ -59,18 +58,24 @@ run conn _ _ client = client (sendRequest conn) aux
             }
 
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
-sendRequest conn (Request outobj) processResponse = E.bracket open close $ \strm -> do
-    let hdr = outObjHeaders outobj
-        path = fromJust $ lookup ":path" hdr
-        requestLine = BS.concat ["GET ", path, "\r\n"]
-    QUIC.sendStream strm requestLine
-    QUIC.shutdownStream strm
-    src <- newSource strm
-    refH <- newIORef Nothing
-    vt <- toTokenHeaderTable []
-    let readB = readSource' src
-        rsp = Response $ InpObj vt Nothing readB refH
-    processResponse rsp
+sendRequest conn (Request outobj) processResponse = do
+    -- HTTP/0.9 has GET and a path, and nothing else.  A request without a
+    -- path failed in 'fromJust', and one of another method was sent as GET.
+    path <- case (lookup ":method" hdr, lookup ":path" hdr) of
+        (Just "GET", Just p) -> return p
+        _ -> E.throwIO $ userError "HQ: only GET with a path can be sent"
+    E.bracket open close $ \strm -> sendRequest' strm path
   where
+    hdr = outObjHeaders outobj
     open = QUIC.stream conn
     close = QUIC.closeStream
+    sendRequest' strm path = do
+        let requestLine = BS.concat ["GET ", path, "\r\n"]
+        QUIC.sendStream strm requestLine
+        QUIC.shutdownStream strm
+        src <- newSource strm
+        refH <- newIORef Nothing
+        vt <- toTokenHeaderTable []
+        let readB = readSource' src
+            rsp = Response $ InpObj vt Nothing readB refH
+        processResponse rsp

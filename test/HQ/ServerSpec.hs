@@ -7,6 +7,8 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.ByteString.Builder (Builder, byteString)
 import qualified Network.HQ.Server as HQ
+import Network.HTTP.Semantics (OutBodyIface (..))
+import Network.HTTP.Semantics.Server (responseStreamingIface)
 import Network.HTTP.Types
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
@@ -43,12 +45,20 @@ spec = beforeAll setupHQ $
                 fmap snd <$> request "POST /path\r\n" `shouldReturn` Just (Just resetCode)
             it "resets the stream of a response its handler failed to finish" $ \_ ->
                 fmap snd <$> request "GET /fail\r\n" `shouldReturn` Just (Just resetCode)
+            it "sends a response with a streaming interface" $ \_ ->
+                request "GET /iface\r\n" `shouldReturn` Just ("hello", Nothing)
+            it "resets the stream of a response its handler cancels" $ \_ ->
+                fmap snd <$> request "GET /cancel\r\n"
+                    `shouldReturn` Just (Just cancelCode)
             it "resets the stream of a request line that goes on and on" $ \_ ->
                 fmap snd <$> request (BS.replicate 100000 0x61)
                     `shouldReturn` Just (Just resetCode)
 
 resetCode :: QUIC.ApplicationProtocolError
 resetCode = QUIC.ApplicationProtocolError 0x102
+
+cancelCode :: QUIC.ApplicationProtocolError
+cancelCode = QUIC.ApplicationProtocolError 0x10c
 
 setupHQ :: IO ThreadId
 setupHQ = do
@@ -64,8 +74,8 @@ setupHQ = do
 largeSize :: Int
 largeSize = 20000
 
--- | "/" answers hello, "/fail" fails after part of its response, "/large"
--- answers 'largeSize' octets, "/stall" never answers, and anything else
+-- | "/" and "/iface" answer hello, "/fail" fails after part of its response,
+-- "/cancel" cancels it, "/large" answers 'largeSize' octets, "/stall" never answers, and anything else
 -- answers with its path.
 hqServer :: HQ.Server
 hqServer req _aux sendResponse = case HQ.requestPath req of
@@ -73,6 +83,16 @@ hqServer req _aux sendResponse = case HQ.requestPath req of
     Just "/fail" -> sendResponse (HQ.responseStreaming ok200 [] failing) []
     Just "/stall" ->
         threadDelay 10000000 `E.onException` putMVar stallStopped ()
+    -- 'OutBodyStreamingIface' used to be refused with 'error'.
+    Just "/iface" ->
+        sendResponse (responseStreamingIface ok200 [] $ \iface -> outBodyPush iface "hello") []
+    Just "/cancel" ->
+        sendResponse
+            ( responseStreamingIface ok200 [] $ \iface -> do
+                outBodyPush iface "partial"
+                outBodyCancel iface Nothing
+            )
+            []
     Just "/large" ->
         sendResponse
             (HQ.responseBuilder ok200 [] (byteString (BS.replicate largeSize 0x62)))
