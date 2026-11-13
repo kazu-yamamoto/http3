@@ -4,9 +4,12 @@ module HTTP3.LimitSpec where
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
+import Data.Bits (shiftR, (.&.), (.|.))
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
+import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
+import Network.QPACK (QDecoderConfig (..))
 import qualified Network.QUIC.Client as QUIC
 import Test.Hspec
 
@@ -21,7 +24,7 @@ import HTTP3.Server
 -- us.  Such a section has to be sent all the same to see what the server
 -- does with it, and a client that has not been told of a limit sends it.
 spec :: Spec
-spec =
+spec = do
     describe "H3 server keeping to a limit it does not announce" $ do
         it "answers 431 to a request header section over its limit" $
             E.bracket (setupWith hideLimit server 4096) teardown $
@@ -29,6 +32,48 @@ spec =
         it "answers 431 to a HEADERS frame longer than its limit" $
             E.bracket (setupWith hideLimit server 4096) teardown $
                 \_ -> runTooLongFrameClient
+    describe "H3 server with a small field section limit" $
+        it "takes SETTINGS longer than that limit" $
+            E.bracket (setupWith smallLimit server 4096) teardown $
+                \_ -> runLargeSettingsClient
+
+-- | A server taking field sections of 300 octets at most, and a client whose
+-- SETTINGS come to 450 octets or so.  The cap on control frames was the
+-- field section limit, and the server closed the connection with
+-- H3_EXCESSIVE_LOAD.
+runLargeSettingsClient :: IO ()
+runLargeSettingsClient = QUIC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf0 -> do
+        let conf =
+                conf0
+                    { confHooks =
+                        (confHooks conf0){onControlFrameCreated = map grease}
+                    }
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            let hello =
+                    sendRequest (C.requestNoBody methodGet "/" []) $ \rsp ->
+                        C.responseStatus rsp `shouldBe` Just ok200
+            -- The first is answered before the server reads our SETTINGS.
+            hello
+            waitForSettings
+            hello
+  where
+    -- 150 reserved settings (RFC 9114, section 7.2.4.1), of two-octet IDs
+    -- and the value 0.
+    grease (H3Frame H3FrameSettings payload) =
+        H3Frame H3FrameSettings $ payload <> B.concat (map reserved [0 .. 149])
+    grease frame = frame
+    reserved :: Int -> B.ByteString
+    reserved n =
+        let i = 0x1f * n + 0x21
+         in B.pack [fromIntegral (0x40 .|. (i `shiftR` 8)), fromIntegral (i .&. 0xff), 0]
+
+smallLimit :: Config -> Config
+smallLimit conf =
+    conf
+        { confQDecoderConfig =
+            (confQDecoderConfig conf){dcMaxFieldSectionSize = 300}
+        }
 
 -- | 150 copies of one field with a 300-octet value.  After the first two,
 -- each is a reference to the dynamic table of an octet or so, so the HEADERS

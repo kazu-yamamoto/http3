@@ -292,7 +292,7 @@ qpackEncoder gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid ts = do
                 qpackDebug dyntbl $
                     putStrLn $
                         "---- Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
-                setBasePointToInsersionPoint dyntbl
+                setBasePointToInsertionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough (min bufsiz1 bufsiz2) ts
                 his <- mapM (encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
@@ -330,7 +330,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid hs =
                 qpackDebug dyntbl $
                     putStrLn $
                         "---- Stream " ++ show sid ++ " " ++ "tblsiz: " ++ show siz
-                setBasePointToInsersionPoint dyntbl
+                setBasePointToInsertionPoint dyntbl
                 clearRequiredInsertCount dyntbl
                 let tss = splitThrough (min bufsiz1 bufsiz2) ts
                 his <- mapM (encodeChunk buf1 bufsiz1 buf2 bufsiz2 huff dyntbl) tss
@@ -355,7 +355,7 @@ qpackEncoderS gcbuf1 bufsiz1 gcbuf2 bufsiz2 huff dyntbl lock sid hs =
                 -- Need to emulate InsertCountIncrement since
                 -- SectionAcknowledgement is not returned if
                 -- RequiredInsertCount is 0.
-                when immAck $ setInsersionPointToKnownReceivedCount dyntbl
+                when immAck $ setInsertionPointToKnownReceivedCount dyntbl
                 return section
   where
     mk' (k, v) = (t, v)

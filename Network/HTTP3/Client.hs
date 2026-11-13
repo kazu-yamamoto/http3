@@ -7,7 +7,7 @@ module Network.HTTP3.Client (
     -- * Runner
     run,
 
-    -- * Client configration
+    -- * Client configuration
     ClientConfig,
     defaultClientConfig,
     scheme,
@@ -191,6 +191,9 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                     | Just name <- connectionSpecificField vt -> do
                         QUIC.resetStream strm H3MessageError
                         E.throwIO $ ConnectionSpecificField name
+                    | Just v <- invalidContentLength (snd vt) -> do
+                        QUIC.resetStream strm H3MessageError
+                        E.throwIO $ InvalidContentLength v
                 Just vt@(_, valtbl) -> do
                     (readB, refH) <-
                         newBodyReader ctx sid src valtbl $ noContent valtbl

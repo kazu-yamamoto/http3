@@ -7,7 +7,7 @@ module Network.HTTP3.Server (
     run,
     runWith,
 
-    -- * Common configration
+    -- * Common configuration
     Config (..),
     defaultConfig,
     allocSimpleConfig,
@@ -353,6 +353,7 @@ mkRequest ctx strm src ht@(_, vt) = do
             return Nothing
     case (mMethod, mScheme, mAuthority, mPath) of
         _ | isJust (connectionSpecificField ht) -> malformed
+        _ | isJust (invalidContentLength vt) -> malformed
         (Just "CONNECT", _, Just _, _) -> Just <$> build
         (Just _, Just _, Just _, Just _) -> Just <$> build
         _ -> malformed

@@ -44,7 +44,7 @@ encodeHeader
     -> [Header]
     -> IO (EncodedFieldSection, EncodedEncoderInstruction)
 encodeHeader huff dyntbl hs = do
-    setBasePointToInsersionPoint dyntbl
+    setBasePointToInsertionPoint dyntbl
     clearRequiredInsertCount dyntbl
     (hb0, insb) <- withWriteBuffer' 2048 $ \wbuf1 ->
         withWriteBuffer 2048 $ \wbuf2 -> do

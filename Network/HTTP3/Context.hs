@@ -83,10 +83,10 @@ data Context = Context
     -- ^ What we told the peer we would accept, and so the most of any one
     -- frame we are willing to hold in memory while it arrives.
     , ctxCancelStream :: StreamId -> IO ()
+    -- ^ Sending a Stream Cancellation on our QPACK decoder stream
     , ctxPeerMaxFieldSectionSize :: IO Int
     -- ^ The peer's SETTINGS_MAX_FIELD_SECTION_SIZE, or 'maxBound' until its
     -- SETTINGS have arrived
-    -- ^ Sending a Stream Cancellation on our QPACK decoder stream
     , ctxSendControl :: [H3Frame] -> IO ()
     , ctxGoAway :: TVar (Maybe StreamId)
     -- ^ Server only: the ID of our GOAWAY, from which no request is taken.
@@ -124,6 +124,12 @@ withContext conn conf action = do
 stopTimeout :: Int
 stopTimeout = 5000000
 
+-- | The most of a frame on the peer's control stream held while it arrives.
+--   SETTINGS_MAX_FIELD_SECTION_SIZE was used, which is about field sections
+--   and set by the user: set low, it refused an ordinary large SETTINGS.
+maxControlFrameSize :: Int
+maxControlFrameSize = 65536
+
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
     (sendEI, sendDI, ctxSendControl) <- setupUnidirectional conn conf
@@ -137,7 +143,7 @@ newContext conn conf = do
             | isClient conn = rejectAbove ctxPeerGoAway ctxRequests . fromIntegral
             | otherwise = \_ -> return ()
     cst <- newControlState onGoaway
-    ctl <- controlStream conn ctxMaxFieldSectionSize dyntblE cst <$> newIORef IInit
+    ctl <- controlStream conn maxControlFrameSize dyntblE cst <$> newIORef IInit
     let ctxPeerMaxFieldSectionSize = getHeaderSize dyntblE
     seen <- newIORef []
     info <- getConnectionInfo conn
