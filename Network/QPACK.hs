@@ -27,6 +27,7 @@ module Network.QPACK (
     QDecoderConfig,
     dcMaxTableCapacity,
     dcHuffmanBufferSize,
+    dcBlockedStreams,
     dcBlockedSterams,
     dcMaxFieldSectionSize,
     defaultQDecoderConfig,
@@ -488,21 +489,27 @@ newQEncoderS QEncoderConfig{..} saveEI blocked immediateAck debug = do
 data QDecoderConfig = QDecoderConfig
     { dcMaxTableCapacity :: Size
     , dcHuffmanBufferSize :: Size -- for encoder insteruction handler
-    , dcBlockedSterams :: Int
+    , dcBlockedStreams :: Int
     , dcMaxFieldSectionSize :: Int
     }
     deriving (Show)
 
+-- | The old, misspelled name of 'dcBlockedStreams', kept as a getter.  It
+--   cannot be used to set the field.
+dcBlockedSterams :: QDecoderConfig -> Int
+dcBlockedSterams = dcBlockedStreams
+{-# DEPRECATED dcBlockedSterams "Use dcBlockedStreams" #-}
+
 -- | Default configuration for QPACK decoder.
 --
 -- >>> defaultQDecoderConfig
--- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 2048, dcBlockedSterams = 100, dcMaxFieldSectionSize = 32768}
+-- QDecoderConfig {dcMaxTableCapacity = 4096, dcHuffmanBufferSize = 2048, dcBlockedStreams = 100, dcMaxFieldSectionSize = 32768}
 defaultQDecoderConfig :: QDecoderConfig
 defaultQDecoderConfig =
     QDecoderConfig
         { dcMaxTableCapacity = 4096
         , dcHuffmanBufferSize = 2048 -- no global locking
-        , dcBlockedSterams = 100
+        , dcBlockedStreams = 100
         , dcMaxFieldSectionSize = 32768
         }
 
@@ -515,7 +522,7 @@ newQDecoder QDecoderConfig{..} sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
-    setMaxBlockedStreams dyntbl dcBlockedSterams
+    setMaxBlockedStreams dyntbl dcBlockedStreams
     -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
     setMaxHeaderSize dyntbl dcMaxFieldSectionSize
     let dec = qpackDecoder dyntbl
@@ -532,7 +539,7 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
-    setMaxBlockedStreams dyntbl dcBlockedSterams
+    setMaxBlockedStreams dyntbl dcBlockedStreams
     -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
     setMaxHeaderSize dyntbl dcMaxFieldSectionSize
     setDebugQPACK dyntbl debug

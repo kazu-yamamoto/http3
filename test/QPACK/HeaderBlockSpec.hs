@@ -181,7 +181,7 @@ spec = do
             -- section that had to wait was refused as one too many.
             eiRef <- newIORef []
             (dec, handleEI) <-
-                newQDecoder defaultQDecoderConfig{dcBlockedSterams = 1} (\_ -> return ())
+                newQDecoder defaultQDecoderConfig{dcBlockedStreams = 1} (\_ -> return ())
             -- Required Insert Count 1, Delta Base 0, then an indexed field
             -- line for relative index 0: the first entry, not inserted yet.
             let blk = BS.pack [0x02, 0x00, 0x80]

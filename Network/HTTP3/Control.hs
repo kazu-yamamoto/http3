@@ -41,7 +41,7 @@ setupUnidirectional conn conf@H3.Config{..} = do
     let dc = confQDecoderConfig
     settings <-
         encodeH3Settings
-            [ (SettingsQpackBlockedStreams, dcBlockedSterams dc)
+            [ (SettingsQpackBlockedStreams, dcBlockedStreams dc)
             , (SettingsQpackMaxTableCapacity, dcMaxTableCapacity dc)
             , (SettingsMaxFieldSectionSize, dcMaxFieldSectionSize dc)
             ]
