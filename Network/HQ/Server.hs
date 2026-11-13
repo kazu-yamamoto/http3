@@ -30,7 +30,6 @@ module Network.HQ.Server (
 ) where
 
 import qualified Data.ByteString as BS
-import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
@@ -50,7 +49,9 @@ import System.Timeout (timeout)
 
 import Imports
 import Network.HTTP3.Config
-import Network.HTTP3.Error (ApplicationProtocolError (H3InternalError))
+import Network.HTTP3.Error (
+    ApplicationProtocolError (H3InternalError, H3RequestCancelled),
+ )
 import Network.HTTP3.Recv (newSource, readSource')
 
 -- | Running an HQ server.
@@ -159,9 +160,10 @@ sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
         sendNext strm next
-    OutBodyStreaming strmbdy -> sendStreaming strm strmbdy
-    OutBodyStreamingIface _ ->
-        error "sendResponse: server does not support OutBodyStreamingUnmask"
+    OutBodyStreaming strmbdy ->
+        sendStreaming strm $ \iface -> strmbdy (outBodyPush iface) (outBodyFlush iface)
+    -- It used to be refused with 'error'.
+    OutBodyStreamingIface strmbdy -> sendStreaming strm strmbdy
 
 sendNext :: Stream -> DynaNext -> IO ()
 sendNext strm action = do
@@ -172,11 +174,20 @@ sendNext strm action = do
     when (len /= 0) $ QUIC.sendStream strm $ PS fp 0 len
     forM_ mnext $ sendNext strm
 
-sendStreaming :: Stream -> ((Builder -> IO ()) -> IO () -> IO ()) -> IO ()
-sendStreaming strm strmbdy = do
-    strmbdy write flush
+sendStreaming :: Stream -> (OutBodyIface -> IO ()) -> IO ()
+sendStreaming strm strmbdy =
+    strmbdy
+        OutBodyIface
+            { outBodyUnmask = id
+            , outBodyPush = write
+            , outBodyPushFinal = write
+            , outBodyFlush = return ()
+            , outBodyCancel = cancel
+            }
   where
-    flush = return ()
+    -- As HTTP/3 does: the reset stays when the stream is closed.
+    cancel merr =
+        QUIC.resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write builder = do
         newByteStringAndSend strm (B.runBuilder builder) >>= loop
       where
