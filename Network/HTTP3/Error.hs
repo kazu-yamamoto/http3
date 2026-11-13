@@ -57,6 +57,8 @@ instance E.Exception ConnectionSpecificField
 
 -- | A message whose content-length, given here, is not a number of octets,
 --   which makes it malformed (RFC 9114, section 4.1.2).
+--
+--   @since 0.1.12
 newtype InvalidContentLength = InvalidContentLength ByteString
     deriving (Eq, Show)
 
@@ -75,6 +77,8 @@ instance E.Exception StreamResetIsReceived
 -- | We reset the stream with this error code: the peer's message on it was
 --   not one we could take.  A stream error, unlike 'ApplicationProtocolErrorIsSent',
 --   which says the connection was closed.
+--
+--   @since 0.1.12
 newtype StreamResetIsSent = StreamResetIsSent ApplicationProtocolError
     deriving (Eq, Show)
 
@@ -82,6 +86,8 @@ instance E.Exception StreamResetIsSent
 
 -- | A request HTTP/0.9 cannot carry: a method other than GET, or no path.
 --   The HQ client throws it before opening a stream.
+--
+--   @since 0.1.12
 newtype UnsupportedRequest = UnsupportedRequest String
     deriving (Eq, Show)
 

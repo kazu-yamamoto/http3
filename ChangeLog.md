@@ -1,5 +1,34 @@
 # Revision history for http3
 
+## 0.1.12
+
+The client now throws a stream error it detects as `StreamResetIsSent`,
+not as a connection error.  New exceptions: `StreamResetIsSent`,
+`UnsupportedRequest` and `InvalidContentLength`.
+
+* Release the stream of a request refused with 431 in runIO
+  [#58](https://github.com/kazu-yamamoto/http3/pull/58)
+* Reset the stream on outBodyCancel
+  [#59](https://github.com/kazu-yamamoto/http3/pull/59)
+* HQ: do not end a body on a step that fills nothing
+  [#61](https://github.com/kazu-yamamoto/http3/pull/61)
+* HQ: stop the handlers once the connection is gone
+  [#62](https://github.com/kazu-yamamoto/http3/pull/62)
+* Client: throw a stream error as one, and at once
+  [#63](https://github.com/kazu-yamamoto/http3/pull/63)
+* Client: act on the server's GOAWAY
+  [#64](https://github.com/kazu-yamamoto/http3/pull/64)
+* runIO: send a Stream Cancellation for a request not read to the end
+  [#65](https://github.com/kazu-yamamoto/http3/pull/65)
+* QPACK: send encoder instructions outside the encoder's lock
+  [#66](https://github.com/kazu-yamamoto/http3/pull/66)
+* HQ: support OutBodyStreamingIface and refuse non-GET requests
+  [#67](https://github.com/kazu-yamamoto/http3/pull/67)
+* Server: send nothing on a stream after closing the connection for it
+  [#68](https://github.com/kazu-yamamoto/http3/pull/68)
+* Fix low-priority review findings
+  [#69](https://github.com/kazu-yamamoto/http3/pull/69)
+
 ## 0.1.11
 
 * Do not take a closed connection for a QPACK stream error
