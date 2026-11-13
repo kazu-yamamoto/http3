@@ -30,6 +30,15 @@ module Network.HTTP3.Client (
 
     -- * HTTP semantics
     module Network.HTTP.Semantics.Client,
+
+    -- * Exceptions
+    StreamResetIsReceived (..),
+    StreamResetIsSent (..),
+    ContentLengthMismatch (..),
+    InvalidContentLength (..),
+    ConnectionSpecificField (..),
+    FieldSectionTooLargeForPeer (..),
+    ApplicationProtocolError (..),
 ) where
 
 import qualified Control.Exception as E

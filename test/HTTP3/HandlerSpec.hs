@@ -6,10 +6,6 @@ import qualified Control.Exception as E
 import qualified Data.ByteString as B
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Internal (
-    ApplicationProtocolError (..),
-    StreamResetIsReceived (..),
- )
 import Network.HTTP3.Server
 import qualified Network.QUIC.Client as QUIC
 import System.Timeout (timeout)
