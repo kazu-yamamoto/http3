@@ -7,6 +7,7 @@ module Network.HTTP3.Error (
     StreamResetIsReceived (..),
     StreamResetIsSent (..),
     UnsupportedRequest (..),
+    StreamTerminated (..),
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -92,6 +93,15 @@ newtype UnsupportedRequest = UnsupportedRequest String
     deriving (Eq, Show)
 
 instance E.Exception UnsupportedRequest
+
+-- | Thrown by 'outBodyPush', 'outBodyPushFinal' and 'outBodyFlush' once the
+--   body has ended with 'outBodyPushFinal' or been cancelled, as in http2.
+--
+--   @since 0.2.0
+data StreamTerminated = StreamPushedFinal | StreamCancelled
+    deriving (Eq, Show)
+
+instance E.Exception StreamTerminated
 
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError

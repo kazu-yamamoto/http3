@@ -53,6 +53,7 @@ module Network.HTTP3.Client (
     InvalidContentLength (..),
     ConnectionSpecificField (..),
     FieldSectionTooLargeForPeer (..),
+    StreamTerminated (..),
     ApplicationProtocolError (..),
 ) where
 

@@ -148,18 +148,21 @@ sendStreaming
     -> IO Bool
 sendStreaming ctx strm th tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
-    cancelled <- newIORef False
+    terminated <- newIORef Nothing
     E.mask $ \unmask -> do
         let iface =
                 OutBodyIface
                     { outBodyUnmask = unmask
-                    , outBodyPush = write ref
-                    , outBodyPushFinal = write ref -- fixme
-                    , outBodyFlush = flush
-                    , outBodyCancel = cancel cancelled
+                    , outBodyPush = \b -> alive terminated >> write ref b
+                    , outBodyPushFinal = \b -> do
+                        alive terminated
+                        write ref b
+                        writeIORef terminated $ Just StreamPushedFinal
+                    , outBodyFlush = alive terminated
+                    , outBodyCancel = cancel terminated
                     }
         strmbdy iface
-    done <- not <$> readIORef cancelled
+    done <- (/= Just StreamCancelled) <$> readIORef terminated
     when done $ do
         tlrmkr <- readIORef ref
         tm <- tlrmkr Nothing
@@ -169,13 +172,16 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
         unless (null trailers) $ sendHeader ctx strm th trailers
     return done
   where
-    -- fixme: how to implement flush?
-    flush = return ()
+    -- Every push goes to 'sendStream' at once, and quic does not hold data
+    -- back waiting for more: nothing is ever left to flush.  The end of the
+    -- body is the FIN after it, so 'outBodyPushFinal' marks nothing either;
+    -- pushing after it, or after a cancel, is refused, as in http2.
+    alive terminated = readIORef terminated >>= mapM_ E.throwIO
     -- The stream is reset, with H3_INTERNAL_ERROR for an exception and
     -- H3_REQUEST_CANCELLED otherwise, as HTTP/2 does with RST_STREAM.
     -- It did nothing, and the body cut short was ended with a FIN.
-    cancel cancelled merr = do
-        writeIORef cancelled True
+    cancel terminated merr = do
+        writeIORef terminated $ Just StreamCancelled
         resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write ref builder = do
         tlrmkr1 <- readIORef ref

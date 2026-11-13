@@ -45,6 +45,7 @@ module Network.HTTP3.Server (
     ContentLengthMismatch (..),
     ConnectionSpecificField (..),
     FieldSectionTooLargeForPeer (..),
+    StreamTerminated (..),
     ApplicationProtocolError (..),
 
     -- * Internal

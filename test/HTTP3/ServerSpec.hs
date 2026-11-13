@@ -49,6 +49,8 @@ h3spec = do
             runCancelClient
         it "cancels a stream reset between two frames" $ \_ ->
             runResetCancelClient
+        it "refuses a push after the final one" $ \_ ->
+            runPushFinalClient
         it "resets a response whose handler cancels it" $ \_ ->
             runHandlerCancelClient
         it "tells the handler of a request body cut short by a reset" $ \_ ->
@@ -323,6 +325,19 @@ runResetCancelClient = do
 
 -- | A response the handler cancels after a DATA frame ('outBodyCancel'):
 -- the stream is reset, not ended with a FIN as though the body were whole.
+-- | The handler pushes after 'outBodyPushFinal'.  That was sent like any
+-- other push; it is refused now, as in http2.
+runPushFinalClient :: IO ()
+runPushFinalClient =
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
+                sendRequest (C.requestNoBody methodGet "/push-final" []) $ \rsp -> do
+                    let drain acc = do
+                            bs <- C.getResponseBodyChunk rsp
+                            if B.null bs then return acc else drain (acc <> bs)
+                    drain "" `shouldReturn` "final"
+
 runHandlerCancelClient :: IO ()
 runHandlerCancelClient =
     QUIC.run testClientConfig $ \conn ->

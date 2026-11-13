@@ -32,6 +32,9 @@ module Network.HQ.Server (
     responseFile,
     responseStreaming,
     responseBuilder,
+
+    -- * Exception
+    StreamTerminated (..),
 ) where
 
 import qualified Control.Exception as E
@@ -57,6 +60,7 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Error (
     ApplicationProtocolError (H3InternalError, H3RequestCancelled),
+    StreamTerminated (..),
  )
 import Network.HTTP3.Recv (newSource, readSource')
 import Network.HTTP3.Send (closeSentinel)
@@ -183,18 +187,25 @@ sendNext strm action = do
     forM_ mnext $ sendNext strm
 
 sendStreaming :: Stream -> (OutBodyIface -> IO ()) -> IO ()
-sendStreaming strm strmbdy =
+sendStreaming strm strmbdy = do
+    terminated <- newIORef Nothing
+    let alive = readIORef terminated >>= mapM_ E.throwIO
     strmbdy
         OutBodyIface
             { outBodyUnmask = id
-            , outBodyPush = write
-            , outBodyPushFinal = write
-            , outBodyFlush = return ()
-            , outBodyCancel = cancel
+            , outBodyPush = \b -> alive >> write b
+            , outBodyPushFinal = \b -> do
+                alive
+                write b
+                writeIORef terminated $ Just StreamPushedFinal
+            , -- As in HTTP/3, nothing is held back to flush.
+              outBodyFlush = alive
+            , outBodyCancel = cancel terminated
             }
   where
     -- As HTTP/3 does: the reset stays when the stream is closed.
-    cancel merr =
+    cancel terminated merr = do
+        writeIORef terminated $ Just StreamCancelled
         QUIC.resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write builder = do
         newByteStringAndSend strm (B.runBuilder builder) >>= loop
