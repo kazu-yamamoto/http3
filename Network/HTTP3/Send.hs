@@ -5,6 +5,7 @@ module Network.HTTP3.Send (
     sendHeader,
     checkHeaderSize,
     sendBody,
+    closeSentinel,
 ) where
 
 import qualified Control.Exception as E
@@ -56,7 +57,7 @@ sendBody ctx strm th outobj = case outObjBody outobj of
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel) <- pReadMaker ctx path
         let next = fillFileBodyGetNext pread fileoff bytecount sentinel
-        True <$ sendNext ctx strm th next tlrmkr
+        True <$ sendNext ctx strm th next tlrmkr `E.onException` closeSentinel sentinel
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
         True <$ sendNext ctx strm th next tlrmkr
@@ -88,8 +89,8 @@ sendNext ctx strm th curr tlrmkr0 = do
 newByteStringWith
     :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
 newByteStringWith tlrmkr0 action = do
-    fp <- BS.mallocByteString 2048
-    Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf 2048
+    fp <- BS.mallocByteString fileChunkSize
+    Next len _reqflush mnext1 <- withForeignPtr fp $ \buf -> action buf fileChunkSize
     if len == 0
         -- Nothing this time, but not necessarily the end: there may be a
         -- next.  This used to end the body here.
@@ -98,6 +99,18 @@ newByteStringWith tlrmkr0 action = do
             let bs = PS fp 0 len
             tlrmkr1 <- nextMaker <$> tlrmkr0 (Just bs)
             return (bs, mnext1, tlrmkr1)
+
+-- | Closing a file whose body was not sent to its end.  Only the end closed
+--   it, so a failure or a reset partway left the descriptor open.  'hClose',
+--   which the default closer is, may be called again.
+closeSentinel :: Sentinel -> IO ()
+closeSentinel (Closer close) = close
+closeSentinel (Refresher _) = return ()
+
+-- | The most of a file or builder body put in one DATA frame.  It was 2048,
+--   so a large body went out in many small frames, one 'sendStream' each.
+fileChunkSize :: Int
+fileChunkSize = 16384
 
 -- | The trailers maker to go on with after a chunk of the body.
 --

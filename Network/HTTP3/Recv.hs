@@ -10,6 +10,7 @@ module Network.HTTP3.Recv (
     newBodyReader,
     cancelUnlessReadToEnd,
     connectionSpecificField,
+    invalidContentLength,
 ) where
 
 import qualified Control.Exception as E
@@ -131,6 +132,26 @@ connectionSpecificField (ths, vt)
     -- No tokens of their own.
     byName = ["keep-alive", "proxy-connection", "upgrade"]
 
+-- | The content-length of a message, if it has a valid one: digits alone
+--   (RFC 9110, section 8.6), few enough not to overflow.  'C8.readInt' was
+--   used, which took "12abc" for 12, and let a sign or an overflow through.
+contentLength :: ValueTable -> Maybe Int
+contentLength vt = getFieldValue tokenContentLength vt >>= parse
+  where
+    parse v
+        | not (BS.null v)
+        , BS.length v <= 18
+        , BS.all (\w -> w >= 0x30 && w <= 0x39) v =
+            fst <$> C8.readInt v
+        | otherwise = Nothing
+
+-- | The content-length of a message, when it is not a valid one: the
+--   message is malformed (RFC 9114, section 4.1.2).
+invalidContentLength :: ValueTable -> Maybe ByteString
+invalidContentLength vt = case getFieldValue tokenContentLength vt of
+    Just v | isNothing (contentLength vt) -> Just v
+    _ -> Nothing
+
 -- | A body reader for one message, and the place its trailers will appear.
 --
 -- The reader counts what it hands out and checks the total against
@@ -159,7 +180,7 @@ newBodyReader ctx sid src vt noContent = do
     refL <- newIORef 0
     let mcl
             | noContent = Just 0
-            | otherwise = fst <$> (getFieldValue tokenContentLength vt >>= C8.readInt)
+            | otherwise = contentLength vt
     return (recvBody ctx sid src refI refH mcl refL, refH)
 
 recvBody

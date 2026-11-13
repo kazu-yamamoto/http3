@@ -54,11 +54,13 @@ module Network.QPACK.Table.Dynamic (
     updateKnownReceivedCount,
     wouldSectionBeBlocked,
     wouldInstructionBeBlocked,
+    setInsertionPointToKnownReceivedCount,
     setInsersionPointToKnownReceivedCount,
     updateReported,
 
     -- * Points
     getBasePoint,
+    setBasePointToInsertionPoint,
     setBasePointToInsersionPoint,
     getInsertionPoint,
     getInsertionPointSTM,
@@ -635,8 +637,8 @@ updateReported DynamicTable{..} = modifyMVar_ reportedD
   where
     DecodeInfo{..} = codeInfo
 
-setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
-setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do
+setInsertionPointToKnownReceivedCount :: DynamicTable -> IO ()
+setInsertionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do
     InsertionPoint ai <- getInsertionPoint dyntbl
     atomically $ writeTVar knownReceivedCount ai
   where
@@ -647,10 +649,18 @@ setInsersionPointToKnownReceivedCount dyntbl@DynamicTable{..} = do
 getBasePoint :: DynamicTable -> IO BasePoint
 getBasePoint DynamicTable{..} = readIORef basePoint
 
-setBasePointToInsersionPoint :: DynamicTable -> IO ()
-setBasePointToInsersionPoint DynamicTable{..} = do
+setBasePointToInsertionPoint :: DynamicTable -> IO ()
+setBasePointToInsertionPoint DynamicTable{..} = do
     InsertionPoint ip <- readTVarIO insertionPoint
     writeIORef basePoint $ BasePoint ip
+
+{-# DEPRECATED setInsersionPointToKnownReceivedCount "Use setInsertionPointToKnownReceivedCount" #-}
+setInsersionPointToKnownReceivedCount :: DynamicTable -> IO ()
+setInsersionPointToKnownReceivedCount = setInsertionPointToKnownReceivedCount
+
+{-# DEPRECATED setBasePointToInsersionPoint "Use setBasePointToInsertionPoint" #-}
+setBasePointToInsersionPoint :: DynamicTable -> IO ()
+setBasePointToInsersionPoint = setBasePointToInsertionPoint
 
 getInsertionPoint :: DynamicTable -> IO InsertionPoint
 getInsertionPoint DynamicTable{..} = readTVarIO insertionPoint

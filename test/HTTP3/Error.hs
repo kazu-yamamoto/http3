@@ -173,6 +173,19 @@ h3ErrorSpec qcc cconf ms served = do
                     refusedNotServed (served x) $
                         runCReq req qcc' cconf conf0 ms
                             `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
+        forM_ invalidContentLengths $ \v ->
+            itH3
+                ( "MUST treat a request with content-length "
+                    ++ show v
+                    ++ " as malformed [HTTP/3 4.1.2]"
+                )
+                $ \x -> do
+                    -- It used to be read by its leading digits, if any.
+                    let req = H3.requestNoBody methodGet "/" [("content-length", v)]
+                        qcc' = throwOnReset qcc
+                    refusedNotServed (served x) $
+                        runCReq req qcc' cconf conf0 ms
+                            `shouldThrow` applicationProtocolErrorsIn [H3MessageError]
         itH3 "MUST accept TE with trailers [HTTP/3 4.2]" $ \_ -> do
             let req = H3.requestNoBody methodGet "/" [("te", "trailers")]
             runCReqOk req qcc cconf conf0 ms `shouldReturn` Just ()
@@ -666,6 +679,10 @@ connectionSpecific =
     , ("upgrade", "websocket")
     , ("te", "gzip")
     ]
+
+-- | Values of content-length that are not a number of octets.
+invalidContentLengths :: [BS.ByteString]
+invalidContentLengths = ["0x", "-1", "+0", "", "99999999999999999999"]
 
 -- | Trailers of a single Connection field.
 connectionTrailer :: H3.TrailersMaker

@@ -6,13 +6,13 @@ module Network.HQ.Client (
     -- * Runner
     run,
 
-    -- * Client configration
+    -- * Client configuration
     H3.ClientConfig,
     H3.defaultClientConfig,
     H3.scheme,
     Scheme,
 
-    -- * Common configration
+    -- * Common configuration
     H3.Config (..),
     H3.allocSimpleConfig,
     H3.freeSimpleConfig,

@@ -5,7 +5,7 @@ module Network.HQ.Server (
     -- * Runner
     run,
 
-    -- * Common configration
+    -- * Common configuration
     Config (..),
     allocSimpleConfig,
     freeSimpleConfig,
@@ -29,6 +29,7 @@ module Network.HQ.Server (
     responseBuilder,
 ) where
 
+import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder.Extra as B
 import qualified Data.ByteString.Internal as BS
@@ -53,6 +54,7 @@ import Network.HTTP3.Error (
     ApplicationProtocolError (H3InternalError, H3RequestCancelled),
  )
 import Network.HTTP3.Recv (newSource, readSource')
+import Network.HTTP3.Send (closeSentinel)
 
 -- | Running an HQ server.
 run :: Connection -> Config -> Server -> IO ()
@@ -156,7 +158,7 @@ sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel) <- confPositionReadMaker conf path
         let next = fillFileBodyGetNext pread fileoff bytecount sentinel
-        sendNext strm next
+        sendNext strm next `E.onException` closeSentinel sentinel
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
         sendNext strm next
@@ -167,8 +169,9 @@ sendResponse conf strm (Response outobj) _ = case outObjBody outobj of
 
 sendNext :: Stream -> DynaNext -> IO ()
 sendNext strm action = do
-    fp <- BS.mallocByteString 2048
-    Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 2048
+    -- As HTTP/3 does: 2048 octets at a time was a 'sendStream' each.
+    fp <- BS.mallocByteString 16384
+    Next len _reqflush mnext <- withForeignPtr fp $ \buf -> action buf 16384
     -- Nothing this time is not the end: a builder fills nothing before a
     -- large chunk.  The body used to end here, and went out empty.
     when (len /= 0) $ QUIC.sendStream strm $ PS fp 0 len

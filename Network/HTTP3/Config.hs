@@ -56,6 +56,6 @@ allocSimpleConfig =
         defaultPositionReadMaker
         <$> T.initialize (30 * 1000000)
 
--- | Freeing a simple configration.
+-- | Freeing a simple configuration.
 freeSimpleConfig :: Config -> IO ()
 freeSimpleConfig conf = T.killManager $ confTimeoutManager conf

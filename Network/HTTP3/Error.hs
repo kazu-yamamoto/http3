@@ -3,6 +3,7 @@
 module Network.HTTP3.Error (
     ContentLengthMismatch (..),
     ConnectionSpecificField (..),
+    InvalidContentLength (..),
     StreamResetIsReceived (..),
     StreamResetIsSent (..),
     UnsupportedRequest (..),
@@ -53,6 +54,13 @@ newtype ConnectionSpecificField = ConnectionSpecificField ByteString
     deriving (Eq, Show)
 
 instance E.Exception ConnectionSpecificField
+
+-- | A message whose content-length, given here, is not a number of octets,
+--   which makes it malformed (RFC 9114, section 4.1.2).
+newtype InvalidContentLength = InvalidContentLength ByteString
+    deriving (Eq, Show)
+
+instance E.Exception InvalidContentLength
 
 -- | The peer reset the stream, with this error code, before the body came to
 --   its end: what has been read of the body is not the whole of it.
