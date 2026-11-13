@@ -8,7 +8,12 @@ module Network.HTTP3.Server (
     runWith,
 
     -- * Common configuration
-    Config (..),
+    Config,
+    confHooks,
+    confQEncoderConfig,
+    confQDecoderConfig,
+    confPositionReadMaker,
+    confTimeoutManager,
     defaultConfig,
     allocSimpleConfig,
     freeSimpleConfig,
@@ -19,7 +24,12 @@ module Network.HTTP3.Server (
     defaultQDecoderConfig,
     dcMaxTableCapacity,
     dcHuffmanBufferSize,
-    Hooks (..),
+    Hooks,
+    onControlFrameCreated,
+    onHeadersFrameCreated,
+    onControlStreamCreated,
+    onEncoderStreamCreated,
+    onDecoderStreamCreated,
     defaultHooks,
 
     -- * HTTP semantics

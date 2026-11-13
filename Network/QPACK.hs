@@ -4,11 +4,19 @@
 -- | Thread-safe QPACK encoder/decoder.
 module Network.QPACK (
     -- * Encoder
-    QEncoderConfig (..),
+    QEncoderConfig,
+    ecMaxTableCapacity,
+    ecHeaderBlockBufferSize,
+    ecInstructionBufferSize,
+    ecUseHuffman,
     defaultQEncoderConfig,
     QEncoder,
     newQEncoder,
-    TableOperation (..),
+    TableOperation,
+    setCapacity,
+    setBlockedStreams,
+    setHeaderSize,
+    getHeaderSize,
     fieldSectionSize,
 
     -- ** Encoder for debugging
@@ -16,7 +24,11 @@ module Network.QPACK (
     newQEncoderS,
 
     -- * Decoder
-    QDecoderConfig (..),
+    QDecoderConfig,
+    dcMaxTableCapacity,
+    dcHuffmanBufferSize,
+    dcBlockedSterams,
+    dcMaxFieldSectionSize,
     defaultQDecoderConfig,
     QDecoder,
     newQDecoder,
