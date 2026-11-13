@@ -2,7 +2,7 @@
 
 module QPACK.HeaderBlockSpec where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar, threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
@@ -10,7 +10,7 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import Data.IORef
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Network.HPACK.Token (toToken)
 import Network.QPACK
 import Network.QPACK.Internal (
@@ -228,6 +228,49 @@ spec = do
             writeIORef diRef [di]
             drain diRef handleDI
             inserts 7 `shouldReturn` True
+
+        it "goes on while the encoder stream waits" $ do
+            -- The encoder stream stops, as when flow control holds it, in
+            -- the middle of sending an insertion.  An encoding with nothing
+            -- to insert and the decoder's instructions used to wait for it.
+            stuck <- newIORef False
+            gate <- newEmptyMVar
+            let sendEI _ = do
+                    s <- readIORef stuck
+                    when s $ readMVar gate
+            (enc, handleDI, tblop) <- newQEncoder defaultQEncoderConfig sendEI
+            setCapacity tblop 4096
+            setBlockedStreams tblop 100
+            let hdr = [(toToken "x-foo", "bar")]
+            -- Inserted the second time it is seen.
+            _ <- enc 0 hdr
+            writeIORef stuck True
+            inserting <- async $ enc 4 hdr
+            threadDelay 10000
+            timeout 1000000 (enc 8 [(toToken ":method", "GET")])
+                >>= (`shouldSatisfy` isJust)
+            diRef <- newIORef []
+            di <- encodeDecoderInstructions [InsertCountIncrement 1]
+            writeIORef diRef [di]
+            timeout 1000000 (drain diRef handleDI) `shouldReturn` Just ()
+            putMVar gate ()
+            void $ wait inserting
+
+        it "sends the insertions in order from encoders at once" $ do
+            -- Sending outside the encoder's lock must not reorder them.
+            eiRef <- newIORef []
+            let sendEI bs = do
+                    threadDelay 100
+                    atomicModifyIORef' eiRef $ \bss -> (bss ++ [bs], ())
+            (enc, _, tblop) <- newQEncoder defaultQEncoderConfig sendEI
+            (dec, handleEI) <- newQDecoder defaultQDecoderConfig (\_ -> return ())
+            setCapacity tblop 4096
+            setBlockedStreams tblop 100
+            let hdr i = [(toToken (C8.pack ("x-foo-" ++ show (i `mod` 20 :: Int))), "bar")]
+            blks <- forConcurrently [0 .. 199] $ \i -> enc (i * 4) (hdr i)
+            drain eiRef handleEI
+            forM_ (zip [0 ..] blks) $ \(i, blk) ->
+                fst <$> dec (i * 4) blk `shouldReturn` hdr i
 
         it "releases the sections of a stream the decoder cancels" $ do
             -- One blocked stream allowed, and nothing acknowledged.  Stream 4
