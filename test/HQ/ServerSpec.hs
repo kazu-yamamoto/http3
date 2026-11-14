@@ -47,6 +47,8 @@ spec = beforeAll setupHQ $
                 fmap snd <$> request "GET /fail\r\n" `shouldReturn` Just (Just resetCode)
             it "sends a response with a streaming interface" $ \_ ->
                 request "GET /iface\r\n" `shouldReturn` Just ("hello", Nothing)
+            it "refuses a push after the final one" $ \_ ->
+                request "GET /push-final\r\n" `shouldReturn` Just ("final", Nothing)
             it "resets the stream of a response its handler cancels" $ \_ ->
                 fmap snd <$> request "GET /cancel\r\n"
                     `shouldReturn` Just (Just cancelCode)
@@ -86,6 +88,18 @@ hqServer req _aux sendResponse = case HQ.requestPath req of
     -- 'OutBodyStreamingIface' used to be refused with 'error'.
     Just "/iface" ->
         sendResponse (responseStreamingIface ok200 [] $ \iface -> outBodyPush iface "hello") []
+    -- The push after the final one used to be sent.
+    Just "/push-final" ->
+        sendResponse
+            ( responseStreamingIface ok200 [] $ \iface -> do
+                outBodyPushFinal iface "final"
+                r <- E.try $ outBodyPush iface "-more"
+                case r of
+                    Left HQ.StreamPushedFinal -> return ()
+                    Left e -> E.throwIO e
+                    Right () -> return ()
+            )
+            []
     Just "/cancel" ->
         sendResponse
             ( responseStreamingIface ok200 [] $ \iface -> do

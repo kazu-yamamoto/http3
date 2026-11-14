@@ -107,6 +107,9 @@ server req aux sendResponse = case requestMethod req of
         -- The same, but the handler cancels the stream itself.
         Just "/cancel" ->
             sendResponse (responseStreamingIface ok200 [] cancelAfterOne) []
+        -- "final", and a push after it, which is refused.
+        Just "/push-final" ->
+            sendResponse (responseStreamingIface ok200 [] pushAfterFinal) []
         -- No content, and a content-length describing content it does not
         -- have: allowed for a 304 (RFC 9114, section 4.1.2).
         Just "/not-modified" ->
@@ -188,6 +191,17 @@ cancelAfterOne iface = do
     -- As in 'resetAfterOne'.
     threadDelay 200000
     outBodyCancel iface Nothing
+
+-- | What the push after the final one threw is sent as the body, if
+--   anything: it used to be sent itself.
+pushAfterFinal :: OutBodyIface -> IO ()
+pushAfterFinal iface = do
+    outBodyPushFinal iface "final"
+    r <- E.try $ outBodyPush iface "-more"
+    case r of
+        Left StreamPushedFinal -> return ()
+        Left e -> E.throwIO e
+        Right () -> return ()
 
 responseHello :: Response
 responseHello = responseBuilder ok200 header body
