@@ -1,0 +1,10 @@
+packages: .
+-- quic 0.4 (Int64) and http2 for network-control 0.2 are not released yet.
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/quic.git
+  tag: e37973e897da5955a75236bb94f34d15354b5347
+source-repository-package
+  type: git
+  location: https://github.com/kazu-yamamoto/http2.git
+  tag: 861f9adb8ef841d515b970bcf694036c57bbda97
