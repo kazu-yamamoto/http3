@@ -60,7 +60,6 @@ import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Control.Monad.STM as STM
 import Data.IORef
-import qualified Data.IntMap.Strict as IntMap
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
 import Network.HTTP.Semantics.Server
@@ -68,6 +67,7 @@ import Network.HTTP.Semantics.Server.Internal
 import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
+import qualified Network.QUIC.Types.Int64Map as IntMap
 import qualified System.TimeManager as T
 
 import Imports

@@ -104,8 +104,8 @@ import Control.Concurrent.STM
 import Data.Array.Base (unsafeRead, unsafeWrite)
 import Data.Array.IO (IOArray, newArray)
 import Data.IORef
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
+import Network.QUIC.Types.Int64Map (Int64Map)
+import qualified Network.QUIC.Types.Int64Map as IntMap
 import Data.Sequence (Seq, ViewL (..), viewl, (|>))
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
@@ -146,10 +146,10 @@ data CodeInfo
         , drainingPoint       :: IORef AbsoluteIndex
         , knownReceivedCount  :: TVar Int
         , referenceCounters   :: IORef (IOArray Index Reference)
-        , sections            :: IORef (IntMap (Seq Section)) -- oldest first
+        , sections            :: IORef (Int64Map (Seq Section)) -- oldest first
         , lruCache            :: LRUCacheRef (FieldName, FieldValue) ()
         , immediateAck        :: IORef Bool -- for QIF
-        , blockedStreamsE     :: IORef (Set Int)
+        , blockedStreamsE     :: IORef (Set StreamId)
         }
     | DecodeInfo
         { huffmanDecoder  :: HuffmanDecoder  -- only for encoder instruction handler

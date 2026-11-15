@@ -100,7 +100,7 @@ setupFewStreams = do
     let sc =
             sc0
                 { QUIC.scParameters =
-                    (QUIC.scParameters sc0){QUIC.initialMaxStreamsBidi = fewStreams}
+                    (QUIC.scParameters sc0){QUIC.initialMaxStreamsBidi = fromIntegral fewStreams}
                 }
     tid <- forkIO $ QUICS.run sc $ \conn ->
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
