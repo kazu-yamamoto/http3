@@ -23,6 +23,7 @@ module Network.HTTP3.Context (
     getMaxFieldSectionSize,
     getPeerMaxFieldSectionSize,
     forkManaged,
+    Stopping (..),
     forkManagedTimeout,
     forkManagedTimeoutFinally,
     isAsyncException,
@@ -39,10 +40,12 @@ module Network.HTTP3.Context (
     drained,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forM, forM_, void, when)
+import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Maybe (isJust)
 import Network.QUIC.Types.Int64Map (Int64Map)
@@ -73,6 +76,13 @@ data Context = Context
     , ctxUniSwitch :: H3StreamType -> InstructionHandler
     , ctxPReadMaker :: PositionReadMaker
     , ctxThreadManager :: T.ThreadManager
+    -- ^ The library's own threads, which end by themselves once
+    --   'ctxStopping' is set.
+    , ctxAppThreadManager :: T.ThreadManager
+    -- ^ The threads which run the application's code, which knows
+    --   nothing of 'ctxStopping': they are killed.
+    , ctxStopping :: TVar Bool
+    -- ^ Set once the action given to 'withContext' is done.
     , ctxTimeoutManager :: TM.Manager
     -- ^ Owning a thread and timing it out are separate, so the
     --   thread manager carries no timer and this is kept here.
@@ -107,17 +117,24 @@ data Answer = Waiting | Answered | Rejected deriving (Eq)
 --   threads out before returning: they are using the connection, which
 --   the caller tears down once this returns.
 --
--- The wait is capped because one of the threads waited for runs the
--- application's handler: an application which swallows the asynchronous
--- exception would otherwise keep this from ever returning.  quic waits
--- for its own threads with no cap, because those are all its own and are
--- known to end.
+-- The application's threads are killed, as user code is.  The library's
+-- are told with 'ctxStopping' and return by themselves; one which has not
+-- after 'stopTimeout' is killed as the last resort.  The waits are capped
+-- because an application which swallows the exception could otherwise keep
+-- this from ever returning.  quic waits for its own threads with no cap,
+-- because those are all its own and are known to end.
 withContext :: Connection -> Config -> (Context -> IO a) -> IO a
 withContext conn conf action = do
     ctx <- newContext conn conf
-    let mgr = ctxThreadManager ctx
-    T.stopAfter mgr (action ctx) $ \_ ->
-        void $ timeout stopTimeout $ T.waitUntilAllGone mgr
+    let lib = ctxThreadManager ctx
+        app = ctxAppThreadManager ctx
+        stopping = do
+            atomically $ writeTVar (ctxStopping ctx) True
+            void $ timeout stopTimeout $ atomically $ gone app >> gone lib
+    T.stopAfter lib (T.stopAfter app (action ctx) $ const stopping) $ \_ ->
+        void $ timeout stopTimeout $ T.waitUntilAllGone lib
+  where
+    gone mgr = T.isAllGone mgr >>= check
 
 -- | How long the threads are given to end after they have been told to.
 --   Unwinding takes milliseconds; this is for one that does not stop.
@@ -165,6 +182,8 @@ newContext conn conf = do
                 (encodeDecoderInstructions [StreamCancellation sid] >>= sendDI)
                     `E.catch` ignoreSync
     ctxThreadManager <- T.newThreadManager
+    ctxAppThreadManager <- T.newThreadManager
+    ctxStopping <- newTVarIO False
     ctxGoAway <- newTVarIO Nothing
     ctxLastRequest <- newTVarIO Nothing
     ctxInFlight <- newTVarIO IntSet.empty
@@ -182,6 +201,7 @@ newContext conn conf = do
     abortWith aerr se
         | isAsyncException se = E.throwIO se
         | isJust (E.fromException se :: Maybe QUICException) = E.throwIO se
+        | isJust (E.fromException se :: Maybe Stopping) = E.throwIO se
         | otherwise = connectionError conn aerr
 
 isAsyncException :: E.Exception e => e -> Bool
@@ -238,8 +258,28 @@ isH3Server Context{..} = isServer ctxConnection
 isH3Client :: Context -> Bool
 isH3Client Context{..} = isClient ctxConnection
 
-accept :: Context -> IO Stream
-accept Context{..} = acceptStream ctxConnection
+-- | The next stream the peer opens, or 'Nothing' once we are stopping.
+--   An ended connection is told by 'acceptStream', as before.
+accept :: Context -> IO (Maybe Stream)
+accept Context{..} = do
+    go <- atomically $ (False <$ stoppingSTM ctxStopping) <|> (True <$ waitAcceptableSTM ctxConnection)
+    if go then Just <$> acceptStream ctxConnection else return Nothing
+
+-- | Thrown by a library thread to itself to return once we are stopping,
+--   and taken quietly by 'endingOnConnectionError'.
+data Stopping = Stopping deriving (Show)
+
+instance E.Exception Stopping
+
+stoppingSTM :: TVar Bool -> STM ()
+stoppingSTM v = readTVar v >>= check
+
+-- | 'recvStream' for the library's own streams, which gives up with
+--   'Stopping' once we are stopping.
+recvOrStop :: Context -> Stream -> Int -> IO ByteString
+recvOrStop Context{..} strm n = do
+    go <- atomically $ (False <$ stoppingSTM ctxStopping) <|> (True <$ waitReadableSTM strm)
+    if go then recvStream strm n else E.throwIO Stopping
 
 qpackEncode :: Context -> QEncoder
 qpackEncode Context{..} = ctxQEncoder
@@ -251,12 +291,12 @@ cancelStream :: Context -> StreamId -> IO ()
 cancelStream Context{..} = ctxCancelStream
 
 unidirectional :: Context -> Stream -> IO ()
-unidirectional Context{..} strm = do
+unidirectional ctx@Context{..} strm = do
     -- The type is a variable-length integer (RFC 9114, section 6.2), so one,
     -- two, four or eight octets -- not the single one it used to be read as,
     -- which cut anything from 0x40 up in half and handed the tail of the type
     -- to a handler as though it were the stream's contents.
-    mtyp <- recvQInt (recvStream strm)
+    mtyp <- recvQInt (recvOrStop ctx strm)
     case mtyp of
         -- The peer opened a unidirectional stream and closed it without
         -- saying what it was for.  Nothing to dispatch to; this used to be a
@@ -277,7 +317,7 @@ unidirectional Context{..} strm = do
             H3StreamTypeUnknown _ -> do
                 stopStream strm H3StreamCreationError
                 closeStream strm
-            styp -> ctxUniSwitch styp (recvStream strm)
+            styp -> ctxUniSwitch styp (recvOrStop ctx strm)
 
 withHandle :: Context -> (TM.Handle -> IO ()) -> IO ()
 withHandle Context{..} action = void $ TM.withHandle ctxTimeoutManager (return ()) action
@@ -294,13 +334,13 @@ forkManaged Context{..} label =
 
 forkManagedTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
 forkManagedTimeout Context{..} label body =
-    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager label $
+    T.forkManagedTimeout ctxAppThreadManager ctxTimeoutManager label $
         endingOnConnectionError . body
 
 forkManagedTimeoutFinally
     :: Context -> String -> (TM.Handle -> IO ()) -> IO () -> IO ()
 forkManagedTimeoutFinally Context{..} label body =
-    T.forkManagedTimeoutFinally ctxThreadManager ctxTimeoutManager label $
+    T.forkManagedTimeoutFinally ctxAppThreadManager ctxTimeoutManager label $
         endingOnConnectionError . body
 
 -- | A thread that has sent a connection error ('connectionError') ends there
@@ -311,10 +351,13 @@ forkManagedTimeoutFinally Context{..} label body =
 -- peer's control stream used to die of it, reported as uncaught.
 endingOnConnectionError :: IO () -> IO ()
 endingOnConnectionError io =
-    io `E.catch` \e -> case e of
-        ApplicationProtocolErrorIsSent _ _ -> return ()
-        ConnectionIsClosed _ -> return ()
-        _ -> E.throwIO e
+    io
+        `E.catches` [ E.Handler $ \e -> case e of
+                        ApplicationProtocolErrorIsSent _ _ -> return ()
+                        ConnectionIsClosed _ -> return ()
+                        _ -> E.throwIO e
+                    , E.Handler $ \Stopping -> return ()
+                    ]
 
 -- | Closing the connection with this error, and stopping here: see
 -- 'connectionError'.
