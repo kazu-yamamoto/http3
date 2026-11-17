@@ -202,6 +202,27 @@ spec = do
                 (ths, _) <- wait a
                 ths `shouldBe` [(toToken "x-foo", "bar")]
 
+        it "gives up on a blocked section when told to" $ do
+            -- The entries a section waits for never arrive once the
+            -- connection is gone: the wait ends with what the decoder was
+            -- given to give up with, and the stream is no longer counted.
+            stop <- newTVarIO False
+            let giveUp = readTVar stop >>= check >> throwSTM GivenUp
+            (dec, _) <-
+                newQDecoderWith defaultQDecoderConfig{dcBlockedStreams = 1} giveUp (\_ -> return ())
+            let blk = BS.pack [0x02, 0x00, 0x80]
+            withAsync (dec 0 blk) $ \a -> do
+                threadDelay 100000
+                poll a >>= (`shouldSatisfy` isNothing)
+                atomically $ writeTVar stop True
+                r <- timeout 1000000 $ waitCatch a
+                fmap (either (show . (E.fromException :: E.SomeException -> Maybe GivenUp)) (const "")) r
+                    `shouldBe` Just (show $ Just GivenUp)
+            -- Counted no more: the next blocked section is not refused, and
+            -- gives up as well.
+            r <- timeout 1000000 $ E.try (dec 4 blk)
+            fmap (either (\GivenUp -> True) (const False)) r `shouldBe` Just True
+
         it "evicts an entry nothing refers to once its insertion is acknowledged" $ do
             -- No stream may block, and nothing is acknowledged at first, so
             -- every entry is inserted without being referred to.  Such an
@@ -527,3 +548,7 @@ encodedInsertCount blk = case BS.unpack blk of
         | x < 128 = acc + fromIntegral x * 2 ^ (sh :: Int)
         | otherwise = go (acc + fromIntegral (x - 128) * 2 ^ sh) (sh + 7) xs
     go acc _ [] = acc
+
+data GivenUp = GivenUp deriving (Show)
+
+instance E.Exception GivenUp
