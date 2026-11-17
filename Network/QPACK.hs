@@ -33,6 +33,7 @@ module Network.QPACK (
     defaultQDecoderConfig,
     QDecoder,
     newQDecoder,
+    newQDecoderWith,
     FieldSectionTooLarge (..),
     FieldSectionTooLargeForPeer (..),
 
@@ -513,19 +514,33 @@ defaultQDecoderConfig =
         , dcMaxFieldSectionSize = 32768
         }
 
--- | Creating a new QPACK decoder.
+-- | Creating a new QPACK decoder.  A section blocked on the encoder stream
+--   waits for as long as it takes: see 'newQDecoderWith'.
 newQDecoder
     :: QDecoderConfig
     -> (EncodedDecoderInstruction -> IO ())
     -> IO (QDecoder, EncoderInstructionHandler)
-newQDecoder QDecoderConfig{..} sendDI = do
+newQDecoder conf = newQDecoderWith conf retry
+
+-- | Creating a new QPACK decoder whose blocked sections give up when the
+--   'STM' action throws: once the connection has ended, say, the entries
+--   they wait for will never arrive.  Whatever the action returns is
+--   ignored, and only an exception ends the wait.
+--
+--   @since 0.2.0
+newQDecoderWith
+    :: QDecoderConfig
+    -> STM ()
+    -> (EncodedDecoderInstruction -> IO ())
+    -> IO (QDecoder, EncoderInstructionHandler)
+newQDecoderWith QDecoderConfig{..} giveUp sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedStreams
     -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
     setMaxHeaderSize dyntbl dcMaxFieldSectionSize
-    let dec = qpackDecoder dyntbl
+    let dec = qpackDecoder dyntbl giveUp
         handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
 
@@ -548,9 +563,13 @@ newQDecoderS QDecoderConfig{..} sendDI debug = do
     return (dec, handler)
 
 qpackDecoder
-    :: DynamicTable -> StreamId -> EncodedFieldSection -> IO TokenHeaderTable
-qpackDecoder dyntbl sid bs = do
-    (tbl, ric) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl rbuf
+    :: DynamicTable
+    -> STM ()
+    -> StreamId
+    -> EncodedFieldSection
+    -> IO TokenHeaderTable
+qpackDecoder dyntbl giveUp sid bs = do
+    (tbl, ric) <- withReadBuffer bs $ \rbuf -> decodeTokenHeader dyntbl giveUp rbuf
     acknowledgeSection dyntbl sid ric
     return tbl
 

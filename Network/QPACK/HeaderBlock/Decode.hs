@@ -61,9 +61,11 @@ encoding e =
 
 decodeTokenHeader
     :: DynamicTable
+    -> STM ()
+    -- ^ Giving up on a blocked section by throwing
     -> ReadBuffer
     -> IO (TokenHeaderTable, RequiredInsertCount)
-decodeTokenHeader dyntbl rbuf = asDecodeError $ do
+decodeTokenHeader dyntbl giveUp rbuf = asDecodeError $ do
     (reqInsertCount, bp) <- decodePrefix rbuf dyntbl
     ready <- checkRequiredInsertCountNB dyntbl reqInsertCount
     -- The count of blocked streams has to come down however the wait ends.
@@ -74,9 +76,9 @@ decodeTokenHeader dyntbl rbuf = asDecodeError $ do
     unless ready $ E.mask $ \restore -> do
         ok <- tryIncreaseStreams dyntbl
         unless ok $ E.throwIO BlockedStreamsOverflow
-        restore (checkRequiredInsertCount dyntbl reqInsertCount)
+        restore (checkRequiredInsertCount dyntbl giveUp reqInsertCount)
             `E.finally` decreaseStreams dyntbl
-    checkRequiredInsertCount dyntbl reqInsertCount
+    checkRequiredInsertCount dyntbl giveUp reqInsertCount
     hufdec <- newHuffmanDecoder rbuf
     dec <- limitFieldSection dyntbl $ toTokenHeader dyntbl reqInsertCount bp hufdec
     -- HPACK's decoder refuses a section of more than 200 fields, which is

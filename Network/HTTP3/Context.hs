@@ -57,7 +57,14 @@ import qualified Network.QUIC.Types.Int64Set as IntSet
 import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
 import Network.QUIC
-import Network.QUIC.Internal (connLDCC, encodeInt', getPTO, isClient, isServer, toDelay)
+import Network.QUIC.Internal (
+    connLDCC,
+    encodeInt',
+    getPTO,
+    isClient,
+    isServer,
+    toDelay,
+ )
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
@@ -154,7 +161,12 @@ newContext conn conf = do
     (sendEI, sendDI, ctxSendControl) <- setupUnidirectional conn conf
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
-    (ctxQDecoder, handleEI) <- newQDecoder (confQDecoderConfig conf) sendDI
+    ctxStopping <- newTVarIO False
+    -- A section blocked on the peer's encoder stream gives up as the
+    -- library's reads do, and with the connection's end, after which the
+    -- entries it waits for never arrive.
+    let giveUp = (stoppingSTM ctxStopping >> throwSTM Stopping) `orElse` waitFinishedSTM conn
+    (ctxQDecoder, handleEI) <- newQDecoderWith (confQDecoderConfig conf) giveUp sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctxPeerGoAway <- newTVarIO Nothing
     ctxRequests <- newTVarIO IntMap.empty
@@ -185,7 +197,6 @@ newContext conn conf = do
                     `E.catch` ignoreSync
     ctxThreadManager <- T.newThreadManager
     ctxAppThreadManager <- T.newThreadManager
-    ctxStopping <- newTVarIO False
     ctxGoAway <- newTVarIO Nothing
     ctxLastRequest <- newTVarIO Nothing
     ctxInFlight <- newTVarIO IntSet.empty

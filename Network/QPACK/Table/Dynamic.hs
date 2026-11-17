@@ -562,13 +562,19 @@ clearRequiredInsertCount DynamicTable{..} = writeIORef requiredInsertCount 0
   where
     EncodeInfo{..} = codeInfo
 
-checkRequiredInsertCount :: DynamicTable -> RequiredInsertCount -> IO ()
-checkRequiredInsertCount DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
-    InsertionPoint ip <- readTVar insertionPoint
-    -- RequiredInsertCount is index + 1
-    -- InsertionPoin is index + 1
-    -- So, equal is necessary.
-    check (reqip <= ip)
+-- | Waiting for the entries a section refers to.  The wait also ends with
+--   an exception thrown by the 'STM' action given, whatever it returns.
+checkRequiredInsertCount
+    :: DynamicTable -> STM () -> RequiredInsertCount -> IO ()
+checkRequiredInsertCount DynamicTable{..} giveUp (RequiredInsertCount reqip) =
+    atomically $ ready `orElse` (giveUp >> retry)
+  where
+    ready = do
+        InsertionPoint ip <- readTVar insertionPoint
+        -- RequiredInsertCount is index + 1
+        -- InsertionPoin is index + 1
+        -- So, equal is necessary.
+        check (reqip <= ip)
 
 checkRequiredInsertCountNB :: DynamicTable -> RequiredInsertCount -> IO Bool
 checkRequiredInsertCountNB DynamicTable{..} (RequiredInsertCount reqip) = atomically $ do
