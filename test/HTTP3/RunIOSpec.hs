@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.RunIOSpec where
 
@@ -33,6 +35,11 @@ spec =
                 -- sioDone comes before the response: the request is still
                 -- answered, and only then does runIO return.
                 timeout 3000000 oneRequest `shouldReturn` Just ()
+                timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
+        it "returns when the application fails while a stream has sent no HEADERS" $ do
+            returned <- newEmptyMVar
+            E.bracket (setupFailing returned) teardown $ \_ -> do
+                _ <- forkIO $ void $ timeout 5000000 stalledAndWaiting
                 timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
         it "cancels a stream whose request it does not read to the end" $
             E.bracket setupCancel teardown $ \_ -> do
@@ -73,6 +80,32 @@ setupDone returned = do
             putMVar returned ()
     threadDelay 500000 -- give enough time to the server
     return tid
+
+-- | A server whose application fails on its first request.  The 'MVar' is
+-- filled when 'runIO' has returned.
+setupFailing :: MVar () -> IO ThreadId
+setupFailing returned = do
+    sc <- makeTestServerConfig
+    tid <- forkIO $ QUICS.run sc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> do
+            r <- E.try $ runIO conn conf $ \sio -> return $ do
+                _ <- sioReadRequest sio
+                E.throwIO $ userError "failing"
+            either (\(_ :: E.SomeException) -> putMVar returned ()) return r
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | A stream carrying only the type of a HEADERS frame, and a request, on a
+-- connection kept open.
+stalledAndWaiting :: IO ()
+stalledAndWaiting = QUICC.run testClientConfig $ \conn -> do
+    strm <- QUIC.stream conn
+    QUIC.sendStream strm "\x01"
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            _ <- forkIO $ void $ E.try @E.SomeException $
+                sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+            threadDelay 5000000
 
 oneRequest :: IO ()
 oneRequest = QUICC.run testClientConfig $ \conn ->

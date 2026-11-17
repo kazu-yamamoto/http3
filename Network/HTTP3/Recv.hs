@@ -4,6 +4,7 @@
 module Network.HTTP3.Recv (
     Source,
     newSource,
+    newSourceOrStop,
     readSource,
     readSource',
     recvHeader,
@@ -35,8 +36,14 @@ data Source = Source
     }
 
 newSource :: Stream -> IO Source
-newSource strm =
-    Source strm (recvStream strm 1024) <$> newIORef Nothing <*> newIORef False
+newSource strm = newSourceWith strm $ recvStream strm 1024
+
+-- | A source which gives up with 'Stopping' once the context is stopping.
+newSourceOrStop :: Context -> Stream -> IO Source
+newSourceOrStop ctx strm = newSourceWith strm $ recvOrStop ctx strm 1024
+
+newSourceWith :: Stream -> IO ByteString -> IO Source
+newSourceWith strm rd = Source strm rd <$> newIORef Nothing <*> newIORef False
 
 -- | Telling the peer's QPACK encoder, unless the stream has been read to its
 --   end, that the field sections left on it will never be processed (RFC 9204,

@@ -26,6 +26,8 @@ module Network.HTTP3.Context (
     Stopping (..),
     forkManagedTimeout,
     forkManagedTimeoutFinally,
+    forkLibraryTimeout,
+    recvOrStop,
     isAsyncException,
     admitRequest,
     requestDone,
@@ -335,6 +337,13 @@ forkManaged Context{..} label =
 forkManagedTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
 forkManagedTimeout Context{..} label body =
     T.forkManagedTimeout ctxAppThreadManager ctxTimeoutManager label $
+        endingOnConnectionError . body
+
+-- | 'forkManagedTimeout' for a thread of the library's own, which returns
+--   by itself once we are stopping.
+forkLibraryTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
+forkLibraryTimeout Context{..} label body =
+    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager label $
         endingOnConnectionError . body
 
 forkManagedTimeoutFinally
