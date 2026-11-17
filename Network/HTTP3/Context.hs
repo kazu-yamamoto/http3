@@ -68,7 +68,6 @@ import Network.QUIC.Internal (
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
-import System.Timeout (timeout)
 
 import Network.HTTP3.Config
 import Network.HTTP3.Control
@@ -85,13 +84,11 @@ data Context = Context
     , ctxUniSwitch :: H3StreamType -> InstructionHandler
     , ctxPReadMaker :: PositionReadMaker
     , ctxThreadManager :: T.ThreadManager
-    -- ^ The library's own threads, which end by themselves once
-    --   'ctxStopping' is set.
+    -- ^ The library's own threads, which end by themselves once the
+    --   manager is stopped ('T.waitStoppingSTM').
     , ctxAppThreadManager :: T.ThreadManager
     -- ^ The threads which run the application's code, which knows
-    --   nothing of 'ctxStopping': they are killed.
-    , ctxStopping :: TVar Bool
-    -- ^ Set once the action given to 'withContext' is done.
+    --   nothing of that: they are killed.
     , ctxTimeoutManager :: TM.Manager
     -- ^ Owning a thread and timing it out are separate, so the
     --   thread manager carries no timer and this is kept here.
@@ -127,23 +124,19 @@ data Answer = Waiting | Answered | Rejected deriving (Eq)
 --   the caller tears down once this returns.
 --
 -- The application's threads are killed, as user code is.  The library's
--- are told with 'ctxStopping' and return by themselves; one which has not
--- after 'stopTimeout' is killed as the last resort.  The waits are capped
--- because an application which swallows the exception could otherwise keep
--- this from ever returning.  quic waits for its own threads with no cap,
--- because those are all its own and are known to end.
+-- are told and return by themselves; one which has not after 'stopTimeout'
+-- is killed as the last resort.  The waits are capped because an
+-- application which swallows the exception could otherwise keep this from
+-- ever returning.  quic waits for its own threads with no cap, because
+-- those are all its own and are known to end.
 withContext :: Connection -> Config -> (Context -> IO a) -> IO a
 withContext conn conf action = do
     ctx <- newContext conn conf
     let lib = ctxThreadManager ctx
         app = ctxAppThreadManager ctx
-        stopping = do
-            atomically $ writeTVar (ctxStopping ctx) True
-            void $ timeout stopTimeout $ atomically $ gone app >> gone lib
-    T.stopAfter lib (T.stopAfter app (action ctx) $ const stopping) $ \_ ->
-        void $ timeout stopTimeout $ T.waitUntilAllGone lib
-  where
-    gone mgr = T.isAllGone mgr >>= check
+        waitFor mgr _ = void $ T.waitUntilAllGoneFor mgr stopTimeout
+    T.stopAfterWithGrace lib stopTimeout (T.stopAfter app (action ctx) $ waitFor app) $
+        waitFor lib
 
 -- | How long the threads are given to end after they have been told to.
 --   Unwinding takes milliseconds; this is for one that does not stop.
@@ -161,11 +154,13 @@ newContext conn conf = do
     (sendEI, sendDI, ctxSendControl) <- setupUnidirectional conn conf
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
-    ctxStopping <- newTVarIO False
+    ctxThreadManager <- T.newThreadManager
     -- A section blocked on the peer's encoder stream gives up as the
     -- library's reads do, and with the connection's end, after which the
     -- entries it waits for never arrive.
-    let giveUp = (stoppingSTM ctxStopping >> throwSTM Stopping) `orElse` waitFinishedSTM conn
+    let giveUp =
+            (T.waitStoppingSTM ctxThreadManager >> throwSTM Stopping)
+                `orElse` waitFinishedSTM conn
     (ctxQDecoder, handleEI) <- newQDecoderWith (confQDecoderConfig conf) giveUp sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctxPeerGoAway <- newTVarIO Nothing
@@ -195,7 +190,6 @@ newContext conn conf = do
                 -- the connection; there is nobody to report a failure to.
                 (encodeDecoderInstructions [StreamCancellation sid] >>= sendDI)
                     `E.catch` ignoreSync
-    ctxThreadManager <- T.newThreadManager
     ctxAppThreadManager <- T.newThreadManager
     ctxGoAway <- newTVarIO Nothing
     ctxLastRequest <- newTVarIO Nothing
@@ -275,7 +269,10 @@ isH3Client Context{..} = isClient ctxConnection
 --   An ended connection is told by 'acceptStream', as before.
 accept :: Context -> IO (Maybe Stream)
 accept Context{..} = do
-    go <- atomically $ (False <$ stoppingSTM ctxStopping) <|> (True <$ waitAcceptableSTM ctxConnection)
+    go <-
+        atomically $
+            (False <$ T.waitStoppingSTM ctxThreadManager)
+                <|> (True <$ waitAcceptableSTM ctxConnection)
     if go then Just <$> acceptStream ctxConnection else return Nothing
 
 -- | Thrown by a library thread to itself to return once we are stopping,
@@ -284,14 +281,13 @@ data Stopping = Stopping deriving (Show)
 
 instance E.Exception Stopping
 
-stoppingSTM :: TVar Bool -> STM ()
-stoppingSTM v = readTVar v >>= check
-
 -- | 'recvStream' for the library's own streams, which gives up with
 --   'Stopping' once we are stopping.
 recvOrStop :: Context -> Stream -> Int -> IO ByteString
 recvOrStop Context{..} strm n = do
-    go <- atomically $ (False <$ stoppingSTM ctxStopping) <|> (True <$ waitReadableSTM strm)
+    go <-
+        atomically $
+            (False <$ T.waitStoppingSTM ctxThreadManager) <|> (True <$ waitReadableSTM strm)
     if go then recvStream strm n else E.throwIO Stopping
 
 qpackEncode :: Context -> QEncoder
