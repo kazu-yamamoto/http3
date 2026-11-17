@@ -45,14 +45,14 @@ import qualified Control.Exception as E
 import Control.Monad (forM, forM_, void, when)
 import Data.IORef
 import Data.Maybe (isJust)
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
-import Data.IntSet (IntSet)
-import qualified Data.IntSet as IntSet
+import Network.QUIC.Types.Int64Map (Int64Map)
+import qualified Network.QUIC.Types.Int64Map as IntMap
+import Network.QUIC.Types.Int64Set (Int64Set)
+import qualified Network.QUIC.Types.Int64Set as IntSet
 import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
 import Network.QUIC
-import Network.QUIC.Internal (Microseconds (..), connLDCC, encodeInt', getPTO, isClient, isServer)
+import Network.QUIC.Internal (connLDCC, encodeInt', getPTO, isClient, isServer, toDelay)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
@@ -92,11 +92,11 @@ data Context = Context
     -- ^ Server only: the ID of our GOAWAY, from which no request is taken.
     , ctxLastRequest :: TVar (Maybe StreamId)
     -- ^ Server only: the largest request stream taken.
-    , ctxInFlight :: TVar IntSet
+    , ctxInFlight :: TVar Int64Set
     -- ^ Server only: the request streams taken and not yet done with.
     , ctxPeerGoAway :: TVar (Maybe StreamId)
     -- ^ Client only: the ID of the server's last GOAWAY.
-    , ctxRequests :: TVar (IntMap (Stream, TVar Answer))
+    , ctxRequests :: TVar (Int64Map (Stream, TVar Answer))
     -- ^ Client only: the requests sent and not yet done with.
     }
 
@@ -378,8 +378,8 @@ goAwayAll ctx = sendGoAway ctx $ 2 ^ (62 :: Int) - 4
 --   trip.
 waitPTO :: Context -> IO ()
 waitPTO Context{..} = do
-    Microseconds pto <- getPTO $ connLDCC ctxConnection
-    threadDelay pto
+    pto <- getPTO $ connLDCC ctxConnection
+    threadDelay $ toDelay pto
 
 sendGoAway :: Context -> StreamId -> IO ()
 sendGoAway Context{..} lim = do
@@ -433,7 +433,7 @@ endRequest Context{..} strm =
 --   rejected, and their streams reset so that the wait ends.
 rejectAbove
     :: TVar (Maybe StreamId)
-    -> TVar (IntMap (Stream, TVar Answer))
+    -> TVar (Int64Map (Stream, TVar Answer))
     -> StreamId
     -> IO ()
 rejectAbove peerGoAway requests lim = do

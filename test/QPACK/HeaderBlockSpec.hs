@@ -125,7 +125,7 @@ spec = do
             setBlockedStreams tblop 1
             blks <- forM [0 .. 29] $ \i -> do
                 let hdr = [(toToken "x-foo", C8.pack (show (i `div` 3 :: Int)))]
-                enc (i * 4) hdr
+                enc (fromIntegral i * 4) hdr
             length (filter ((/= 0) . encodedInsertCount) blks) `shouldSatisfy` (<= 1)
 
         it "takes two outstanding sections on one stream one at a time" $ do
@@ -267,10 +267,10 @@ spec = do
             setCapacity tblop 4096
             setBlockedStreams tblop 100
             let hdr i = [(toToken (C8.pack ("x-foo-" ++ show (i `mod` 20 :: Int))), "bar")]
-            blks <- forConcurrently [0 .. 199] $ \i -> enc (i * 4) (hdr i)
+            blks <- forConcurrently [0 .. 199] $ \i -> enc (fromIntegral i * 4) (hdr i)
             drain eiRef handleEI
             forM_ (zip [0 ..] blks) $ \(i, blk) ->
-                fst <$> dec (i * 4) blk `shouldReturn` hdr i
+                fst <$> dec (fromIntegral i * 4) blk `shouldReturn` hdr i
 
         it "releases the sections of a stream the decoder cancels" $ do
             -- One blocked stream allowed, and nothing acknowledged.  Stream 4
@@ -500,7 +500,7 @@ roundTripMany encCap decCap n = do
                 -- Twice each, since a field is only inserted the second
                 -- time it is seen.
                 forM_ [0, 1] $ \j -> do
-                    let sid = (i * 2 + j) * 4
+                    let sid = fromIntegral $ (i * 2 + j) * 4
                         hdr = [(toToken "x-count", C8.pack (show i))]
                     blk <- enc sid hdr
                     modifyIORef' ricMax (max (encodedInsertCount blk))

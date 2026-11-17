@@ -99,7 +99,7 @@ run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
   where
     aux =
         defaultAux
-            { auxPossibleClientStreams = QUIC.possibleMyStreams conn
+            { auxPossibleClientStreams = fromIntegral <$> QUIC.possibleMyStreams conn
             , auxSendPing = QUIC.sendFrames conn QUIC.RTT1Level [QUIC.Ping]
             }
 
