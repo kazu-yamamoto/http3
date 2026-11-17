@@ -106,9 +106,7 @@ run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
 readerClient :: Context -> IO ()
 readerClient ctx = loop
   where
-    loop = do
-        accept ctx >>= process
-        loop
+    loop = accept ctx >>= mapM_ (\strm -> process strm >> loop)
     process strm
         | QUIC.isClientInitiatedUnidirectional sid = return () -- error
         | QUIC.isClientInitiatedBidirectional sid = return ()

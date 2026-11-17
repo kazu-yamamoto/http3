@@ -224,9 +224,7 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
   where
-    loop = do
-        accept ctx >>= process
-        loop
+    loop = accept ctx >>= mapM_ (\strm -> process strm >> loop)
     process strm
         | QUIC.isClientInitiatedUnidirectional sid =
             forkManaged ctx "H3 server: unidirectional handler" $
