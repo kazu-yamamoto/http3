@@ -394,8 +394,12 @@ sendResponse ctx strm th (Response outobj) _pp = do
 sendResponseIO
     :: Context -> Stream -> Response -> IO ()
 sendResponseIO ctx strm (Response outobj) =
-    void $ withHandle ctx $ \th -> do
+    -- A response that fails is reset, as in 'run'.  It was left as it was,
+    -- neither ended nor released, and the client waited for the rest.
+    ( void $ withHandle ctx $ \th -> do
         sendHeader ctx strm th $ outObjHeaders outobj
         -- A cancelled body has reset the stream, and this only releases it.
         _ <- sendBody ctx strm th outobj
         QUIC.closeStreamWith strm H3NoError
+    )
+        `E.onException` QUIC.resetStream strm H3InternalError
