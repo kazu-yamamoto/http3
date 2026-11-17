@@ -8,6 +8,7 @@ import Control.Concurrent
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
+import Data.ByteString.Builder (Builder, byteString)
 import Data.IORef
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
@@ -50,6 +51,9 @@ spec =
                 -- Stream Cancellation is 01 and then the stream ID in six bits.
                 B.elem 0x40 bs `shouldBe` False
                 B.elem 0x44 bs `shouldBe` True
+        it "resets a response whose body throws" $
+            E.bracket setupThrowing teardown $ \_ ->
+                timeout 3000000 resetResponse `shouldReturn` Just ()
         it "gives back the stream of a request refused with 431" $
             E.bracket setupFewStreams teardown $ \_ ->
                 timeout 5000000 tooLongRequests `shouldReturn` Just ()
@@ -205,3 +209,43 @@ recordDecoderStream _ plain = unsafePerformIO $ do
                 atomicModifyIORef' sentOnDecoderStream $ \xs -> (xs ++ dats, ())
         _ -> return ()
     return plain
+
+-- | A server whose responses throw after one DATA frame, each answered on a
+-- thread of its own, as an application would.
+setupThrowing :: IO ThreadId
+setupThrowing = do
+    sc <- makeTestServerConfig
+    tid <- forkIO $ QUICS.run sc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            runIO conn conf $ \sio -> return $ forever $ do
+                (strm, _req) <- sioReadRequest sio
+                let body :: (Builder -> IO ()) -> IO () -> IO ()
+                    body write flush = do
+                        write $ byteString "partial"
+                        flush
+                        -- Let the DATA frame arrive ahead of the reset.
+                        threadDelay 200000
+                        E.throwIO $ userError "body failed"
+                void $
+                    forkIO $
+                        void $
+                            E.try @E.SomeException $
+                                sioWriteResponse sio strm $
+                                    responseStreaming ok200 [] body
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | The response is reset after its first DATA frame, and the client is told
+-- so.  It used to be left neither ended nor reset, and the client waited.
+resetResponse :: IO ()
+resetResponse = QUICC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+            r <- E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \rsp -> do
+                let drain = do
+                        bs <- C.getResponseBodyChunk rsp
+                        unless (B.null bs) drain
+                drain
+            case r of
+                Left (StreamResetIsReceived e) -> e `shouldBe` H3InternalError
+                Right () -> expectationFailure "the response was taken as whole"
