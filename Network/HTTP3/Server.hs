@@ -213,9 +213,9 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     race_ (goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop) $
         concurrently_ io $
             readerServer ctx $ \strm ->
-                forkManagedTimeout ctx "H3 server: processRequestIO" $ \_th -> do
+                forkLibraryTimeout ctx "H3 server: processRequestIO" $ \_th -> do
                     let sid = QUIC.streamId strm
-                    src <- newSource strm
+                    src <- newSourceOrStop ctx strm
                     handed <-
                         processRequestIO ctx (put src) strm src
                             `E.onException` finish sid (Just src)
@@ -325,9 +325,9 @@ processRequestIO ctx put strm src = E.handle reset $ do
   where
     sid = QUIC.streamId strm
     reset se
-        -- Killed by the timeout, or with the connection, before the request
-        -- was handed over.
-        | isAsyncException se = do
+        -- Killed by the timeout, or stopping with the context, before the
+        -- request was handed over.
+        | isAsyncException se || isJust (E.fromException se :: Maybe Stopping) = do
             QUIC.resetStream strm H3RequestIncomplete
             E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
