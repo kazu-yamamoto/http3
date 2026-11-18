@@ -5,6 +5,7 @@
 module QPACK.QIF2Spec where
 
 import Control.Concurrent
+import Control.Concurrent.STM (retry)
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
@@ -145,4 +146,4 @@ responseSection req = responseBuilder ok200 header body
 -- | Creating request with builder only from headers
 --   where :path and :method are included.
 requestBuilder2 :: RequestHeaders -> Builder -> C.Request
-requestBuilder2 hdr builder = Request $ OutObj hdr (OutBodyBuilder builder) defaultTrailersMaker
+requestBuilder2 hdr builder = Request $ OutObj hdr (OutBodyBuilder builder) defaultTrailersMaker retry

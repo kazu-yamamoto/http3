@@ -5,6 +5,7 @@
 module HTTP3.ClientSpec where
 
 import Control.Concurrent
+import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad
 import Data.Word (Word64)
@@ -40,6 +41,23 @@ spec =
             E.bracket (setupWith ending) teardown $ \_ ->
                 fmap fst <$> timeout 3000000 (request @StreamResetIsSent)
                     `shouldReturn` Just (Left (StreamResetIsSent H3MessageError))
+        it "gives up a request waiting for the response" $
+            E.bracket (setupWith silent) teardown $ \_ ->
+                timeout 3000000 (QUICC.run testClientConfig $ \conn ->
+                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                            giveUp <- deadline 200000
+                            let req = C.requestNoBody methodGet "/" []
+                            E.try $ sendRequest (C.setRequestGiveUp req giveUp) $ \_ -> return ())
+                    `shouldReturn` Just (Left (StreamResetIsSent H3RequestCancelled))
+        it "gives up a connection with runGivingUp" $
+            E.bracket (setupWith silent) teardown $ \_ -> do
+                giveUp <- deadline 200000
+                r <- timeout 3000000 $ E.try @E.SomeException $ QUICC.run testClientConfig $ \conn ->
+                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                        C.runGivingUp giveUp conn testH3ClientConfig conf $ \sendRequest _aux ->
+                            sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+                fmap (either (const "given up") (const "answered")) r `shouldBe` Just ("given up" :: String)
 
 -- | A plain QUIC server doing this to every request stream.
 setupWith :: (QUIC.Stream -> IO ()) -> IO ThreadId
@@ -56,6 +74,14 @@ setupWith act = do
 -- (RFC 9114, section 4.1.1).
 rejecting :: QUIC.Stream -> IO ()
 rejecting strm = QUIC.resetStream strm H3RequestRejected
+
+-- | Never answered.
+silent :: QUIC.Stream -> IO ()
+silent _ = return ()
+
+-- | Succeeding once the microseconds have passed.
+deadline :: Int -> IO (STM ())
+deadline us = (\late -> readTVar late >>= check) <$> registerDelay us
 
 -- | Ended with no response at all.
 ending :: QUIC.Stream -> IO ()
