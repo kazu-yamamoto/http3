@@ -69,7 +69,6 @@ import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Types.Int64Map as IntMap
-import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Config
@@ -101,12 +100,12 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
             -- 'processRequest' handles its own exceptions; only asynchronous ones
             -- and a connection error leave it, and the thread manager takes the
             -- asynchronous ones that it threw.
-            forkManagedTimeoutFinally
+            forkAppFinally
                 ctx
                 "H3 server: processRequest"
-                ( \th -> do
+                ( do
                     writeIORef state Started
-                    processRequest ctx server strm th
+                    processRequest ctx server strm
                         `E.catch` \e -> case e of
                             QUIC.ApplicationProtocolErrorIsSent _ _ -> do
                                 writeIORef state ConnectionClosed
@@ -214,7 +213,7 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     race_ (goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop) $
         concurrently_ io $
             readerServer ctx $ \strm ->
-                forkLibraryTimeout ctx "H3 server: processRequestIO" $ \_th -> do
+                forkManaged ctx "H3 server: processRequestIO" $ do
                     let sid = QUIC.streamId strm
                     src <- newSourceOrStop ctx strm
                     handed <-
@@ -248,14 +247,13 @@ processRequest
     :: Context
     -> Server
     -> Stream
-    -> T.Handle
     -> IO ()
-processRequest ctx server strm th = E.handle reset $ do
+processRequest ctx server strm = E.handle reset $ do
     src <- newSource strm
     (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
         emvt <- E.try $ recvHeader ctx sid src
         case emvt of
-            Left FieldSectionTooLarge -> refuseTooLarge ctx strm th
+            Left FieldSectionTooLarge -> refuseTooLarge ctx strm
             Right Nothing -> QUIC.resetStream strm H3MessageError
             Right (Just ht) -> do
                 mreq <- mkRequest ctx strm src ht
@@ -267,9 +265,11 @@ processRequest ctx server strm th = E.handle reset $ do
                                 defaultAux
                                     { auxMySockAddr = getMySockAddr ctx
                                     , auxPeerSockAddr = getPeerSockAddr ctx
-                                    , auxSendInformational = sendInformational ctx strm th
+                                    , auxSendInformational = sendInformational ctx strm
                                     }
-                        server req aux $ sendResponse ctx strm th
+                        -- No limit on the handler, but the client must
+                        -- still be there: the connection is kept alive.
+                        keepingAlive ctx $ server req aux $ sendResponse ctx strm
   where
     sid = QUIC.streamId strm
     reset se
@@ -326,7 +326,7 @@ processRequestIO ctx put strm src = E.handle reset $ do
         -- Closed here, as 'run' does in 'finish': only a closed stream is
         -- given back to the client's limit on request streams.
         Left FieldSectionTooLarge -> do
-            withHandle ctx (refuseTooLarge ctx strm)
+            refuseTooLarge ctx strm
             False <$ QUIC.closeStreamWith strm H3NoError
         Right Nothing -> False <$ QUIC.resetStream strm H3MessageError
         Right (Just ht) -> do
@@ -355,10 +355,10 @@ processRequestIO ctx put strm src = E.handle reset $ do
 -- than it is willing to handle can send an HTTP 431 (Request Header Fields
 -- Too Large) status code".  What is left of the request is not wanted, and
 -- section 4.1.1 lets a server say so with STOP_SENDING and H3_NO_ERROR.
-refuseTooLarge :: Context -> Stream -> T.Handle -> IO ()
-refuseTooLarge ctx strm th = do
+refuseTooLarge :: Context -> Stream -> IO ()
+refuseTooLarge ctx strm = do
     QUIC.stopStream strm H3NoError
-    sendHeader ctx strm th [(":status", "431")]
+    sendHeader ctx strm [(":status", "431")]
     QUIC.shutdownStream strm
 
 -- | Build the 'Request', or reset the stream and answer 'Nothing' when the
@@ -397,10 +397,10 @@ mkRequest ctx strm src ht@(_, vt) = do
         return $ Request $ InpObj ht Nothing readB refH
 
 sendResponse
-    :: Context -> Stream -> T.Handle -> Response -> [PushPromise] -> IO ()
-sendResponse ctx strm th (Response outobj) _pp = do
-    sendHeader ctx strm th $ outObjHeaders outobj
-    done <- sendBody ctx strm th outobj
+    :: Context -> Stream -> Response -> [PushPromise] -> IO ()
+sendResponse ctx strm (Response outobj) _pp = do
+    sendHeader ctx strm $ outObjHeaders outobj
+    done <- sendBody ctx strm outobj
     when done $ QUIC.shutdownStream strm
 
 sendResponseIO
@@ -408,10 +408,10 @@ sendResponseIO
 sendResponseIO ctx strm (Response outobj) =
     -- A response that fails is reset, as in 'run'.  It was left as it was,
     -- neither ended nor released, and the client waited for the rest.
-    ( void $ withHandle ctx $ \th -> do
-        sendHeader ctx strm th $ outObjHeaders outobj
+    ( do
+        sendHeader ctx strm $ outObjHeaders outobj
         -- A cancelled body has reset the stream, and this only releases it.
-        _ <- sendBody ctx strm th outobj
+        _ <- sendBody ctx strm outobj
         QUIC.closeStreamWith strm H3NoError
     )
         `E.onException` QUIC.resetStream strm H3InternalError

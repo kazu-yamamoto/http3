@@ -5,7 +5,6 @@ module HTTP3.InformationalSpec where
 import qualified Control.Exception as E
 import Control.Monad (replicateM_)
 import qualified Data.ByteString as B
-import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))

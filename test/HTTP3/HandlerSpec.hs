@@ -1,11 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.HandlerSpec where
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
-import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
@@ -16,21 +14,20 @@ import Test.Hspec
 import HTTP3.Config
 import HTTP3.Server
 
--- | A server whose handlers time out after a second of not sending.
+-- | A server with a short idle timeout.
 spec :: Spec
-spec = beforeAll (setupShortTimeout server) $ afterAll teardown $ do
-    describe "H3 server with a short timeout" $ do
-        it "resets a response its handler is killed part-way through" $ \_ -> do
-            -- The handler sends some of the body and then nothing: the
-            -- timeout kills it.  The stream used to be ended with a FIN, and
-            -- the client took what it had for the whole body.
+spec = beforeAll (setupShortIdle server) $ afterAll teardown $ do
+    describe "H3 server with a short idle timeout" $ do
+        it "keeps the connection alive for a slow handler" $ \_ -> do
+            -- The handler sends some of the body and then nothing for three
+            -- idle timeouts.  It used to be killed, and the stream reset;
+            -- the connection is kept alive now, as over HTTP/2.
             r <- timeout 5000000 $ QUIC.run testClientConfig $ \conn ->
                 E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
                     C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
-                        E.try @HE.HTTPError $ sendRequest (C.requestNoBody methodGet "/stall" []) $ \rsp -> do
+                        sendRequest (C.requestNoBody methodGet "/slow" []) $ \rsp -> do
                             let drain acc = do
                                     bs <- C.getResponseBodyChunk rsp
                                     if B.null bs then return acc else drain (acc <> bs)
                             drain ""
-            fmap (either (Left . peerReset) Right) r
-                `shouldBe` Just (Left (Just H3InternalError))
+            r `shouldBe` Just "partial rest"
