@@ -62,6 +62,7 @@ import qualified Control.Monad.STM as STM
 import Data.IORef
 import GHC.Conc.Sync
 import Network.HTTP.Semantics
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Semantics.Server
 import Network.HTTP.Semantics.Server.Internal
 import Network.HTTP2.Server.Internal (ServerIO (..))
@@ -264,8 +265,7 @@ processRequest ctx server strm th = E.handle reset $ do
                     Just req -> do
                         let aux =
                                 defaultAux
-                                    { auxTimeHandle = th
-                                    , auxMySockAddr = getMySockAddr ctx
+                                    { auxMySockAddr = getMySockAddr ctx
                                     , auxPeerSockAddr = getPeerSockAddr ctx
                                     , auxSendInformational = sendInformational ctx strm th
                                     }
@@ -287,6 +287,17 @@ processRequest ctx server strm th = E.handle reset $ do
         -- A connection error has been sent: the stream goes with it.
         | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
             E.throwIO se
+        | Just (HE.ConnectionErrorIsSent _ _) <- E.fromException se =
+            E.throwIO se
+        -- The body reader said why, as an 'HE.HTTPError': the request is
+        -- malformed, or the client reset the stream.
+        | Just (HE.StreamErrorIsSent code _ _) <- E.fromException se =
+            QUIC.resetStream strm $
+                QUIC.ApplicationProtocolError $
+                    fromIntegral $
+                        HE.errorValue code
+        | Just (HE.StreamErrorIsReceived _ _) <- E.fromException se =
+            QUIC.resetStream strm H3RequestCancelled
         -- The response was more than the client will take, and the
         -- application did nothing about it.  Our failure, not the client's.
         | Just (_ :: FieldSectionTooLargeForPeer) <- E.fromException se =

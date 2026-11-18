@@ -317,7 +317,7 @@ runResetCancelClient = do
                 case r of
                     -- The body threw: the server's failure, not the
                     -- client's.  H3_MESSAGE_ERROR was sent for it.
-                    Left (StreamResetIsReceived e) -> e `shouldBe` H3InternalError
+                    Left e -> peerReset e `shouldBe` Just H3InternalError
                     Right () -> expectationFailure "the reset was taken for the end"
                 threadDelay 100000
     bs <- B.concat <$> readIORef sentOnDecoderStream
@@ -350,7 +350,7 @@ runHandlerCancelClient =
                             unless (B.null bs) drain
                     drain
                 case r of
-                    Left (StreamResetIsReceived e) -> e `shouldBe` H3RequestCancelled
+                    Left e -> peerReset e `shouldBe` Just H3RequestCancelled
                     Right () -> expectationFailure "the cancelled body was taken as whole"
 
 -- | A request body that throws part-way, so that the client resets the
@@ -369,7 +369,7 @@ runResetRequestClient = do
                 _ <- timeout 1000000 $ E.try @E.SomeException $ sendRequest req $ \_ -> return ()
                 r <- timeout 2000000 $ takeMVar recordedBody
                 r `shouldSatisfy` \x -> case x of
-                    Just (Left e) -> "StreamResetIsReceived" `isInfixOf` e
+                    Just (Left e) -> "StreamErrorIsReceived" `isInfixOf` e
                     _ -> False
 
 -- | A request interrupted by 'timeout' while its body is still being sent:
@@ -389,9 +389,9 @@ runInterruptedRequestClient = do
                 timeout 300000 (sendRequest req $ \_ -> return ())
                     `shouldReturn` Nothing
                 r <- timeout 2000000 $ takeMVar recordedBody
-                r
-                    `shouldBe` Just
-                        (Left (show (StreamResetIsReceived H3RequestCancelled)))
+                r `shouldSatisfy` \x -> case x of
+                    Just (Left e) -> "errorKind = Cancelled" `isInfixOf` e
+                    _ -> False
 
 -- | A CANCEL_PUSH frame where the body should be.  It is a connection error
 -- (RFC 9114, section 7.2.3), and its payload used to go on to the handler
@@ -466,9 +466,8 @@ runNoContentClient =
                             (,) (C.responseStatus rsp) <$> body rsp
                 get methodHead "/" `shouldReturn` (Just ok200, "")
                 get methodGet "/not-modified" `shouldReturn` (Just notModified304, "")
-                get methodGet "/no-content" `shouldThrow` \e -> case e of
-                    ContentLengthMismatch 1000 0 -> True
-                    _ -> False
+                get methodGet "/no-content" `shouldThrow` \e ->
+                    ourReset e == Just H3MessageError
 
 -- | A POST whose DATA frame claims 100 octets and has 10 when the stream
 -- ends (RFC 9114, section 7.1: a connection error of type H3_FRAME_ERROR).

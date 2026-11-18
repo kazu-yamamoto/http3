@@ -8,6 +8,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forever, when)
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
@@ -106,7 +107,7 @@ ignoredRequests = QUICC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
         C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
             let get = E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
-                gone (Left (QUIC.ConnectionIsClosed _)) = True
+                gone (Left HE.ConnectionIsClosed) = True
                 gone _ = False
             r1 <- get
             r2 <- get

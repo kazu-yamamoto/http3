@@ -107,8 +107,11 @@ stalledAndWaiting = QUICC.run testClientConfig $ \conn -> do
     QUIC.sendStream strm "\x01"
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
         C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
-            _ <- forkIO $ void $ E.try @E.SomeException $
-                sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+            _ <- forkIO $
+                void $
+                    E.try @E.SomeException $
+                        sendRequest (C.requestNoBody methodGet "/" []) $
+                            \_ -> return ()
             threadDelay 5000000
 
 oneRequest :: IO ()
@@ -168,7 +171,10 @@ setupCancel :: IO ThreadId
 setupCancel = do
     writeIORef sentOnDecoderStream []
     sc0 <- makeTestServerConfig
-    let sc = sc0{QUIC.scHooks = (QUIC.scHooks sc0){QUIC.onPlainCreated = recordDecoderStream}}
+    let sc =
+            sc0
+                { QUIC.scHooks = (QUIC.scHooks sc0){QUIC.onPlainCreated = recordDecoderStream}
+                }
     tid <- forkIO $ QUICS.run sc $ \conn ->
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
             runIO conn conf $ \sio -> return $ forever $ do
@@ -247,5 +253,5 @@ resetResponse = QUICC.run testClientConfig $ \conn ->
                         unless (B.null bs) drain
                 drain
             case r of
-                Left (StreamResetIsReceived e) -> e `shouldBe` H3InternalError
+                Left e -> peerReset e `shouldBe` Just H3InternalError
                 Right () -> expectationFailure "the response was taken as whole"

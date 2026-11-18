@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module Network.HTTP3.Error (
@@ -8,6 +9,9 @@ module Network.HTTP3.Error (
     StreamResetIsSent (..),
     UnsupportedRequest (..),
     StreamTerminated (..),
+    toHTTPError,
+    translating,
+    untranslating,
     ApplicationProtocolError (
         H3NoError,
         H3GeneralProtocolError,
@@ -31,6 +35,9 @@ module Network.HTTP3.Error (
 
 import qualified Control.Exception as E
 import Data.ByteString (ByteString)
+import Data.Maybe (isJust)
+import Network.HTTP.Semantics (StreamTerminated (..))
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.QUIC
 
 -- | A message whose content does not match the content-length it declared.
@@ -94,15 +101,6 @@ newtype UnsupportedRequest = UnsupportedRequest String
 
 instance E.Exception UnsupportedRequest
 
--- | Thrown by 'outBodyPush', 'outBodyPushFinal' and 'outBodyFlush' once the
---   body has ended with 'outBodyPushFinal' or been cancelled, as in http2.
---
---   @since 0.2.0
-data StreamTerminated = StreamPushedFinal | StreamCancelled
-    deriving (Eq, Show)
-
-instance E.Exception StreamTerminated
-
 {- FOURMOLU_DISABLE -}
 pattern H3NoError                :: ApplicationProtocolError
 pattern H3NoError                 = ApplicationProtocolError 0x100
@@ -155,3 +153,65 @@ pattern H3ConnectError            = ApplicationProtocolError 0x10f
 pattern H3VersionFallback        :: ApplicationProtocolError
 pattern H3VersionFallback         = ApplicationProtocolError 0x110
 {- FOURMOLU_ENABLE -}
+
+----------------------------------------------------------------
+
+-- | What an exception of quic's or of this library is as http-semantics'
+--   'HE.HTTPError', the same as HTTP\/2's, given the stream, if any, it
+--   happened on.  Others, giving up among them, are as they are.
+toHTTPError :: Maybe StreamId -> E.SomeException -> Maybe HE.HTTPError
+toHTTPError msid se
+    | Just e <- E.fromException se = Just e
+    | Just (StreamResetIsReceived c) <- E.fromException se
+    , Just sid <- msid =
+        Just $ HE.StreamErrorIsReceived (h3 c) sid
+    | Just (StreamResetIsSent c) <- E.fromException se
+    , Just sid <- msid =
+        Just $ HE.StreamErrorIsSent (h3 c) sid ""
+    | malformed
+    , Just sid <- msid =
+        Just $ HE.StreamErrorIsSent (h3 H3MessageError) sid "malformed"
+    | Just qe <- E.fromException se = case qe of
+        ConnectionIsTimeout _ -> Just HE.ConnectionIsTimeout
+        ConnectionIsClosed _ -> Just HE.ConnectionIsClosed
+        ConnectionIsReset -> Just HE.ConnectionIsReset
+        ApplicationProtocolErrorIsReceived c msg ->
+            Just $ HE.ConnectionErrorIsReceived (h3 c) msg
+        ApplicationProtocolErrorIsSent c msg ->
+            Just $ HE.ConnectionErrorIsSent (h3 c) msg
+        TransportErrorIsReceived c msg ->
+            Just $ HE.ConnectionErrorIsReceived (transport c) msg
+        TransportErrorIsSent c msg ->
+            Just $ HE.ConnectionErrorIsSent (transport c) msg
+        _ -> Nothing
+    | otherwise = Nothing
+  where
+    h3 (ApplicationProtocolError c) = HE.http3ErrorCode $ fromIntegral c
+    transport (TransportError c) = HE.quicTransportErrorCode $ fromIntegral c
+    malformed =
+        isJust (E.fromException se :: Maybe ContentLengthMismatch)
+            || isJust (E.fromException se :: Maybe ConnectionSpecificField)
+            || isJust (E.fromException se :: Maybe InvalidContentLength)
+
+-- | Throwing what the action throws as 'HE.HTTPError', where it is one.
+translating :: Maybe StreamId -> IO a -> IO a
+translating msid = E.handle $ \se -> E.throwIO $ maybe se E.toException $ toHTTPError msid se
+
+-- | The other way round, for what goes on to quic, which knows its own
+--   exceptions: a connection the client was told is closed is closed for
+--   quic, not an application failing.
+untranslating :: IO a -> IO a
+untranslating = E.handle $ \se -> E.throwIO $ maybe se id $ fromHTTPError se
+  where
+    fromHTTPError se = case E.fromException se of
+        Just HE.ConnectionIsTimeout -> Just $ E.toException $ ConnectionIsTimeout ""
+        Just HE.ConnectionIsClosed -> Just $ E.toException $ ConnectionIsClosed ""
+        Just HE.ConnectionIsReset -> Just $ E.toException ConnectionIsReset
+        Just (HE.ConnectionErrorIsReceived c msg) -> Just $ E.toException $ case HE.errorSpace c of
+            HE.QUICTransport -> TransportErrorIsReceived (TransportError $ value c) msg
+            _ -> ApplicationProtocolErrorIsReceived (ApplicationProtocolError $ value c) msg
+        Just (HE.ConnectionErrorIsSent c msg) -> Just $ E.toException $ case HE.errorSpace c of
+            HE.QUICTransport -> TransportErrorIsSent (TransportError $ value c) msg
+            _ -> ApplicationProtocolErrorIsSent (ApplicationProtocolError $ value c) msg
+        _ -> Nothing
+    value = fromIntegral . HE.errorValue

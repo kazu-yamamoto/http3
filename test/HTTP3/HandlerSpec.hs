@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module HTTP3.HandlerSpec where
 
 import qualified Control.Exception as E
 import qualified Data.ByteString as B
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Server
@@ -25,9 +27,10 @@ spec = beforeAll (setupShortTimeout server) $ afterAll teardown $ do
             r <- timeout 5000000 $ QUIC.run testClientConfig $ \conn ->
                 E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
                     C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
-                        E.try $ sendRequest (C.requestNoBody methodGet "/stall" []) $ \rsp -> do
+                        E.try @HE.HTTPError $ sendRequest (C.requestNoBody methodGet "/stall" []) $ \rsp -> do
                             let drain acc = do
                                     bs <- C.getResponseBodyChunk rsp
                                     if B.null bs then return acc else drain (acc <> bs)
                             drain ""
-            r `shouldBe` Just (Left (StreamResetIsReceived H3InternalError))
+            fmap (either (Left . peerReset) Right) r
+                `shouldBe` Just (Left (Just H3InternalError))

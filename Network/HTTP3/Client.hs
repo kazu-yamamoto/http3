@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | A client library for HTTP/3.
 module Network.HTTP3.Client (
@@ -58,7 +59,8 @@ module Network.HTTP3.Client (
     ApplicationProtocolError (..),
 ) where
 
-import Control.Concurrent.STM (STM, retry)
+import Control.Concurrent.Async (waitCatchSTM, withAsync)
+import Control.Concurrent.STM (STM, atomically, orElse, retry)
 import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
@@ -95,24 +97,46 @@ defaultClientConfig =
 
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
-run = runGivingUp retry
+run conn cconf conf client = runWith conn cconf conf client retry
 
--- | 'run' which gives up on the connection once the 'STM' action
---   succeeds: the connection is closed with H3_NO_ERROR, and what the
---   client waits for on it throws.
+-- | 'run', giving up once the 'STM' action succeeds: the connection is
+--   closed with H3_NO_ERROR, and what the action gave is returned as
+--   'Left'.  A client already done by then is not given up on.  The
+--   action is run once more for what it gave: it should go on succeeding
+--   once it has, as a deadline does.
 --
 -- @since 0.2.0
-runGivingUp :: STM () -> Connection -> ClientConfig -> Config -> Client a -> IO a
-runGivingUp giveUp conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
+runGivingUp
+    :: Connection -> ClientConfig -> Config -> Client a -> STM g -> IO (Either g a)
+runGivingUp conn cconf conf client giveUp = do
+    r <- E.try $ runWith conn cconf conf client $ void giveUp
+    case r of
+        Right x -> return $ Right x
+        -- Whatever the client ended with, it was given up on.
+        Left (e :: E.SomeException) -> do
+            mg <- atomically $ (Just <$> giveUp) `orElse` return Nothing
+            maybe (E.throwIO e) (return . Left) mg
+
+runWith :: Connection -> ClientConfig -> Config -> Client a -> STM () -> IO a
+runWith conn ClientConfig{..} conf client giveUp = untranslating $ withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
-    forkManaged ctx "H3 client: giving up" $ abortOnGiveUp ctx giveUp
-    client (sendRequest ctx scheme authority) aux
+    -- Given up on, the client is stopped, as http2 does; returning, this
+    -- ends the connection as any client returning does.
+    withAsync (client (sendRequest ctx scheme authority) aux) $ \a -> do
+        r <- atomically $ (Just <$> waitCatchSTM a) `orElse` (Nothing <$ giveUp)
+        maybe (E.throwIO ClientGivenUp) (either E.throwIO return) r
   where
     aux =
         defaultAux
             { auxPossibleClientStreams = fromIntegral <$> QUIC.possibleMyStreams conn
             , auxSendPing = QUIC.sendFrames conn QUIC.RTT1Level [QUIC.Ping]
             }
+
+-- | What 'runWith' throws once it has given up, for 'runGivingUp'.
+data ClientGivenUp = ClientGivenUp
+    deriving (Show)
+
+instance E.Exception ClientGivenUp
 
 readerClient :: Context -> IO ()
 readerClient ctx = loop
@@ -173,14 +197,14 @@ maxInformational = 10
 
 sendRequest
     :: Context -> Scheme -> Authority -> Request -> (Response -> IO a) -> IO a
-sendRequest ctx scm auth (Request outobj) processResponse = do
+sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing $ do
     -- RFC 9114, section 4.2.2: an endpoint "SHOULD NOT send an HTTP message
     -- header that exceeds the indicated size".  Here, so that the caller is
     -- the one told.
     checkHeaderSize ctx hdr'
     sent <- newIORef False
     refuseIfGoingAway ctx
-    E.bracket (newStreamWith ctx giveUp) (done sent) $ \strm -> do
+    E.bracket (newStreamWith ctx giveUp) (done sent) $ \strm -> translating (Just $ QUIC.streamId strm) $ do
         ans <- startRequest ctx strm
         forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
             ( do
