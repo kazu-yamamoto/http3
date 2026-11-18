@@ -22,7 +22,7 @@ import Network.QPACK (QDecoderConfig (..), QEncoderConfig (..))
 import Network.QPACK.Internal
 import Network.QUIC
 import Network.QUIC.Client
-import Network.QUIC.Internal hiding (timeout)
+import Network.QUIC.Internal
 import System.Timeout
 import Test.Hspec
 
