@@ -3,6 +3,7 @@
 
 module Network.HTTP3.Send (
     sendHeader,
+    sendInformational,
     checkHeaderSize,
     sendBody,
     closeSentinel,
@@ -10,6 +11,7 @@ module Network.HTTP3.Send (
 
 import qualified Control.Exception as E
 import qualified Data.ByteString.Builder.Extra as B
+import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Internal as BS
 import Data.IORef
 import Foreign.ForeignPtr
@@ -47,6 +49,13 @@ sendHeader ctx strm th hdrs = do
         bss = encodeH3Frames frames'
     sendStreamMany strm bss
     T.tickle th
+
+-- | Sending an informational (1xx) response, such as 103 (Early Hints),
+--   ahead of the final one (RFC 9114, section 4.1).
+sendInformational
+    :: Context -> Stream -> T.Handle -> HT.Status -> HT.ResponseHeaders -> IO ()
+sendInformational ctx strm th st hdrs =
+    sendHeader ctx strm th $ (":status", C8.pack $ show $ HT.statusCode st) : hdrs
 
 -- | Sending the body and its trailers.  'False' when the application
 --   cancelled the stream ('outBodyCancel'), which has reset it: the caller
