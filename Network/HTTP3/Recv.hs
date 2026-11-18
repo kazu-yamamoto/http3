@@ -5,6 +5,7 @@ module Network.HTTP3.Recv (
     Source,
     newSource,
     newSourceOrStop,
+    newSourceWith,
     readSource,
     readSource',
     recvHeader,

@@ -6,6 +6,7 @@
 module Network.HTTP3.Client (
     -- * Runner
     run,
+    runGivingUp,
 
     -- * Client configuration
     ClientConfig,
@@ -57,6 +58,7 @@ module Network.HTTP3.Client (
     ApplicationProtocolError (..),
 ) where
 
+import Control.Concurrent.STM (STM, retry)
 import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
@@ -93,8 +95,17 @@ defaultClientConfig =
 
 -- | Running an HTTP\/3 client.
 run :: Connection -> ClientConfig -> Config -> Client a -> IO a
-run conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
+run = runGivingUp retry
+
+-- | 'run' which gives up on the connection once the 'STM' action
+--   succeeds: the connection is closed with H3_NO_ERROR, and what the
+--   client waits for on it throws.
+--
+-- @since 0.2.0
+runGivingUp :: STM () -> Connection -> ClientConfig -> Config -> Client a -> IO a
+runGivingUp giveUp conn ClientConfig{..} conf client = withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
+    forkManaged ctx "H3 client: giving up" $ abortOnGiveUp ctx giveUp
     client (sendRequest ctx scheme authority) aux
   where
     aux =
@@ -169,7 +180,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
     checkHeaderSize ctx hdr'
     sent <- newIORef False
     refuseIfGoingAway ctx
-    E.bracket (newStream ctx) (done sent) $ \strm -> do
+    E.bracket (newStreamWith ctx giveUp) (done sent) $ \strm -> do
         ans <- startRequest ctx strm
         forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
             ( do
@@ -194,7 +205,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
                     -- would be awaited for good.
                     Just QUIC.StreamIsClosed -> return ()
                     _ -> QUIC.resetStream strm H3RequestCancelled
-        src <- newSource strm
+        src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
         let sid = QUIC.streamId strm
         (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
             mvt <- recvFinalHeader ctx strm src
@@ -248,6 +259,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = do
         if complete
             then QUIC.closeStreamWith strm H3RequestCancelled
             else QUIC.resetStream strm H3RequestCancelled
+    giveUp = outObjGiveUp outobj
     hdr = outObjHeaders outobj
     isIPv6 = isJust (readMaybe auth :: Maybe IPv6)
     auth'

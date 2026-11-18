@@ -13,6 +13,9 @@ module Network.HTTP3.Context (
     qpackDecode,
     withHandle,
     newStream,
+    newStreamWith,
+    recvGivingUp,
+    abortOnGiveUp,
     closeStream,
     pReadMaker,
     abort,
@@ -333,6 +336,26 @@ withHandle Context{..} action = void $ TM.withHandle ctxTimeoutManager (return (
 
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
+
+-- | 'newStream' which gives up once the 'STM' action succeeds, throwing
+--   'StreamResetIsSent' with 'H3RequestCancelled'.
+newStreamWith :: Context -> STM () -> IO Stream
+newStreamWith Context{..} giveUp =
+    streamWith ctxConnection giveUp
+        >>= either (\_ -> E.throwIO $ StreamResetIsSent H3RequestCancelled) return
+
+-- | Closing the connection with H3_NO_ERROR once the 'STM' action
+--   succeeds, unless the context stops first.
+abortOnGiveUp :: Context -> STM () -> IO ()
+abortOnGiveUp Context{..} giveUp = do
+    given <- atomically $ (True <$ giveUp) <|> (False <$ T.waitStoppingSTM ctxThreadManager)
+    when given $ abortConnection ctxConnection H3NoError "given up"
+
+-- | 'recvStream' for a client request, which gives up as 'newStreamWith'.
+recvGivingUp :: STM () -> Stream -> Int -> IO ByteString
+recvGivingUp giveUp strm n = do
+    go <- atomically $ (True <$ waitReadableSTM strm) <|> (False <$ giveUp)
+    if go then recvStream strm n else E.throwIO $ StreamResetIsSent H3RequestCancelled
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker
