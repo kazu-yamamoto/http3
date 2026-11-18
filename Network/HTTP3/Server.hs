@@ -267,6 +267,7 @@ processRequest ctx server strm th = E.handle reset $ do
                                     { auxTimeHandle = th
                                     , auxMySockAddr = getMySockAddr ctx
                                     , auxPeerSockAddr = getPeerSockAddr ctx
+                                    , auxSendInformational = sendInformational ctx strm th
                                     }
                         server req aux $ sendResponse ctx strm th
   where

@@ -3,6 +3,7 @@
 module HTTP3.InformationalSpec where
 
 import qualified Control.Exception as E
+import Control.Monad (replicateM_)
 import qualified Data.ByteString as B
 import Network.HTTP.Types
 import Network.HTTP3.Client (StreamResetIsSent (..))
@@ -18,6 +19,24 @@ import HTTP3.Server
 
 spec :: Spec
 spec = do
+    -- The server's handler sends 103 (Early Hints) before the response.
+    describe "H3 server sending informational responses" $ do
+        it "sends one ahead of the final response" $
+            withHinting 1 $ do
+                r <- get
+                case r of
+                    Just (Right x) -> x `shouldBe` (Just ok200, "Hello, world!\n")
+                    _ -> expectationFailure $ "unexpected: " ++ show r
+        it "sends each of them" $
+            -- More than the client takes: it resets, so they did arrive.
+            -- They used to be dropped, and the client saw the response.
+            withHinting 20 $ do
+                r <- getQuietly
+                case r of
+                    Just (Left se)
+                        | Just (StreamResetIsSent H3ExcessiveLoad) <- E.fromException se ->
+                            return ()
+                    _ -> expectationFailure $ "unexpected: " ++ show r
     -- Two informational responses, 100 (Continue) and 103 (Early Hints),
     -- each a HEADERS frame of its own, before every response.
     describe "H3 client with informational responses" $
@@ -47,6 +66,23 @@ spec = do
                                 return ()
                         _ -> expectationFailure $ "unexpected: " ++ show r
   where
+    withHinting n = E.bracket (setup (hinting n) 4096) teardown . const
+    hinting :: Int -> Server
+    hinting n _req aux sendResponse = do
+        replicateM_ n $
+            auxSendInformational
+                aux
+                (mkStatus 103 "Early Hints")
+                [("link", "</style.css>; rel=preload")]
+        sendResponse (responseBuilder ok200 [] "Hello, world!\n") []
+    -- 'get', but the client closes the connection with no error: the
+    -- handler is still sending, and is not to die of an error from it.
+    getQuietly :: IO (Maybe (Either E.SomeException (Maybe Status, B.ByteString)))
+    getQuietly = timeout 3000000 $ QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux ->
+                E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \rsp ->
+                    (,) (C.responseStatus rsp) <$> C.getResponseBodyChunk rsp
     get :: IO (Maybe (Either E.SomeException (Maybe Status, B.ByteString)))
     get = timeout 3000000 $ E.try $ QUIC.run testClientConfig $ \conn ->
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
