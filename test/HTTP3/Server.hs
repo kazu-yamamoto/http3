@@ -4,7 +4,7 @@
 module HTTP3.Server (
     setup,
     setupWith,
-    setupShortTimeout,
+    setupShortIdle,
     hideLimit,
     server,
     countingServer,
@@ -33,10 +33,10 @@ import Network.HPACK
 import Network.HTTP.Types
 import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
+import qualified Network.QUIC.Internal as QI
 import qualified Network.QUIC.Server as QUIC
 import Network.Socket ()
 import System.IO.Unsafe (unsafePerformIO)
-import qualified System.TimeManager as T
 import Test.Hspec
 
 import HTTP3.Config
@@ -71,17 +71,21 @@ setupWith modify svr siz = do
 
         run conn (modify conf) svr
 
--- | 'setup', with handlers timing out after a second of not sending.
-setupShortTimeout :: Server -> IO ThreadId
-setupShortTimeout svr = do
-    sc <- makeTestServerConfig
+-- | 'setup', with an idle timeout of half a second.
+setupShortIdle :: Server -> IO ThreadId
+setupShortIdle svr = do
+    sc0 <- makeTestServerConfig
+    let sc =
+            sc0
+                { QI.scParameters =
+                    (QI.scParameters sc0){QI.maxIdleTimeout = QI.Milliseconds 500}
+                }
     tid <- forkIO $ QUIC.run sc loop
     threadDelay 500000 -- give enough time to the server
     return tid
   where
-    loop conn = T.withManager 1000000 $ \mgr ->
-        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
-            run conn conf{confTimeoutManager = mgr} svr
+    loop conn =
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> run conn conf svr
 
 teardown :: ThreadId -> IO ()
 teardown tid = killThread tid
@@ -116,9 +120,9 @@ server req aux sendResponse = case requestMethod req of
             sendResponse (responseNoBody notModified304 bigLength) []
         -- The same for a 200, which is meant to have content: malformed.
         Just "/no-content" -> sendResponse (responseNoBody ok200 bigLength) []
-        -- Some of the body, then nothing for longer than the timeout of
-        -- 'setupShortTimeout': the handler is killed part-way.
-        Just "/stall" -> sendResponse (responseStreaming ok200 [] stall) []
+        -- Some of the body, then nothing for three idle timeouts of
+        -- 'setupShortIdle', then the rest.
+        Just "/slow" -> sendResponse (responseStreaming ok200 [] slow) []
         -- A response whose header section is some 2K.
         Just "/bigheader" ->
             sendResponse (responseNoBody ok200 [("x-big", B.replicate 2000 0x61)]) []
@@ -169,11 +173,12 @@ responseLength n = responseBuilder ok200 header body
     header = [("Content-Type", "text/plain")]
     body = byteString $ C8.pack $ show n
 
-stall :: (Builder -> IO ()) -> IO () -> IO ()
-stall write flush = do
+slow :: (Builder -> IO ()) -> IO () -> IO ()
+slow write flush = do
     write $ byteString "partial"
     flush
-    threadDelay 10000000
+    threadDelay 1500000
+    write $ byteString " rest"
 
 resetAfterOne :: (Builder -> IO ()) -> IO () -> IO ()
 resetAfterOne write flush = do

@@ -33,7 +33,11 @@ data Config = Config
     , confQDecoderConfig :: QDecoderConfig
     , confPositionReadMaker :: PositionReadMaker
     , confTimeoutManager :: T.Manager
+    -- ^ No effect any more: a connection is supervised by quic's idle
+    --   timeout, and a handler may take as long as it likes.
     }
+
+{-# DEPRECATED confTimeoutManager "No effect any more" #-}
 
 defaultConfig :: Config
 defaultConfig =
@@ -46,16 +50,10 @@ defaultConfig =
         }
 
 -- | Allocating a simple configuration with a handle-based position
---   reader and a locally allocated timeout manager.
+--   reader.
 allocSimpleConfig :: IO Config
-allocSimpleConfig =
-    Config
-        defaultHooks
-        defaultQEncoderConfig
-        defaultQDecoderConfig
-        defaultPositionReadMaker
-        <$> T.initialize (30 * 1000000)
+allocSimpleConfig = return defaultConfig
 
 -- | Freeing a simple configuration.
 freeSimpleConfig :: Config -> IO ()
-freeSimpleConfig conf = T.killManager $ confTimeoutManager conf
+freeSimpleConfig _ = return ()

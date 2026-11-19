@@ -19,7 +19,6 @@ import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.IO
 import qualified Network.HTTP.Types as HT
 import Network.QUIC
-import qualified System.TimeManager as T
 
 import Imports
 import Network.HTTP3.Context
@@ -39,8 +38,8 @@ checkHeaderSize ctx hdrs = do
     let siz = fieldSectionSize ths
     when (siz > lim) $ E.throwIO $ FieldSectionTooLargeForPeer siz lim
 
-sendHeader :: Context -> Stream -> T.Handle -> HT.ResponseHeaders -> IO ()
-sendHeader ctx strm th hdrs = do
+sendHeader :: Context -> Stream -> HT.ResponseHeaders -> IO ()
+sendHeader ctx strm hdrs = do
     -- fixme: fixHeaders
     (ths, _) <- toTokenHeaderTable hdrs
     hdr <- qpackEncode ctx (streamId strm) ths
@@ -48,52 +47,49 @@ sendHeader ctx strm th hdrs = do
         frames' = onHeadersFrameCreated (getHooks ctx) frames
         bss = encodeH3Frames frames'
     sendStreamMany strm bss
-    T.tickle th
 
 -- | Sending an informational (1xx) response, such as 103 (Early Hints),
 --   ahead of the final one (RFC 9114, section 4.1).
 sendInformational
-    :: Context -> Stream -> T.Handle -> HT.Status -> HT.ResponseHeaders -> IO ()
-sendInformational ctx strm th st hdrs =
-    sendHeader ctx strm th $ (":status", C8.pack $ show $ HT.statusCode st) : hdrs
+    :: Context -> Stream -> HT.Status -> HT.ResponseHeaders -> IO ()
+sendInformational ctx strm st hdrs =
+    sendHeader ctx strm $ (":status", C8.pack $ show $ HT.statusCode st) : hdrs
 
 -- | Sending the body and its trailers.  'False' when the application
 --   cancelled the stream ('outBodyCancel'), which has reset it: the caller
 --   must not end it with a FIN.
-sendBody :: Context -> Stream -> T.Handle -> OutObj -> IO Bool
-sendBody ctx strm th outobj = case outObjBody outobj of
+sendBody :: Context -> Stream -> OutObj -> IO Bool
+sendBody ctx strm outobj = case outObjBody outobj of
     OutBodyNone -> return True
     OutBodyFile (FileSpec path fileoff bytecount) -> do
         (pread, sentinel) <- pReadMaker ctx path
         let next = fillFileBodyGetNext pread fileoff bytecount sentinel
-        True <$ sendNext ctx strm th next tlrmkr `E.onException` closeSentinel sentinel
+        True <$ sendNext ctx strm next tlrmkr `E.onException` closeSentinel sentinel
     OutBodyBuilder builder -> do
         let next = fillBuilderBodyGetNext builder
-        True <$ sendNext ctx strm th next tlrmkr
+        True <$ sendNext ctx strm next tlrmkr
     OutBodyStreaming strmbdy ->
         sendStreaming
             ctx
             strm
-            th
             tlrmkr
             (\iface -> outBodyUnmask iface $ strmbdy (outBodyPush iface) (outBodyFlush iface))
-    OutBodyStreamingIface strmbdy -> sendStreaming ctx strm th tlrmkr strmbdy
+    OutBodyStreamingIface strmbdy -> sendStreaming ctx strm tlrmkr strmbdy
   where
     tlrmkr = outObjTrailers outobj
 
-sendNext :: Context -> Stream -> T.Handle -> DynaNext -> TrailersMaker -> IO ()
-sendNext ctx strm th curr tlrmkr0 = do
+sendNext :: Context -> Stream -> DynaNext -> TrailersMaker -> IO ()
+sendNext ctx strm curr tlrmkr0 = do
     (bs, mnext, tlrmkr) <- newByteStringWith tlrmkr0 curr
     when (bs /= "") $ encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
-    T.tickle th
     case mnext of
         Nothing -> do
             tm <- tlrmkr Nothing
             let trailers = case tm of
                     Trailers t -> t
                     _ -> []
-            unless (null trailers) $ sendHeader ctx strm th trailers
-        Just next -> sendNext ctx strm th next tlrmkr
+            unless (null trailers) $ sendHeader ctx strm trailers
+        Just next -> sendNext ctx strm next tlrmkr
 
 newByteStringWith
     :: TrailersMaker -> DynaNext -> IO (ByteString, Maybe DynaNext, TrailersMaker)
@@ -132,11 +128,10 @@ nextMaker tm@(Trailers _) = \_ -> return tm
 
 newByteStringAndSend
     :: Stream
-    -> T.Handle
     -> TrailersMaker
     -> B.BufferWriter
     -> IO (B.Next, TrailersMaker)
-newByteStringAndSend strm th tlrmkr0 action = do
+newByteStringAndSend strm tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     (len, signal) <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0
@@ -145,17 +140,15 @@ newByteStringAndSend strm th tlrmkr0 action = do
             let bs = PS fp 0 len
             tlrmkr1 <- nextMaker <$> tlrmkr0 (Just bs)
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
-            T.tickle th
             return (signal, tlrmkr1)
 
 sendStreaming
     :: Context
     -> Stream
-    -> T.Handle
     -> TrailersMaker
     -> (OutBodyIface -> IO ())
     -> IO Bool
-sendStreaming ctx strm th tlrmkr0 strmbdy = do
+sendStreaming ctx strm tlrmkr0 strmbdy = do
     ref <- newIORef tlrmkr0
     terminated <- newIORef Nothing
     E.mask $ \unmask -> do
@@ -178,7 +171,7 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
         let trailers = case tm of
                 Trailers t -> t
                 _ -> []
-        unless (null trailers) $ sendHeader ctx strm th trailers
+        unless (null trailers) $ sendHeader ctx strm trailers
     return done
   where
     -- Every push goes to 'sendStream' at once, and quic does not hold data
@@ -194,14 +187,13 @@ sendStreaming ctx strm th tlrmkr0 strmbdy = do
         resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write ref builder = do
         tlrmkr1 <- readIORef ref
-        tlrmkr2 <- newByteStringAndSend strm th tlrmkr1 (B.runBuilder builder) >>= loop
+        tlrmkr2 <- newByteStringAndSend strm tlrmkr1 (B.runBuilder builder) >>= loop
         writeIORef ref tlrmkr2
       where
         loop (B.Done, tlrmkr1) = return tlrmkr1
         loop (B.More _ writer, tlrmkr1) =
-            newByteStringAndSend strm th tlrmkr1 writer >>= loop
+            newByteStringAndSend strm tlrmkr1 writer >>= loop
         loop (B.Chunk bs writer, tlrmkr1) = do
             encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
             tlrmkr2 <- nextMaker <$> tlrmkr1 (Just bs)
-            T.tickle th
-            newByteStringAndSend strm th tlrmkr2 writer >>= loop
+            newByteStringAndSend strm tlrmkr2 writer >>= loop

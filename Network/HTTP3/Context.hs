@@ -11,7 +11,6 @@ module Network.HTTP3.Context (
     accept,
     qpackEncode,
     qpackDecode,
-    withHandle,
     newStream,
     newStreamWith,
     recvGivingUp,
@@ -25,10 +24,10 @@ module Network.HTTP3.Context (
     getMaxFieldSectionSize,
     getPeerMaxFieldSectionSize,
     forkManaged,
+    forkApp,
+    forkAppFinally,
+    keepingAlive,
     Stopping (..),
-    forkManagedTimeout,
-    forkManagedTimeoutFinally,
-    forkLibraryTimeout,
     recvOrStop,
     isAsyncException,
     admitRequest,
@@ -55,6 +54,7 @@ import Data.Maybe (isJust)
 import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal (RequestGivenUp (..))
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.QUIC
 import Network.QUIC.Internal (
     connLDCC,
@@ -70,7 +70,6 @@ import Network.QUIC.Types.Int64Set (Int64Set)
 import qualified Network.QUIC.Types.Int64Set as IntSet
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
-import qualified System.TimeManager as TM
 
 import Network.HTTP3.Config
 import Network.HTTP3.Control
@@ -92,9 +91,6 @@ data Context = Context
     , ctxAppThreadManager :: T.ThreadManager
     -- ^ The threads which run the application's code, which knows
     --   nothing of that: they are killed.
-    , ctxTimeoutManager :: TM.Manager
-    -- ^ Owning a thread and timing it out are separate, so the
-    --   thread manager carries no timer and this is kept here.
     , ctxHooks :: Hooks
     , ctxMySockAddr :: SockAddr
     , ctxPeerSockAddr :: SockAddr
@@ -141,8 +137,8 @@ withContext conn conf action = do
     T.stopAfterWithGrace
         lib
         stopTimeout
-        (T.stopAfter app (action ctx) $ waitFor app) $
-        waitFor lib
+        (T.stopAfter app (action ctx) $ waitFor app)
+        $ waitFor lib
 
 -- | How long the threads are given to end after they have been told to.
 --   Unwinding takes milliseconds; this is for one that does not stop.
@@ -201,7 +197,6 @@ newContext conn conf = do
     ctxGoAway <- newTVarIO Nothing
     ctxLastRequest <- newTVarIO Nothing
     ctxInFlight <- newTVarIO IntSet.empty
-    let ctxTimeoutManager = confTimeoutManager conf
     let ctxConnection = conn
     return Context{..}
   where
@@ -335,9 +330,6 @@ unidirectional ctx@Context{..} strm = do
                 closeStream strm
             styp -> ctxUniSwitch styp (recvOrStop ctx strm)
 
-withHandle :: Context -> (TM.Handle -> IO ()) -> IO ()
-withHandle Context{..} action = void $ TM.withHandle ctxTimeoutManager (return ()) action
-
 newStream :: Context -> IO Stream
 newStream Context{..} = stream ctxConnection
 
@@ -361,36 +353,45 @@ forkManaged :: Context -> String -> IO () -> IO ()
 forkManaged Context{..} label =
     T.forkManaged ctxThreadManager label . endingOnConnectionError
 
-forkManagedTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
-forkManagedTimeout Context{..} label body =
-    T.forkManagedTimeout ctxAppThreadManager ctxTimeoutManager label $
-        endingOnConnectionError . body
+-- | A thread running the application's code.  No timer: the connection
+--   is supervised by quic's idle timeout, and an application may take as
+--   long as it likes, as over HTTP\/2.
+forkApp :: Context -> String -> IO () -> IO ()
+forkApp Context{..} label =
+    T.forkManaged ctxAppThreadManager label . endingOnConnectionError
 
--- | 'forkManagedTimeout' for a thread of the library's own, which returns
---   by itself once we are stopping.
-forkLibraryTimeout :: Context -> String -> (TM.Handle -> IO ()) -> IO ()
-forkLibraryTimeout Context{..} label body =
-    T.forkManagedTimeout ctxThreadManager ctxTimeoutManager label $
-        endingOnConnectionError . body
+-- | Keeping the connection alive while an application runs, for as long
+--   as the peer answers ('QUIC.keepAlive').
+keepingAlive :: Context -> IO a -> IO a
+keepingAlive Context{..} = keepAlive ctxConnection
 
-forkManagedTimeoutFinally
-    :: Context -> String -> (TM.Handle -> IO ()) -> IO () -> IO ()
-forkManagedTimeoutFinally Context{..} label body =
-    T.forkManagedTimeoutFinally ctxAppThreadManager ctxTimeoutManager label $
-        endingOnConnectionError . body
+-- | 'forkApp' with a cleanup.
+forkAppFinally :: Context -> String -> IO () -> IO () -> IO ()
+forkAppFinally Context{..} label io =
+    T.forkManagedFinally ctxAppThreadManager label (endingOnConnectionError io)
 
--- | A thread that has sent a connection error ('connectionError') ends there
--- quietly: the connection is going, and the error has been told to the peer.
---
--- So does one waiting on a connection the peer has closed with no error:
--- quic tells the wait with 'ConnectionIsClosed'.  The thread reading the
--- peer's control stream used to die of it, reported as uncaught.
+-- | A thread seeing the connection end, however it did, ends there
+-- quietly: why is said once, by the connection, not by each thread.  One
+-- waiting on a connection the peer closed with an error used to die of it,
+-- reported as uncaught.
 endingOnConnectionError :: IO () -> IO ()
 endingOnConnectionError io =
     io
         `E.catches` [ E.Handler $ \e -> case e of
                         ApplicationProtocolErrorIsSent _ _ -> return ()
+                        ApplicationProtocolErrorIsReceived _ _ -> return ()
+                        TransportErrorIsSent _ _ -> return ()
+                        TransportErrorIsReceived _ _ -> return ()
                         ConnectionIsClosed _ -> return ()
+                        ConnectionIsTimeout _ -> return ()
+                        ConnectionIsReset -> return ()
+                        _ -> E.throwIO e
+                    , E.Handler $ \e -> case e of
+                        HE.ConnectionIsClosed -> return ()
+                        HE.ConnectionIsTimeout -> return ()
+                        HE.ConnectionIsReset -> return ()
+                        HE.ConnectionErrorIsReceived _ _ -> return ()
+                        HE.ConnectionErrorIsSent _ _ -> return ()
                         _ -> E.throwIO e
                     , E.Handler $ \Stopping -> return ()
                     ]

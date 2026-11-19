@@ -204,59 +204,62 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
     checkHeaderSize ctx hdr'
     sent <- newIORef False
     refuseIfGoingAway ctx
-    E.bracket (newStreamWith ctx giveUp) (done sent) $ \strm -> translating (Just $ QUIC.streamId strm) $ do
-        ans <- startRequest ctx strm
-        forkManagedTimeout ctx "H3 client: sendRequest" $ \th ->
-            ( do
-                sendHeader ctx strm th hdr'
-                whole <- sendBody ctx strm th outobj
-                when whole $ do
-                    QUIC.shutdownStream strm
-                    writeIORef sent True
-            )
-                -- What goes wrong here is thrown away with the thread, and
-                -- the request would be left half sent, with the response
-                -- awaited for good.  Trailers too large for the peer are one
-                -- such thing.
-                `E.catch` \se -> case E.fromException se of
-                    _ | isAsyncException se -> E.throwIO se
-                    -- The sending part is closed: the server asked us with
-                    -- STOP_SENDING to stop, and it has had its RESET_STREAM
-                    -- for that already, or we are done with the stream.
-                    -- The response may be on its way yet, and resetting
-                    -- here takes the stream out of the table, after which
-                    -- whatever arrives for it is thrown away: the response
-                    -- would be awaited for good.
-                    Just QUIC.StreamIsClosed -> return ()
-                    _ -> QUIC.resetStream strm H3RequestCancelled
-        src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
-        let sid = QUIC.streamId strm
-        (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
-            mvt <- recvFinalHeader ctx strm src
-            -- A request the GOAWAY rejected had its stream reset to get here.
-            answered ans
-            case mvt of
-                Nothing -> do
-                    -- Reset before answering: the code goes to the application,
-                    -- which may retry H3_REQUEST_REJECTED (RFC 9114, 4.1.1).
-                    mreset <- QUIC.resetReceived strm
-                    forM_ mreset $ E.throwIO . StreamResetIsReceived
-                    -- Ended with no response: malformed, a stream error only.
-                    QUIC.resetStream strm H3MessageError
-                    E.throwIO $ StreamResetIsSent H3MessageError
-                Just vt
-                    -- Malformed (RFC 9114, section 4.2).
-                    | Just name <- connectionSpecificField vt -> do
+    -- The server answering is an application running: the connection is
+    -- kept alive meanwhile, as over HTTP/2.
+    E.bracket (newStreamWith ctx giveUp) (done sent) $ \strm ->
+        keepingAlive ctx $ translating (Just $ QUIC.streamId strm) $ do
+            ans <- startRequest ctx strm
+            forkApp ctx "H3 client: sendRequest" $
+                ( do
+                    sendHeader ctx strm hdr'
+                    whole <- sendBody ctx strm outobj
+                    when whole $ do
+                        QUIC.shutdownStream strm
+                        writeIORef sent True
+                )
+                    -- What goes wrong here is thrown away with the thread, and
+                    -- the request would be left half sent, with the response
+                    -- awaited for good.  Trailers too large for the peer are one
+                    -- such thing.
+                    `E.catch` \se -> case E.fromException se of
+                        _ | isAsyncException se -> E.throwIO se
+                        -- The sending part is closed: the server asked us with
+                        -- STOP_SENDING to stop, and it has had its RESET_STREAM
+                        -- for that already, or we are done with the stream.
+                        -- The response may be on its way yet, and resetting
+                        -- here takes the stream out of the table, after which
+                        -- whatever arrives for it is thrown away: the response
+                        -- would be awaited for good.
+                        Just QUIC.StreamIsClosed -> return ()
+                        _ -> QUIC.resetStream strm H3RequestCancelled
+            src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
+            let sid = QUIC.streamId strm
+            (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
+                mvt <- recvFinalHeader ctx strm src
+                -- A request the GOAWAY rejected had its stream reset to get here.
+                answered ans
+                case mvt of
+                    Nothing -> do
+                        -- Reset before answering: the code goes to the application,
+                        -- which may retry H3_REQUEST_REJECTED (RFC 9114, 4.1.1).
+                        mreset <- QUIC.resetReceived strm
+                        forM_ mreset $ E.throwIO . StreamResetIsReceived
+                        -- Ended with no response: malformed, a stream error only.
                         QUIC.resetStream strm H3MessageError
-                        E.throwIO $ ConnectionSpecificField name
-                    | Just v <- invalidContentLength (snd vt) -> do
-                        QUIC.resetStream strm H3MessageError
-                        E.throwIO $ InvalidContentLength v
-                Just vt@(_, valtbl) -> do
-                    (readB, refH) <-
-                        newBodyReader ctx sid src valtbl $ noContent valtbl
-                    let rsp = Response $ InpObj vt Nothing readB refH
-                    processResponse rsp
+                        E.throwIO $ StreamResetIsSent H3MessageError
+                    Just vt
+                        -- Malformed (RFC 9114, section 4.2).
+                        | Just name <- connectionSpecificField vt -> do
+                            QUIC.resetStream strm H3MessageError
+                            E.throwIO $ ConnectionSpecificField name
+                        | Just v <- invalidContentLength (snd vt) -> do
+                            QUIC.resetStream strm H3MessageError
+                            E.throwIO $ InvalidContentLength v
+                    Just vt@(_, valtbl) -> do
+                        (readB, refH) <-
+                            newBodyReader ctx sid src valtbl $ noContent valtbl
+                        let rsp = Response $ InpObj vt Nothing readB refH
+                        processResponse rsp
   where
     -- A response defined to have no content: to HEAD, a 204 or a 304, or a
     -- 2xx to CONNECT (RFC 9110, section 6.4.1).  Its content-length, which it

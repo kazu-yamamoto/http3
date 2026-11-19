@@ -53,8 +53,6 @@ import qualified Network.QUIC as QUIC
 import Network.SockAddr (showSockAddrBS)
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as TM
-import qualified System.TimeManager as T
-import System.Timeout (timeout)
 
 import Imports
 import Network.HTTP3.Config
@@ -74,19 +72,18 @@ run conn conf server = do
     -- The handlers are stopped once the connection is gone, as with HTTP/3.
     -- They were plain threads, left running after it.
     TM.stopAfter mgr (accept mgr mysa peersa) $ \_ ->
-        void $ timeout 5000000 $ TM.waitUntilAllGone mgr
+        void $ TM.waitUntilAllGoneFor mgr 5000000
   where
     accept mgr mysa peersa = forever $ do
         strm <- QUIC.acceptStream conn
         done <- newIORef False
-        TM.forkManagedTimeoutFinally
+        TM.forkManagedFinally
             mgr
-            (confTimeoutManager conf)
             "HQ processRequest"
-            (processRequest conf mysa peersa server strm >=> writeIORef done)
+            (processRequest conf mysa peersa server strm >>= writeIORef done)
             (finish strm done)
     -- Only a response sent in full ends with a FIN.  One whose handler
-    -- failed, timed out or was stopped is reset.
+    -- failed or was stopped is reset.
     finish strm done = do
         ok <- readIORef done
         unless ok $ QUIC.resetStream strm H3InternalError
@@ -94,8 +91,8 @@ run conn conf server = do
 
 -- | Whether the response went out in full.
 processRequest
-    :: Config -> SockAddr -> SockAddr -> Server -> Stream -> T.Handle -> IO Bool
-processRequest conf mysa peersa server strm _th
+    :: Config -> SockAddr -> SockAddr -> Server -> Stream -> IO Bool
+processRequest conf mysa peersa server strm
     | QUIC.isClientInitiatedBidirectional sid = do
         mvt <- recvHeader strm mysa
         case mvt of
