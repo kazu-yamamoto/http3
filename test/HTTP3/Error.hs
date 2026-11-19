@@ -15,6 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.CaseInsensitive as CI
 import Data.IORef
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as H3
 import Network.HTTP3.Internal
@@ -88,9 +89,10 @@ runCWith expectError req qcc cconf conf ms = timeout us $ run qcc $ \conn -> do
             -- A stream error, ours or the server's, comes before the
             -- connection error when the server ends the stream first.
             sendRequest req (\_rsp -> return ())
-                `E.catches` [ E.Handler $ \(StreamResetIsReceived _) -> return ()
-                            , E.Handler $ \(StreamResetIsSent _) -> return ()
-                            ]
+                `E.catch` \e -> case e of
+                    HE.StreamErrorIsReceived _ _ -> return ()
+                    HE.StreamErrorIsSent _ _ _ -> return ()
+                    _ -> E.throwIO e
             threadDelay us
         | otherwise = do
             ret <- sendRequest req $ \_rsp -> return ()

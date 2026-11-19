@@ -15,7 +15,6 @@ module Network.HTTP3.Context (
     newStream,
     newStreamWith,
     recvGivingUp,
-    abortOnGiveUp,
     closeStream,
     pReadMaker,
     abort,
@@ -53,12 +52,9 @@ import Control.Monad (forM, forM_, void, when)
 import Data.ByteString (ByteString)
 import Data.IORef
 import Data.Maybe (isJust)
-import Network.QUIC.Types.Int64Map (Int64Map)
-import qualified Network.QUIC.Types.Int64Map as IntMap
-import Network.QUIC.Types.Int64Set (Int64Set)
-import qualified Network.QUIC.Types.Int64Set as IntSet
 import Network.ByteOrder (withWriteBuffer)
 import Network.HTTP.Semantics.Client
+import Network.HTTP.Semantics.Client.Internal (RequestGivenUp (..))
 import Network.QUIC
 import Network.QUIC.Internal (
     connLDCC,
@@ -68,6 +64,10 @@ import Network.QUIC.Internal (
     isServer,
     toDelay,
  )
+import Network.QUIC.Types.Int64Map (Int64Map)
+import qualified Network.QUIC.Types.Int64Map as IntMap
+import Network.QUIC.Types.Int64Set (Int64Set)
+import qualified Network.QUIC.Types.Int64Set as IntSet
 import Network.Socket (SockAddr)
 import qualified System.ThreadManager as T
 import qualified System.TimeManager as TM
@@ -138,7 +138,10 @@ withContext conn conf action = do
     let lib = ctxThreadManager ctx
         app = ctxAppThreadManager ctx
         waitFor mgr _ = void $ T.waitUntilAllGoneFor mgr stopTimeout
-    T.stopAfterWithGrace lib stopTimeout (T.stopAfter app (action ctx) $ waitFor app) $
+    T.stopAfterWithGrace
+        lib
+        stopTimeout
+        (T.stopAfter app (action ctx) $ waitFor app) $
         waitFor lib
 
 -- | How long the threads are given to end after they have been told to.
@@ -164,7 +167,8 @@ newContext conn conf = do
     let giveUp =
             (T.waitStoppingSTM ctxThreadManager >> throwSTM Stopping)
                 `orElse` waitFinishedSTM conn
-    (ctxQDecoder, handleEI) <- newQDecoderWith (confQDecoderConfig conf) giveUp sendDI
+    (ctxQDecoder, handleEI) <-
+        newQDecoderWith (confQDecoderConfig conf) giveUp sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctxPeerGoAway <- newTVarIO Nothing
     ctxRequests <- newTVarIO IntMap.empty
@@ -342,20 +346,13 @@ newStream Context{..} = stream ctxConnection
 newStreamWith :: Context -> STM () -> IO Stream
 newStreamWith Context{..} giveUp =
     streamWith ctxConnection giveUp
-        >>= either (\_ -> E.throwIO $ StreamResetIsSent H3RequestCancelled) return
-
--- | Closing the connection with H3_NO_ERROR once the 'STM' action
---   succeeds, unless the context stops first.
-abortOnGiveUp :: Context -> STM () -> IO ()
-abortOnGiveUp Context{..} giveUp = do
-    given <- atomically $ (True <$ giveUp) <|> (False <$ T.waitStoppingSTM ctxThreadManager)
-    when given $ abortConnection ctxConnection H3NoError "given up"
+        >>= either (\_ -> E.throwIO RequestGivenUp) return
 
 -- | 'recvStream' for a client request, which gives up as 'newStreamWith'.
 recvGivingUp :: STM () -> Stream -> Int -> IO ByteString
 recvGivingUp giveUp strm n = do
     go <- atomically $ (True <$ waitReadableSTM strm) <|> (False <$ giveUp)
-    if go then recvStream strm n else E.throwIO $ StreamResetIsSent H3RequestCancelled
+    if go then recvStream strm n else E.throwIO RequestGivenUp
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker

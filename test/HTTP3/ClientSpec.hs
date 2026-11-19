@@ -10,13 +10,14 @@ import qualified Control.Exception as E
 import Control.Monad
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
+import Network.HTTP.Semantics.Error (
+    ErrorKind (..),
+    HTTPError (..),
+    HTTPErrorCode (..),
+    isRetryable,
+ )
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
-import Network.HTTP3.Client (
-    ApplicationProtocolError (..),
-    StreamResetIsReceived (..),
-    StreamResetIsSent (..),
- )
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
 import qualified Network.QUIC.Server as QUICS
@@ -31,33 +32,42 @@ spec =
     describe "H3 client" $ do
         it "tells the application of a request the server rejected" $
             E.bracket (setupWith rejecting) teardown $ \_ ->
-                fmap fst <$> timeout 3000000 (request @StreamResetIsReceived)
-                    `shouldReturn` Just (Left (StreamResetIsReceived H3RequestRejected))
+                fmap (either (Left . kind) Right . fst) <$> timeout 3000000 request
+                    `shouldReturn` Just (Left (Just Refused, True))
         it "tells the application of a rejection at once" $
             E.bracket (setupWith rejecting) teardown $ \_ -> do
-                r <- timeout 3000000 (request @StreamResetIsReceived)
+                r <- timeout 3000000 request
                 fmap snd r `shouldSatisfy` maybe False (< 50_000_000)
         it "resets a stream that ends with no response, as a stream error" $
             E.bracket (setupWith ending) teardown $ \_ ->
-                fmap fst <$> timeout 3000000 (request @StreamResetIsSent)
-                    `shouldReturn` Just (Left (StreamResetIsSent H3MessageError))
+                fmap (either (Left . kind) Right . fst) <$> timeout 3000000 request
+                    `shouldReturn` Just (Left (Just MalformedMessage, False))
         it "gives up a request waiting for the response" $
             E.bracket (setupWith silent) teardown $ \_ ->
-                timeout 3000000 (QUICC.run testClientConfig $ \conn ->
-                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
-                        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
-                            giveUp <- deadline 200000
-                            let req = C.requestNoBody methodGet "/" []
-                            E.try $ sendRequest (C.setRequestGiveUp req giveUp) $ \_ -> return ())
-                    `shouldReturn` Just (Left (StreamResetIsSent H3RequestCancelled))
+                timeout
+                    3000000
+                    ( QUICC.run testClientConfig $ \conn ->
+                        E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                                giveUp <- deadline 200000
+                                let req = C.requestNoBody methodGet "/" []
+                                C.sendRequestWith sendRequest req giveUp $ \_ -> return ()
+                    )
+                    `shouldReturn` Just (Left ())
         it "gives up a connection with runGivingUp" $
             E.bracket (setupWith silent) teardown $ \_ -> do
                 giveUp <- deadline 200000
-                r <- timeout 3000000 $ E.try @E.SomeException $ QUICC.run testClientConfig $ \conn ->
+                r <- timeout 3000000 $ QUICC.run testClientConfig $ \conn ->
                     E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
-                        C.runGivingUp giveUp conn testH3ClientConfig conf $ \sendRequest _aux ->
-                            sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
-                fmap (either (const "given up") (const "answered")) r `shouldBe` Just ("given up" :: String)
+                        C.runGivingUp
+                            conn
+                            testH3ClientConfig
+                            conf
+                            ( \sendRequest _aux ->
+                                sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
+                            )
+                            giveUp
+                r `shouldBe` Just (Left ())
 
 -- | A plain QUIC server doing this to every request stream.
 setupWith :: (QUIC.Stream -> IO ()) -> IO ThreadId
@@ -73,7 +83,7 @@ setupWith act = do
 -- | Reset with H3_REQUEST_REJECTED, which says the request may be retried
 -- (RFC 9114, section 4.1.1).
 rejecting :: QUIC.Stream -> IO ()
-rejecting strm = QUIC.resetStream strm H3RequestRejected
+rejecting strm = QUIC.resetStream strm C.H3RequestRejected
 
 -- | Never answered.
 silent :: QUIC.Stream -> IO ()
@@ -89,7 +99,7 @@ ending = QUIC.shutdownStream
 
 -- | The outcome of a request, and how long it took in nanoseconds.  It used
 -- to be a connection error, and to come a tenth of a second late.
-request :: E.Exception e => IO (Either e (), Word64)
+request :: IO (Either HTTPError (), Word64)
 request = QUICC.run testClientConfig $ \conn ->
     E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
         C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
@@ -97,3 +107,11 @@ request = QUICC.run testClientConfig $ \conn ->
             r <- E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
             t1 <- getMonotonicTimeNSec
             return (r, t1 - t0)
+
+-- | What a stream error means, and whether the request may be retried.
+kind :: HTTPError -> (Maybe ErrorKind, Bool)
+kind e = (k e, isRetryable e)
+  where
+    k (StreamErrorIsReceived c _) = Just $ errorKind c
+    k (StreamErrorIsSent c _ _) = Just $ errorKind c
+    k _ = Nothing

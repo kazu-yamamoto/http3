@@ -60,7 +60,6 @@ import Imports
 import Network.HTTP3.Config
 import Network.HTTP3.Error (
     ApplicationProtocolError (H3InternalError, H3RequestCancelled),
-    StreamTerminated (..),
  )
 import Network.HTTP3.Recv (newSource, readSource')
 import Network.HTTP3.Send (closeSentinel)
@@ -96,7 +95,7 @@ run conn conf server = do
 -- | Whether the response went out in full.
 processRequest
     :: Config -> SockAddr -> SockAddr -> Server -> Stream -> T.Handle -> IO Bool
-processRequest conf mysa peersa server strm th
+processRequest conf mysa peersa server strm _th
     | QUIC.isClientInitiatedBidirectional sid = do
         mvt <- recvHeader strm mysa
         case mvt of
@@ -108,8 +107,7 @@ processRequest conf mysa peersa server strm th
                     req = Request $ InpObj vt Nothing readB refH
                     aux =
                         defaultAux
-                            { auxTimeHandle = th
-                            , auxMySockAddr = mysa
+                            { auxMySockAddr = mysa
                             , auxPeerSockAddr = peersa
                             }
                 server req aux $ sendResponse conf strm

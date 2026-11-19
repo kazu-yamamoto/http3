@@ -5,12 +5,15 @@ module HTTP3.Config (
     testClientConfig,
     testH3ClientConfig,
     waitForSettings,
+    peerReset,
+    ourReset,
 ) where
 
 import Control.Concurrent (threadDelay)
 import qualified Control.Exception as E
 import Data.ByteString (ByteString)
 import qualified Data.List as L
+import qualified Network.HTTP.Semantics.Error as HE
 import qualified Network.HTTP3.Client as H3
 import qualified Network.Socket as NS
 import Network.TLS (Credentials (..), credentialLoadX509)
@@ -85,3 +88,13 @@ testH3ClientConfig = H3.defaultClientConfig{H3.authority = "127.0.0.1"}
 -- a time or two in a hundred.  There is nothing to wait on, so this sleeps.
 waitForSettings :: IO ()
 waitForSettings = threadDelay 100000
+
+-- | The code of the stream reset the peer sent, if that is the error.
+peerReset :: HE.HTTPError -> Maybe ApplicationProtocolError
+peerReset (HE.StreamErrorIsReceived c _) = Just $ ApplicationProtocolError $ fromIntegral $ HE.errorValue c
+peerReset _ = Nothing
+
+-- | The code of the stream reset we sent, if that is the error.
+ourReset :: HE.HTTPError -> Maybe ApplicationProtocolError
+ourReset (HE.StreamErrorIsSent c _ _) = Just $ ApplicationProtocolError $ fromIntegral $ HE.errorValue c
+ourReset _ = Nothing

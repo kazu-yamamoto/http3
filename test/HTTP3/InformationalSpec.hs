@@ -5,8 +5,8 @@ module HTTP3.InformationalSpec where
 import qualified Control.Exception as E
 import Control.Monad (replicateM_)
 import qualified Data.ByteString as B
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
-import Network.HTTP3.Client (StreamResetIsSent (..))
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
 import Network.HTTP3.Server
@@ -34,7 +34,8 @@ spec = do
                 r <- getQuietly
                 case r of
                     Just (Left se)
-                        | Just (StreamResetIsSent H3ExcessiveLoad) <- E.fromException se ->
+                        | Just e <- E.fromException se
+                        , ourReset e == Just H3ExcessiveLoad ->
                             return ()
                     _ -> expectationFailure $ "unexpected: " ++ show r
     -- Two informational responses, 100 (Continue) and 103 (Early Hints),
@@ -62,7 +63,8 @@ spec = do
                     case r of
                         -- A stream error: the connection goes on.
                         Just (Left se)
-                            | Just (StreamResetIsSent H3ExcessiveLoad) <- E.fromException se ->
+                            | Just e <- E.fromException se
+                            , ourReset e == Just H3ExcessiveLoad ->
                                 return ()
                         _ -> expectationFailure $ "unexpected: " ++ show r
   where

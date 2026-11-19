@@ -189,7 +189,7 @@ newBodyReader ctx sid src vt noContent = do
     let mcl
             | noContent = Just 0
             | otherwise = contentLength vt
-    return (recvBody ctx sid src refI refH mcl refL, refH)
+    return (translating (Just sid) $ recvBody ctx sid src refI refH mcl refL, refH)
 
 recvBody
     :: Context
