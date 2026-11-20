@@ -121,6 +121,9 @@ executable h3-server
     else
         buildable: False
 
+    if os(windows)
+        ghc-options: -with-rtsopts=--io-manager=native
+
 executable h3-client
     main-is:            h3-client.hs
     hs-source-dirs:     util
@@ -145,6 +148,9 @@ executable h3-client
 
     else
         buildable: False
+
+    if os(windows)
+        ghc-options: -with-rtsopts=--io-manager=native
 
 executable qif-enc
     main-is:            qif-enc.hs
@@ -243,3 +249,6 @@ test-suite spec
         stm,
         time-manager,
         tls
+
+    if os(windows)
+        ghc-options: -with-rtsopts=--io-manager=native
