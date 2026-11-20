@@ -237,7 +237,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
             (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
                 mvt <- recvFinalHeader ctx strm src
                 -- A request the GOAWAY rejected had its stream reset to get here.
-                answered ans
+                answered strm ans
                 case mvt of
                     Nothing -> do
                         -- Reset before answering: the code goes to the application,

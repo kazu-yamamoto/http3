@@ -100,15 +100,16 @@ setupIgnoring = do
     threadDelay 500000 -- give enough time to the server
     return tid
 
--- | Whether a request the GOAWAY came after, and one made after it, each
--- ended in 'QUIC.ConnectionIsClosed'.  The first used to wait for ever.
+-- | Whether a request the GOAWAY came after, on stream 0, and one made after
+-- it, with no stream, each ended in 'HE.RequestIsUnprocessed'.  The first
+-- used to wait for ever.
 ignoredRequests :: IO (Bool, Bool)
 ignoredRequests = QUICC.run testClientConfig $ \conn ->
     E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
         C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
             let get = E.try $ sendRequest (C.requestNoBody methodGet "/" []) $ \_ -> return ()
-                gone (Left HE.ConnectionIsClosed) = True
-                gone _ = False
+                unprocessed msid (Left (HE.RequestIsUnprocessed m)) = m == msid
+                unprocessed _ _ = False
             r1 <- get
             r2 <- get
-            return (gone r1, gone r2)
+            return (unprocessed (Just 0) r1, unprocessed Nothing r2)

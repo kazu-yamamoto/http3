@@ -480,11 +480,11 @@ drained Context{..} = do
 refuseIfGoingAway :: Context -> IO ()
 refuseIfGoingAway Context{..} = do
     goingaway <- isJust <$> readTVarIO ctxPeerGoAway
-    when goingaway $ E.throwIO goneAway
+    when goingaway $ E.throwIO $ HE.RequestIsUnprocessed Nothing
 
 -- | Taking a request stream on, or refusing it: no request is made after
 --   the server's GOAWAY, and one at or above its ID will not be processed.
---   'ConnectionIsClosed' says the request may be retried elsewhere.
+--   'HE.RequestIsUnprocessed' says the request may be retried elsewhere.
 startRequest :: Context -> Stream -> IO (TVar Answer)
 startRequest Context{..} strm = do
     mans <- atomically $ do
@@ -495,14 +495,14 @@ startRequest Context{..} strm = do
                 ans <- newTVar Waiting
                 modifyTVar' ctxRequests $ IntMap.insert (streamId strm) (strm, ans)
                 return $ Just ans
-    maybe (E.throwIO goneAway) return mans
+    maybe (E.throwIO $ unprocessed strm) return mans
 
 -- | The response has begun; or, if the GOAWAY rejected the request,
---   'ConnectionIsClosed'.
-answered :: TVar Answer -> IO ()
-answered ans = atomically $ do
+--   'HE.RequestIsUnprocessed'.
+answered :: Stream -> TVar Answer -> IO ()
+answered strm ans = atomically $ do
     a <- readTVar ans
-    when (a == Rejected) $ throwSTM goneAway
+    when (a == Rejected) $ throwSTM $ unprocessed strm
     writeTVar ans Answered
 
 endRequest :: Context -> Stream -> IO ()
@@ -527,5 +527,5 @@ rejectAbove peerGoAway requests lim = do
                 else return []
     forM_ strms $ \strm -> resetStream strm H3RequestCancelled
 
-goneAway :: QUICException
-goneAway = ConnectionIsClosed "GOAWAY"
+unprocessed :: Stream -> HE.HTTPError
+unprocessed = HE.RequestIsUnprocessed . Just . fromIntegral . streamId

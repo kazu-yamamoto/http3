@@ -8,11 +8,11 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http2.git
-  tag: a5bff0ec8dc828fdcbdddc27b4fbe975844c63bb
+  tag: 705d252dbde0e1984fd74ad87a0909f004bc4d46
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http-semantics.git
-  tag: 2443dc2fc032186bc8c3867852ddc840c70b68d9
+  tag: c62ff2ac488025697fa1e7aee3d3202be6e8385b
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/wai.git
