@@ -91,7 +91,7 @@ dumpSwitch dec insthdr ref (_, blk@(Block n bs))
         fifo <- readIORef ref
         loop fifo
     | otherwise = do
-        mhdr <- dec n bs
+        mhdr <- dec (fromIntegral n) bs
         case mhdr of
             Nothing -> modifyIORef' ref (blk <|)
             Just _ -> return ()
@@ -100,7 +100,7 @@ dumpSwitch dec insthdr ref (_, blk@(Block n bs))
         case viewr fifo of
             EmptyR -> writeIORef ref Seq.empty
             fifo' :> Block n1 bs1 -> do
-                mhdr <- dec n1 bs1
+                mhdr <- dec (fromIntegral n1) bs1
                 case mhdr of
                     Nothing -> writeIORef ref fifo
                     Just _ -> loop fifo'
@@ -151,7 +151,7 @@ testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
         loop fifo
     -- to avoid blocking by "dec", ask decoding to the other thread
     | otherwise = do
-        mhdr <- dec n bs
+        mhdr <- dec (fromIntegral n) bs
         case mhdr of
             Nothing -> modifyIORef' ref (blk <|)
             Just hdr -> compareHeaders n bs hdr
@@ -160,7 +160,7 @@ testSwitch dec insthdr ref h ratio (_, blk@(Block n bs))
         case viewr fifo of
             EmptyR -> writeIORef ref Seq.empty
             fifo' :> Block n1 bs1 -> do
-                mhdr <- dec n1 bs1
+                mhdr <- dec (fromIntegral n1) bs1
                 case mhdr of
                     Nothing -> writeIORef ref fifo
                     Just hdr -> do

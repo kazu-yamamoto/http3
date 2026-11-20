@@ -84,5 +84,5 @@ qencode enc save hdl = loop 1
             then return ()
             else do
                 bs <- enc sid hs
-                save sid bs
+                save (fromIntegral sid) bs
                 loop (sid + 1)
