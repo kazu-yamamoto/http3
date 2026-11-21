@@ -5,6 +5,7 @@
 module HTTP3.RunIOSpec where
 
 import Control.Concurrent
+import Control.Concurrent.Async (withAsync)
 import qualified Control.Exception as E
 import Control.Monad
 import qualified Data.ByteString as B
@@ -39,9 +40,11 @@ spec =
                 timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
         it "returns when the application fails while a stream has sent no HEADERS" $ do
             returned <- newEmptyMVar
-            E.bracket (setupFailing returned) teardown $ \_ -> do
-                _ <- forkIO $ void $ timeout 5000000 stalledAndWaiting
-                timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
+            -- The client goes with the test: forked, it outlived it, and
+            -- died of the next test's server closing, printed.
+            E.bracket (setupFailing returned) teardown $ \_ ->
+                withAsync (timeout 5000000 stalledAndWaiting) $ \_ ->
+                    timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
         it "cancels a stream whose request it does not read to the end" $
             E.bracket setupCancel teardown $ \_ -> do
                 timeout 3000000 twoRequests `shouldReturn` Just ()
