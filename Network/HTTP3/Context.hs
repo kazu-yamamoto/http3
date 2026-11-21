@@ -365,10 +365,15 @@ forkApp Context{..} label =
 keepingAlive :: Context -> IO a -> IO a
 keepingAlive Context{..} = keepAlive ctxConnection
 
--- | 'forkApp' with a cleanup.
+-- | 'forkApp' with a cleanup.  The cleanup may meet the connection's end
+--   too, by touching a stream of the connection gone.
 forkAppFinally :: Context -> String -> IO () -> IO () -> IO ()
-forkAppFinally Context{..} label io =
-    T.forkManagedFinally ctxAppThreadManager label (endingOnConnectionError io)
+forkAppFinally Context{..} label io final =
+    T.forkManagedFinally
+        ctxAppThreadManager
+        label
+        (endingOnConnectionError io)
+        (endingOnConnectionError final)
 
 -- | A thread seeing the connection end, however it did, ends there
 -- quietly: why is said once, by the connection, not by each thread.  One
