@@ -294,13 +294,17 @@ processRequest ctx server strm = E.handle reset $ do
             QUIC.resetStream strm H3InternalError
             E.throwIO se
         -- The body reader said why, as an 'HE.HTTPError': the request is
-        -- malformed, or the client reset the stream.
-        | Just (HE.StreamErrorIsSent code _ _) <- E.fromException se =
+        -- malformed, or the client reset the stream.  On this stream only:
+        -- an upstream's, a proxy's, may not even have an HTTP/3 code.
+        | Just (HE.StreamErrorIsSent code sid' _) <- E.fromException se
+        , sid' == sid
+        , HE.errorSpace code == HE.HTTP3 =
             QUIC.resetStream strm $
                 QUIC.ApplicationProtocolError $
                     fromIntegral $
                         HE.errorValue code
-        | Just (HE.StreamErrorIsReceived _ _) <- E.fromException se =
+        | Just (HE.StreamErrorIsReceived _ sid') <- E.fromException se
+        , sid' == sid =
             QUIC.resetStream strm H3RequestCancelled
         -- The response was more than the client will take, and the
         -- application did nothing about it.  Our failure, not the client's.
@@ -315,6 +319,9 @@ processRequest ctx server strm = E.handle reset $ do
         -- The stream or the connection went under the handler: the peer's
         -- doing, not to be printed.  quic's own failure is printed.
         | Just e <- E.fromException se, notBadThing e =
+            QUIC.resetStream strm H3InternalError
+        -- An upstream's end, as over HTTP/2: not printed.
+        | Just (_ :: HE.HTTPError) <- E.fromException se =
             QUIC.resetStream strm H3InternalError
         -- Anything else is the handler's own failure.  H3_MESSAGE_ERROR
         -- was sent for it, which says the request was malformed.  It is
@@ -353,9 +360,10 @@ processRequestIO ctx put strm src = E.handle reset $ do
     sid = QUIC.streamId strm
     reset se
         -- Killed by the timeout, or stopping with the context, before the
-        -- request was handed over.
+        -- request was handed over: rejected, so that the client may retry
+        -- it, as 'run' does (RFC 9114, section 4.1.1).
         | isAsyncException se || isJust (E.fromException se :: Maybe Stopping) = do
-            QUIC.resetStream strm H3RequestIncomplete
+            QUIC.resetStream strm H3RequestRejected
             E.throwIO se
         | Just (_ :: DecodeError) <- E.fromException se =
             abort ctx QpackDecompressionFailed
