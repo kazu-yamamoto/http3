@@ -26,6 +26,9 @@ module Network.HTTP3.Context (
     getPeerMaxFieldSectionSize,
     forkManaged,
     forkApp,
+    forkLibWithResult,
+    forkAppWithResult,
+    stoppingSTM,
     forkAppFinally,
     keepingAlive,
     Stopping (..),
@@ -45,7 +48,6 @@ module Network.HTTP3.Context (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forM, forM_, void, when)
@@ -467,10 +469,27 @@ goAwayAll ctx = sendGoAway ctx $ 2 ^ (62 :: Int) - 4
 
 -- | Waiting for the connection's probe timeout, which is at least a round
 --   trip.
+-- | Waiting for a PTO, or until the context is stopping.
 waitPTO :: Context -> IO ()
-waitPTO Context{..} = do
+waitPTO ctx@Context{..} = do
     pto <- getPTO $ connLDCC ctxConnection
-    threadDelay $ toDelay pto
+    expired <- registerDelay $ toDelay pto
+    atomically $ (readTVar expired >>= check) `orElse` stoppingSTM ctx
+
+-- | Succeeding once the context is stopping: what a library thread waits
+--   for alongside what it waits for, and ends on.
+stoppingSTM :: Context -> STM ()
+stoppingSTM Context{..} = T.waitStoppingSTM ctxThreadManager
+
+-- | A library thread whose end is waited for: told to stop with a grace
+--   when the context ends ('withContext').
+forkLibWithResult :: Context -> String -> IO a -> IO (T.Managed a)
+forkLibWithResult Context{..} = T.forkManagedWithResult ctxThreadManager
+
+-- | A thread of the application's code whose end is waited for: killed
+--   when the context ends ('withContext').
+forkAppWithResult :: Context -> String -> IO a -> IO (T.Managed a)
+forkAppWithResult Context{..} = T.forkManagedWithResult ctxAppThreadManager
 
 sendGoAway :: Context -> StreamId -> IO ()
 sendGoAway Context{..} lim = do

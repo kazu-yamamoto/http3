@@ -55,9 +55,9 @@ module Network.HTTP3.Server (
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import qualified System.ThreadManager as T
 import qualified Control.Monad.STM as STM
 import Data.IORef
 import GHC.Conc.Sync
@@ -114,7 +114,7 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
                             _ -> E.throwIO e
                 )
                 (finish ctx strm state)
-    maybe serve (\stop -> race_ (goingAway ctx (True <$ stop)) serve) mstop
+    maybe serve (serveGoingAway ctx serve . (True <$)) mstop
   where
     -- A thread stopped before it began, as the connection goes, has not
     -- looked at the request: it is rejected, which tells the client it may
@@ -149,12 +149,22 @@ data RequestState = NotStarted | Started | ConnectionClosed
 -- done answers nothing more, so its GOAWAY is the last one at once.
 goingAway :: Context -> STM Bool -> IO ()
 goingAway ctx told = do
-    twoSteps <- atomically told
-    when twoSteps $ do
-        goAwayAll ctx
-        waitPTO ctx
-    goAway ctx
-    atomically $ drained ctx
+    -- Ending with the context as well, whose end it may not be told of.
+    mtwoSteps <- atomically $ (Just <$> told) `orElse` (Nothing <$ stoppingSTM ctx)
+    forM_ mtwoSteps $ \twoSteps -> do
+        when twoSteps $ do
+            goAwayAll ctx
+            waitPTO ctx
+        goAway ctx
+        atomically $ drained ctx `orElse` stoppingSTM ctx
+
+-- | Serving until the connection is over, or once told to go away, until
+--   the requests taken are done.
+serveGoingAway :: Context -> IO () -> STM Bool -> IO ()
+serveGoingAway ctx serve told = do
+    g <- forkLibWithResult ctx "H3 going away" $ goingAway ctx told
+    s <- forkLibWithResult ctx "H3 server" serve
+    void $ T.waitEitherManaged g s
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO = runIOServer Nothing
@@ -211,16 +221,28 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     io <- action sio
     -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
     -- let one stream that never sent them stop every stream after it.
-    race_ (goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop) $
-        concurrently_ io $
-            readerServer ctx $ \strm ->
-                forkManaged ctx "H3 server: processRequestIO" $ do
-                    let sid = QUIC.streamId strm
-                    src <- newSourceOrStop ctx strm
-                    handed <-
-                        processRequestIO ctx (put src) strm src
-                            `E.onException` finish sid (Just src)
-                    unless handed $ finish sid (Just src)
+    -- Library threads, told to stop with a grace when the context ends;
+    -- the application is the user's, killed then.  Under async, they were
+    -- killed at once on leaving, and the application was waited for even
+    -- once the connection was over.
+    let reader = readerServer ctx $ \strm ->
+            forkManaged ctx "H3 server: processRequestIO" $ do
+                let sid = QUIC.streamId strm
+                src <- newSourceOrStop ctx strm
+                handed <-
+                    processRequestIO ctx (put src) strm src
+                        `E.onException` finish sid (Just src)
+                unless handed $ finish sid (Just src)
+    g <-
+        forkLibWithResult ctx "H3 going away" $
+            goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop
+    a <- forkAppWithResult ctx "H3 runIO application" io
+    r <- forkLibWithResult ctx "H3 runIO reader" reader
+    let ended m = T.waitManagedSTM m >>= either throwSTM (\_ -> return ())
+        failed m = T.waitManagedSTM m >>= either throwSTM (\_ -> STM.retry)
+        wait3 = atomically $ ended g `orElse` ended r `orElse` failed a
+    -- Again once if told it is blocked indefinitely, as async waits.
+    wait3 `E.catch` \E.BlockedIndefinitelyOnSTM -> wait3
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
