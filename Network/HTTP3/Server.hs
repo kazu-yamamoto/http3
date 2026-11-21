@@ -65,6 +65,7 @@ import Network.HTTP.Semantics
 import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Semantics.Server
 import Network.HTTP.Semantics.Server.Internal
+import qualified Network.HPACK as HPACK
 import Network.HTTP2.Server.Internal (ServerIO (..))
 import Network.QUIC (Connection, ConnectionInfo (..), Stream, getConnectionInfo)
 import qualified Network.QUIC as QUIC
@@ -308,13 +309,22 @@ processRequest ctx server strm = E.handle reset $ do
         -- The client reset the stream, and the handler gave up on it.
         | Just (_ :: StreamResetIsReceived) <- E.fromException se =
             QUIC.resetStream strm H3RequestCancelled
+        -- The stream or the connection went under the handler: the peer's
+        -- doing, not to be printed.
+        | Just (_ :: QUIC.QUICException) <- E.fromException se =
+            QUIC.resetStream strm H3InternalError
         -- Anything else is the handler's own failure.  H3_MESSAGE_ERROR
-        -- was sent for it, which says the request was malformed.
-        | otherwise = QUIC.resetStream strm H3InternalError
+        -- was sent for it, which says the request was malformed.  It is
+        -- passed on to be printed, as over HTTP/2.
+        | otherwise = do
+            QUIC.resetStream strm H3InternalError
+            E.throwIO se
     malformed se
         | Just (_ :: ContentLengthMismatch) <- E.fromException se = True
         | Just (_ :: ConnectionSpecificField) <- E.fromException se = True
         | Just FieldSectionTooLarge <- E.fromException se = True
+        -- A field the header section must not have, found by the decoder.
+        | Just (_ :: HPACK.DecodeError) <- E.fromException se = True
         | otherwise = False
 
 -- | Answers whether the request was handed to the application.
