@@ -288,7 +288,10 @@ processRequest ctx server strm = E.handle reset $ do
         -- A connection error has been sent: the stream goes with it.
         | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
             E.throwIO se
-        | Just (HE.ConnectionErrorIsSent _ _) <- E.fromException se =
+        -- The same in the form the body reader gives.  The stream is reset,
+        -- since a FIN could reach the client before the CONNECTION_CLOSE.
+        | Just (HE.ConnectionErrorIsSent _ _) <- E.fromException se = do
+            QUIC.resetStream strm H3InternalError
             E.throwIO se
         -- The body reader said why, as an 'HE.HTTPError': the request is
         -- malformed, or the client reset the stream.
@@ -310,8 +313,8 @@ processRequest ctx server strm = E.handle reset $ do
         | Just (_ :: StreamResetIsReceived) <- E.fromException se =
             QUIC.resetStream strm H3RequestCancelled
         -- The stream or the connection went under the handler: the peer's
-        -- doing, not to be printed.
-        | Just (_ :: QUIC.QUICException) <- E.fromException se =
+        -- doing, not to be printed.  quic's own failure is printed.
+        | Just e <- E.fromException se, notBadThing e =
             QUIC.resetStream strm H3InternalError
         -- Anything else is the handler's own failure.  H3_MESSAGE_ERROR
         -- was sent for it, which says the request was malformed.  It is
@@ -319,6 +322,8 @@ processRequest ctx server strm = E.handle reset $ do
         | otherwise = do
             QUIC.resetStream strm H3InternalError
             E.throwIO se
+    notBadThing (QUIC.BadThingHappen _) = False
+    notBadThing _ = True
     malformed se
         | Just (_ :: ContentLengthMismatch) <- E.fromException se = True
         | Just (_ :: ConnectionSpecificField) <- E.fromException se = True
