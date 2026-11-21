@@ -223,6 +223,22 @@ spec = do
             r <- timeout 1000000 $ E.try (dec 4 blk)
             fmap (either (\GivenUp -> True) (const False)) r `shouldBe` Just True
 
+        it "gives up on a blocked section with the give-up of that section" $ do
+            -- A request's own give-up, as a client's deadline: the decoder's
+            -- one never fires here, and the wait used to go on past it.
+            stop <- newTVarIO False
+            (dec, _) <-
+                newQDecoderGivingUp defaultQDecoderConfig{dcBlockedStreams = 1} retry (\_ -> return ())
+            let giveUp = readTVar stop >>= check >> throwSTM GivenUp
+                blk = BS.pack [0x02, 0x00, 0x80]
+            withAsync (dec giveUp 0 blk) $ \a -> do
+                threadDelay 100000
+                poll a >>= (`shouldSatisfy` isNothing)
+                atomically $ writeTVar stop True
+                r <- timeout 1000000 $ waitCatch a
+                fmap (either (show . (E.fromException :: E.SomeException -> Maybe GivenUp)) (const "")) r
+                    `shouldBe` Just (show $ Just GivenUp)
+
         it "evicts an entry nothing refers to once its insertion is acknowledged" $ do
             -- No stream may block, and nothing is acknowledged at first, so
             -- every entry is inserted without being referred to.  Such an

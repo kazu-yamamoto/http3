@@ -11,6 +11,7 @@ module Network.HTTP3.Context (
     accept,
     qpackEncode,
     qpackDecode,
+    qpackDecodeWith,
     newStream,
     newStreamWith,
     recvGivingUp,
@@ -82,7 +83,7 @@ import Network.QPACK.Internal
 data Context = Context
     { ctxConnection :: Connection
     , ctxQEncoder :: QEncoder
-    , ctxQDecoder :: QDecoder
+    , ctxQDecoder :: STM () -> QDecoder
     , ctxUniSwitch :: H3StreamType -> InstructionHandler
     , ctxPReadMaker :: PositionReadMaker
     , ctxThreadManager :: T.ThreadManager
@@ -164,7 +165,7 @@ newContext conn conf = do
             (T.waitStoppingSTM ctxThreadManager >> throwSTM Stopping)
                 `orElse` waitFinishedSTM conn
     (ctxQDecoder, handleEI) <-
-        newQDecoderWith (confQDecoderConfig conf) giveUp sendDI
+        newQDecoderGivingUp (confQDecoderConfig conf) giveUp sendDI
     let ctxMaxFieldSectionSize = dcMaxFieldSectionSize $ confQDecoderConfig conf
     ctxPeerGoAway <- newTVarIO Nothing
     ctxRequests <- newTVarIO IntMap.empty
@@ -296,7 +297,12 @@ qpackEncode :: Context -> QEncoder
 qpackEncode Context{..} = ctxQEncoder
 
 qpackDecode :: Context -> QDecoder
-qpackDecode Context{..} = ctxQDecoder
+qpackDecode Context{..} = ctxQDecoder Control.Concurrent.STM.retry
+
+-- | 'qpackDecode', giving up a blocked section when the 'STM' action
+--   throws as well.
+qpackDecodeWith :: Context -> STM () -> QDecoder
+qpackDecodeWith Context{..} = ctxQDecoder
 
 cancelStream :: Context -> StreamId -> IO ()
 cancelStream Context{..} = ctxCancelStream
