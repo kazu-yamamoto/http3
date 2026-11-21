@@ -69,6 +69,7 @@ import Data.IP (IPv6)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
 import qualified Network.HTTP.Semantics.Error as HE
+import qualified Network.HPACK as HPACK
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Internal as QUIC
@@ -81,6 +82,7 @@ import Network.HTTP3.Error
 import Network.HTTP3.Recv
 import Network.HTTP3.Send
 import Network.QPACK
+import Network.QPACK.Error (ApplicationProtocolError (QpackDecompressionFailed), DecodeError)
 
 -- | Configuration for HTTP\/3 or HQ client. For HQ, 'authority' is
 --   not used and an server's IP address is used in 'Request'.
@@ -248,7 +250,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
             src <- newSourceWith strm $ recv 1024
             let sid = QUIC.streamId strm
             (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
-                mvt <- recvFinalHeader ctx strm src
+                mvt <- decoding strm $ recvFinalHeader ctx strm src
                 -- A request the GOAWAY rejected had its stream reset to get here.
                 answered strm ans
                 case mvt of
@@ -271,9 +273,22 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
                     Just vt@(_, valtbl) -> do
                         (readB, refH) <-
                             newBodyReader ctx sid src valtbl $ noContent valtbl
-                        let rsp = Response $ InpObj vt Nothing readB refH
+                        let rsp = Response $ InpObj vt Nothing (decoding strm readB) refH
                         processResponse rsp
   where
+    -- What the decoder finds in a header section (RFC 9204, section 2.2):
+    -- a broken one ends the connection, as on the server, and one we must
+    -- not take is malformed.  These used to reach the caller as they were.
+    decoding strm io = io `E.catch` \se -> case () of
+        _
+            | Just (_ :: DecodeError) <- E.fromException se ->
+                abort ctx QpackDecompressionFailed
+            | Just FieldSectionTooLarge <- E.fromException se -> malformed strm
+            | Just (_ :: HPACK.DecodeError) <- E.fromException se -> malformed strm
+            | otherwise -> E.throwIO se
+    malformed strm = do
+        QUIC.resetStream strm H3MessageError
+        E.throwIO $ StreamResetIsSent H3MessageError
     -- A response defined to have no content: to HEAD, a 204 or a 304, or a
     -- 2xx to CONNECT (RFC 9110, section 6.4.1).  Its content-length, which it
     -- may carry, describes content it does not have; it was checked against
