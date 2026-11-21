@@ -34,6 +34,7 @@ module Network.QPACK (
     QDecoder,
     newQDecoder,
     newQDecoderWith,
+    newQDecoderGivingUp,
     FieldSectionTooLarge (..),
     FieldSectionTooLargeForPeer (..),
 
@@ -533,14 +534,28 @@ newQDecoderWith
     -> STM ()
     -> (EncodedDecoderInstruction -> IO ())
     -> IO (QDecoder, EncoderInstructionHandler)
-newQDecoderWith QDecoderConfig{..} giveUp sendDI = do
+newQDecoderWith conf giveUp sendDI = do
+    (dec, handler) <- newQDecoderGivingUp conf giveUp sendDI
+    return (dec retry, handler)
+
+-- | 'newQDecoderWith' whose decoder also takes an 'STM' action of its own
+--   for each section, such as the give-up of the request it belongs to.
+--   Like the other, it ends the wait by throwing.
+--
+--   @since 0.2.0
+newQDecoderGivingUp
+    :: QDecoderConfig
+    -> STM ()
+    -> (EncodedDecoderInstruction -> IO ())
+    -> IO (STM () -> QDecoder, EncoderInstructionHandler)
+newQDecoderGivingUp QDecoderConfig{..} giveUp sendDI = do
     dyntbl <-
         newDynamicTableForDecoding dcHuffmanBufferSize sendDI
     setMaxEntries dyntbl dcMaxTableCapacity
     setMaxBlockedStreams dyntbl dcBlockedStreams
     -- What we announce as SETTINGS_MAX_FIELD_SECTION_SIZE.
     setMaxHeaderSize dyntbl dcMaxFieldSectionSize
-    let dec = qpackDecoder dyntbl giveUp
+    let dec giveUp' = qpackDecoder dyntbl $ giveUp `orElse` giveUp'
         handler = encoderInstructionHandler dcMaxTableCapacity dyntbl
     return (dec, handler)
 

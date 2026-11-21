@@ -60,7 +60,7 @@ module Network.HTTP3.Client (
 ) where
 
 import Control.Concurrent.Async (waitCatchSTM, withAsync)
-import Control.Concurrent.STM (STM, atomically, orElse, retry)
+import Control.Concurrent.STM (STM, atomically, orElse, retry, throwSTM)
 import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.UTF8 as UTF8
@@ -247,7 +247,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
                     bs <- recvGivingUp giveUp strm n
                     mfailed <- if C8.null bs then readIORef failed else return Nothing
                     maybe (return bs) (E.throwIO . HE.BadThingHappen) mfailed
-            src <- newSourceWith strm $ recv 1024
+            src <- newSourceGivingUp strm (recv 1024) (giveUp >> throwSTM RequestGivenUp)
             let sid = QUIC.streamId strm
             (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
                 mvt <- decoding strm $ recvFinalHeader ctx strm src

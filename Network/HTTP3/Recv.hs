@@ -6,6 +6,7 @@ module Network.HTTP3.Recv (
     newSource,
     newSourceOrStop,
     newSourceWith,
+    newSourceGivingUp,
     readSource,
     readSource',
     recvHeader,
@@ -15,6 +16,8 @@ module Network.HTTP3.Recv (
     invalidContentLength,
 ) where
 
+import Control.Concurrent.STM (STM)
+import qualified Control.Concurrent.STM as STM
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -34,6 +37,9 @@ data Source = Source
     , sourceReadToEnd :: IORef Bool
     -- ^ Whether the body reader has come to the end of the stream between two
     -- frames, and so has processed every field section on it.
+    , sourceGiveUp :: STM ()
+    -- ^ What a field section blocked on the encoder stream gives up on, by
+    -- throwing, besides the connection's end.
     }
 
 newSource :: Stream -> IO Source
@@ -44,7 +50,12 @@ newSourceOrStop :: Context -> Stream -> IO Source
 newSourceOrStop ctx strm = newSourceWith strm $ recvOrStop ctx strm 1024
 
 newSourceWith :: Stream -> IO ByteString -> IO Source
-newSourceWith strm rd = Source strm rd <$> newIORef Nothing <*> newIORef False
+newSourceWith strm rd = newSourceGivingUp strm rd STM.retry
+
+-- | 'newSourceWith' whose blocked field sections give up on the 'STM' action.
+newSourceGivingUp :: Stream -> IO ByteString -> STM () -> IO Source
+newSourceGivingUp strm rd giveUp =
+    Source strm rd <$> newIORef Nothing <*> newIORef False <*> pure giveUp
 
 -- | Telling the peer's QPACK encoder, unless the stream has been read to its
 --   end, that the field sections left on it will never be processed (RFC 9204,
@@ -112,7 +123,7 @@ recvHeader ctx sid src = loop IInit
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         pushbackSource src leftover
-                        Just <$> qpackDecode ctx sid payload
+                        Just <$> qpackDecodeWith ctx (sourceGiveUp src) sid payload
                     | typ == H3FramePushPromise -> pushPromise ctx
                     | permittedInRequestStream typ -> do
                         pushbackSource src leftover
@@ -268,7 +279,7 @@ recvBody ctx sid src refI refH mcl refL = do
                 IDone typ payload leftover
                     | typ == H3FrameHeaders -> do
                         writeIORef refI IInit
-                        hdr <- qpackDecode ctx sid payload
+                        hdr <- qpackDecodeWith ctx (sourceGiveUp src) sid payload
                         forM_ (connectionSpecificField hdr) $
                             E.throwIO . ConnectionSpecificField
                         writeIORef refH $ Just hdr

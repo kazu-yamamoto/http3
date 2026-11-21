@@ -42,6 +42,7 @@ module Network.HQ.Client (
 ) where
 
 import qualified Control.Exception as E
+import Control.Monad (when)
 import qualified Data.ByteString as BS
 import Data.IORef
 import Network.HPACK
@@ -53,8 +54,13 @@ import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Internal as QUIC
 
 import qualified Network.HTTP3.Client as H3
-import Network.HTTP3.Error (UnsupportedRequest (..))
-import Network.HTTP3.Recv (newSource, readSource')
+import Network.HTTP3.Context (recvGivingUp)
+import Network.HTTP3.Error (
+    StreamResetIsReceived (..),
+    UnsupportedRequest (..),
+    translating,
+ )
+import Network.HTTP3.Recv (newSourceWith, readSource')
 
 -- | Running an HQ client.
 run :: Connection -> H3.ClientConfig -> H3.Config -> Client a -> IO a
@@ -67,24 +73,33 @@ run conn _ _ client = client (sendRequest conn) aux
             }
 
 sendRequest :: Connection -> Request -> (Response -> IO a) -> IO a
-sendRequest conn (Request outobj) processResponse = do
+sendRequest conn (Request outobj) processResponse = translating Nothing $ do
     -- HTTP/0.9 has GET and a path, and nothing else.  A request without a
     -- path failed in 'fromJust', and one of another method was sent as GET.
     path <- case (lookup ":method" hdr, lookup ":path" hdr) of
         (Just "GET", Just p) -> return p
         _ -> E.throwIO $ UnsupportedRequest "only GET with a path can be sent"
-    E.bracket open close $ \strm -> sendRequest' strm path
+    E.bracket open close $ \strm ->
+        translating (Just $ QUIC.streamId strm) $ sendRequest' strm path
   where
     hdr = outObjHeaders outobj
-    open = QUIC.stream conn
+    -- Given up on as over HTTP/3, and its errors told as 'HTTPError' too.
+    giveUp = outObjGiveUp outobj
+    givenUp = either (\() -> E.throwIO RequestGivenUp) return
+    open = QUIC.streamWith conn giveUp >>= givenUp
     close = QUIC.closeStream
     sendRequest' strm path = do
         let requestLine = BS.concat ["GET ", path, "\r\n"]
-        QUIC.sendStream strm requestLine
-        QUIC.shutdownStream strm
-        src <- newSource strm
+        QUIC.sendStreamManyWith strm [requestLine] giveUp >>= givenUp
+        QUIC.shutdownStreamWith strm giveUp >>= givenUp
+        src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
         refH <- newIORef Nothing
         vt <- toTokenHeaderTable []
-        let readB = readSource' src
-            rsp = Response $ InpObj vt Nothing readB refH
+        let rsp = Response $ InpObj vt Nothing (readB strm src) refH
         processResponse rsp
+    -- A reset reads as an end: the body cut short is not taken for whole.
+    readB strm src = do
+        r@(bs, _) <- readSource' src
+        when (BS.null bs) $
+            QUIC.resetReceived strm >>= mapM_ (E.throwIO . StreamResetIsReceived)
+        return r
