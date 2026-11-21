@@ -113,10 +113,13 @@ runGivingUp conn cconf conf client giveUp = do
     r <- E.try $ runWith conn cconf conf client $ void giveUp
     case r of
         Right x -> return $ Right x
-        -- Whatever the client ended with, it was given up on.
-        Left (e :: E.SomeException) -> do
-            mg <- atomically $ (Just <$> giveUp) `orElse` return Nothing
-            maybe (E.throwIO e) (return . Left) mg
+        -- Whatever the client ended with, it was given up on.  Not the
+        -- caller being killed, though: that goes on.
+        Left (e :: E.SomeException)
+            | isAsyncException e -> E.throwIO e
+            | otherwise -> do
+                mg <- atomically $ (Just <$> giveUp) `orElse` return Nothing
+                maybe (E.throwIO e) (return . Left) mg
 
 runWith :: Connection -> ClientConfig -> Config -> Client a -> STM () -> IO a
 runWith conn ClientConfig{..} conf client giveUp = untranslating $ withContext conn conf $ \ctx -> do
