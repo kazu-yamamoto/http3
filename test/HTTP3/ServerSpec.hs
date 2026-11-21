@@ -11,6 +11,7 @@ import Control.Monad
 import qualified Data.ByteString as B
 import Data.IORef
 import Data.List (isInfixOf)
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import Network.HTTP3.Internal (H3Frame (..), H3FrameType (..))
@@ -55,6 +56,8 @@ h3spec = do
             runHandlerCancelClient
         it "tells the handler of a request body cut short by a reset" $ \_ ->
             runResetRequestClient
+        it "does not take the end its own reset gives for the response's" $ \_ ->
+            runOwnResetClient
         it "resets a request interrupted before its body is sent" $ \_ ->
             runInterruptedRequestClient
         it "does not hand the handler a CANCEL_PUSH it refused as body" $ \_ ->
@@ -370,6 +373,26 @@ runResetRequestClient = do
                 r <- timeout 2000000 $ takeMVar recordedBody
                 r `shouldSatisfy` \x -> case x of
                     Just (Left e) -> "StreamErrorIsReceived" `isInfixOf` e
+                    _ -> False
+
+-- | A request body that throws while the response comes: the client's
+-- reset ends the response too, which must not be taken for its end.
+runOwnResetClient :: IO ()
+runOwnResetClient =
+    QUIC.run testClientConfig $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                let req = C.requestStreaming methodPost "/echo" [] $ \write flush -> do
+                        write "partial"
+                        flush
+                        threadDelay 200000
+                        E.throwIO $ userError "body failed"
+                    drain rsp = do
+                        bs <- C.getResponseBodyChunk rsp
+                        unless (B.null bs) $ drain rsp
+                r <- timeout 2000000 $ E.try $ sendRequest req drain
+                r `shouldSatisfy` \x -> case x of
+                    Just (Left (HE.BadThingHappen _)) -> True
                     _ -> False
 
 -- | A request interrupted by 'timeout' while its body is still being sent:

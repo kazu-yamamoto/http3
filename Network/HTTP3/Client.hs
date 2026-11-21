@@ -68,6 +68,7 @@ import Data.IORef
 import Data.IP (IPv6)
 import Network.HTTP.Semantics.Client
 import Network.HTTP.Semantics.Client.Internal
+import qualified Network.HTTP.Semantics.Error as HE
 import Network.QUIC (Connection)
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Internal as QUIC
@@ -203,6 +204,9 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
     -- the one told.
     checkHeaderSize ctx hdr'
     sent <- newIORef False
+    -- Why we reset the stream, if we did: the reset ends what we receive
+    -- too, and that end is not the response's.
+    failed <- newIORef Nothing
     refuseIfGoingAway ctx
     -- The server answering is an application running: the connection is
     -- kept alive meanwhile, as over HTTP/2.
@@ -231,8 +235,14 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
                         -- whatever arrives for it is thrown away: the response
                         -- would be awaited for good.
                         Just QUIC.StreamIsClosed -> return ()
-                        _ -> QUIC.resetStream strm H3RequestCancelled
-            src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
+                        _ -> do
+                            atomicWriteIORef failed $ Just se
+                            QUIC.resetStream strm H3RequestCancelled
+            let recv n = do
+                    bs <- recvGivingUp giveUp strm n
+                    mfailed <- if C8.null bs then readIORef failed else return Nothing
+                    maybe (return bs) (E.throwIO . HE.BadThingHappen) mfailed
+            src <- newSourceWith strm $ recv 1024
             let sid = QUIC.streamId strm
             (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do
                 mvt <- recvFinalHeader ctx strm src
