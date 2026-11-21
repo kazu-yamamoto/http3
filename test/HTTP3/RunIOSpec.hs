@@ -31,6 +31,13 @@ spec =
         it "serves a request while an earlier stream has sent no HEADERS" $
             E.bracket setupIO teardown $ \_ ->
                 timeout 3000000 stalledThenRequest `shouldReturn` Just ()
+        it "returns once the connection is over, its application still reading" $ do
+            -- It waited for a request that would never come, and runIO did
+            -- not return.
+            returned <- newEmptyMVar
+            E.bracket (setupReading returned) teardown $ \_ -> do
+                timeout 3000000 noRequest `shouldReturn` Just ()
+                timeout 8000000 (takeMVar returned) `shouldReturn` Just ()
         it "returns once sioDone is called and the requests are answered" $ do
             returned <- newEmptyMVar
             E.bracket (setupDone returned) teardown $ \_ -> do
@@ -71,6 +78,24 @@ setupIO = do
                 sioWriteResponse sio strm $ responseBuilder ok200 [] "hello"
     threadDelay 500000 -- give enough time to the server
     return tid
+
+-- | A server whose application only ever reads requests.  The 'MVar' is
+-- filled when 'runIO' returns.
+setupReading :: MVar () -> IO ThreadId
+setupReading returned = do
+    sc <- makeTestServerConfig
+    tid <- forkIO $ QUICS.run sc $ \conn ->
+        E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+            runIO conn conf (\sio -> return $ forever $ sioReadRequest sio)
+                `E.finally` putMVar returned ()
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | A connection with no request, closed normally.
+noRequest :: IO ()
+noRequest = QUICC.run testClientConfig $ \conn ->
+    E.bracket allocSimpleConfig freeSimpleConfig $ \conf ->
+        C.run conn testH3ClientConfig conf $ \_sendRequest _aux -> threadDelay 100000
 
 -- | A server whose application takes one request, calls 'sioDone', and
 -- then answers it.  The 'MVar' is filled when 'runIO' returns.
