@@ -10,6 +10,7 @@ module Network.HTTP3.Control (
 ) where
 
 import Control.Concurrent.MVar
+import Control.Concurrent.STM (STM)
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -32,12 +33,14 @@ mkType = BS.singleton . fromIntegral . fromH3StreamType
 setupUnidirectional
     :: Connection
     -> H3.Config
+    -> STM ()
+    -- ^ What the writes on the critical streams give up on
     -> IO
         ( EncodedEncoderInstruction -> IO ()
         , EncodedDecoderInstruction -> IO ()
         , [H3Frame] -> IO ()
         )
-setupUnidirectional conn conf@H3.Config{..} = do
+setupUnidirectional conn conf@H3.Config{..} stopping = do
     let dc = confQDecoderConfig
     settings <-
         encodeH3Settings
@@ -62,11 +65,12 @@ setupUnidirectional conn conf@H3.Config{..} = do
     -- quic sends a write in two pieces when flow control stops it partway.
     lockD <- newMVar ()
     return
-        ( critical $ sendStream sE
-        , critical $ \bs -> withMVar lockD $ \_ -> sendStream sD bs
-        , critical $ sendStreamMany sC . encodeH3Frames
+        ( critical $ giving sE . (: [])
+        , critical $ \bs -> withMVar lockD $ \_ -> giving sD [bs]
+        , critical $ giving sC . encodeH3Frames
         )
   where
+    giving s bss = sendStreamManyWith s bss stopping >>= either (\_ -> E.throwIO Stopping) return
     -- The sending part of one of our QPACK streams is closed only when the
     -- peer asked for that with STOP_SENDING, which it must not do (RFC
     -- 9204, section 4.2; RFC 9114, section 6.2.1): the closure of a

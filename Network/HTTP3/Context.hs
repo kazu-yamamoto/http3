@@ -26,6 +26,9 @@ module Network.HTTP3.Context (
     getPeerMaxFieldSectionSize,
     forkManaged,
     forkApp,
+    forkLibWithResult,
+    forkAppWithResult,
+    stoppingSTM,
     forkAppFinally,
     keepingAlive,
     Stopping (..),
@@ -45,7 +48,6 @@ module Network.HTTP3.Context (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forM, forM_, void, when)
@@ -143,8 +145,9 @@ withContext conn conf action = do
 
 -- | How long the threads are given to end after they have been told to.
 --   Unwinding takes milliseconds; this is for one that does not stop.
+--   Three such waits fit in the 5 s quic gives the application's thread.
 stopTimeout :: Int
-stopTimeout = 5000000
+stopTimeout = 1500000
 
 -- | The most of a frame on the peer's control stream held while it arrives.
 --   SETTINGS_MAX_FIELD_SECTION_SIZE was used, which is about field sections
@@ -154,10 +157,13 @@ maxControlFrameSize = 65536
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
-    (sendEI, sendDI, ctxSendControl) <- setupUnidirectional conn conf
+    ctxThreadManager <- T.newThreadManager
+    -- Our writes on the critical streams give up once we are stopping,
+    -- as a peer granting no credit would hold them for good.
+    (sendEI, sendDI, ctxSendControl) <-
+        setupUnidirectional conn conf $ T.waitStoppingSTM ctxThreadManager
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
-    ctxThreadManager <- T.newThreadManager
     -- A section blocked on the peer's encoder stream gives up as the
     -- library's reads do, and with the connection's end, after which the
     -- entries it waits for never arrive.
@@ -277,12 +283,6 @@ accept Context{..} = do
             (False <$ T.waitStoppingSTM ctxThreadManager)
                 <|> (True <$ waitAcceptableSTM ctxConnection)
     if go then Just <$> acceptStream ctxConnection else return Nothing
-
--- | Thrown by a library thread to itself to return once we are stopping,
---   and taken quietly by 'endingOnConnectionError'.
-data Stopping = Stopping deriving (Show)
-
-instance E.Exception Stopping
 
 -- | 'recvStream' for the library's own streams, which gives up with
 --   'Stopping' once we are stopping.
@@ -467,10 +467,27 @@ goAwayAll ctx = sendGoAway ctx $ 2 ^ (62 :: Int) - 4
 
 -- | Waiting for the connection's probe timeout, which is at least a round
 --   trip.
+-- | Waiting for a PTO, or until the context is stopping.
 waitPTO :: Context -> IO ()
-waitPTO Context{..} = do
+waitPTO ctx@Context{..} = do
     pto <- getPTO $ connLDCC ctxConnection
-    threadDelay $ toDelay pto
+    expired <- registerDelay $ toDelay pto
+    atomically $ (readTVar expired >>= check) `orElse` stoppingSTM ctx
+
+-- | Succeeding once the context is stopping: what a library thread waits
+--   for alongside what it waits for, and ends on.
+stoppingSTM :: Context -> STM ()
+stoppingSTM Context{..} = T.waitStoppingSTM ctxThreadManager
+
+-- | A library thread whose end is waited for: told to stop with a grace
+--   when the context ends ('withContext').
+forkLibWithResult :: Context -> String -> IO a -> IO (T.Managed a)
+forkLibWithResult Context{..} = T.forkManagedWithResult ctxThreadManager
+
+-- | A thread of the application's code whose end is waited for: killed
+--   when the context ends ('withContext').
+forkAppWithResult :: Context -> String -> IO a -> IO (T.Managed a)
+forkAppWithResult Context{..} = T.forkManagedWithResult ctxAppThreadManager
 
 sendGoAway :: Context -> StreamId -> IO ()
 sendGoAway Context{..} lim = do

@@ -59,7 +59,7 @@ module Network.HTTP3.Client (
     ApplicationProtocolError (..),
 ) where
 
-import Control.Concurrent.Async (waitCatchSTM, withAsync)
+import qualified System.ThreadManager as T
 import Control.Concurrent.STM (STM, atomically, orElse, retry, throwSTM)
 import qualified Control.Exception as E
 import qualified Data.ByteString.Char8 as C8
@@ -127,10 +127,12 @@ runWith :: Connection -> ClientConfig -> Config -> Client a -> STM () -> IO a
 runWith conn ClientConfig{..} conf client giveUp = untranslating $ withContext conn conf $ \ctx -> do
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
     -- Given up on, the client is stopped, as http2 does; returning, this
-    -- ends the connection as any client returning does.
-    withAsync (client (sendRequest ctx scheme authority) aux) $ \a -> do
-        r <- atomically $ (Just <$> waitCatchSTM a) `orElse` (Nothing <$ giveUp)
-        maybe (E.throwIO ClientGivenUp) (either E.throwIO return) r
+    -- ends the connection as any client returning does.  The client is
+    -- the user's: a thread of the application's manager, killed when the
+    -- context ends.  It was async's, which no manager saw.
+    a <- forkAppWithResult ctx "H3 client" $ client (sendRequest ctx scheme authority) aux
+    r <- atomically $ (Just <$> T.waitManagedSTM a) `orElse` (Nothing <$ giveUp)
+    maybe (E.throwIO ClientGivenUp) (either E.throwIO return) r
   where
     aux =
         defaultAux
@@ -246,7 +248,9 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
             let recv n = do
                     bs <- recvGivingUp giveUp strm n
                     mfailed <- if C8.null bs then readIORef failed else return Nothing
-                    maybe (return bs) (E.throwIO . HE.BadThingHappen) mfailed
+                    -- The connection's end as an HTTP error, as elsewhere.
+                    let failure se = fromMaybe (HE.BadThingHappen se) $ toHTTPError Nothing se
+                    maybe (return bs) (E.throwIO . failure) mfailed
             src <- newSourceGivingUp strm (recv 1024) (giveUp >> throwSTM RequestGivenUp)
             let sid = QUIC.streamId strm
             (`E.finally` cancelUnlessReadToEnd ctx sid src) $ do

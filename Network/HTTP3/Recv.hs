@@ -104,7 +104,14 @@ recvHeader ctx sid src = loop IInit
     loop st = do
         bs <- readSource src
         if bs == ""
-            then return Nothing
+            then do
+                -- Cut off in the middle of a frame, not reset: RFC 9114,
+                -- section 7.1, makes that a connection error.  Only on the
+                -- server: a client's end may be its own reset ('rejectAbove').
+                mreset <- resetReceived $ sourceStream src
+                when (isH3Server ctx && isNothing mreset && st /= IInit) $
+                    abort ctx H3FrameError
+                return Nothing
             else case parseH3Frame lim st bs of
                 -- A field section longer than we said we would take, before
                 -- it is decoded: the request is refused with 431 (RFC 9114,
