@@ -79,19 +79,27 @@ sendRequest conn (Request outobj) processResponse = translating Nothing $ do
     path <- case (lookup ":method" hdr, lookup ":path" hdr) of
         (Just "GET", Just p) -> return p
         _ -> E.throwIO $ UnsupportedRequest "only GET with a path can be sent"
-    E.bracket open close $ \strm ->
-        translating (Just $ QUIC.streamId strm) $ sendRequest' strm path
+    sent <- newIORef False
+    E.bracket open (close sent) $ \strm ->
+        translating (Just $ QUIC.streamId strm) $ sendRequest' sent strm path
   where
     hdr = outObjHeaders outobj
     -- Given up on as over HTTP/3, and its errors told as 'HTTPError' too.
     giveUp = outObjGiveUp outobj
     givenUp = either (\() -> E.throwIO RequestGivenUp) return
     open = QUIC.streamWith conn giveUp >>= givenUp
-    close = QUIC.closeStream
-    sendRequest' strm path = do
+    -- A request not sent in full is reset: a FIN took the part of the
+    -- request line sent for a whole one, which the server served.
+    close sent strm = do
+        whole <- readIORef sent
+        if whole
+            then QUIC.closeStream strm
+            else QUIC.resetStream strm H3.H3RequestCancelled >> QUIC.closeStream strm
+    sendRequest' sent strm path = do
         let requestLine = BS.concat ["GET ", path, "\r\n"]
         QUIC.sendStreamManyWith strm [requestLine] giveUp >>= givenUp
         QUIC.shutdownStreamWith strm giveUp >>= givenUp
+        writeIORef sent True
         src <- newSourceWith strm $ recvGivingUp giveUp strm 1024
         refH <- newIORef Nothing
         vt <- toTokenHeaderTable []

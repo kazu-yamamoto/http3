@@ -55,9 +55,9 @@ module Network.HTTP3.Server (
 ) where
 
 import Control.Concurrent
-import Control.Concurrent.Async
 import Control.Concurrent.STM
 import qualified Control.Exception as E
+import qualified System.ThreadManager as T
 import qualified Control.Monad.STM as STM
 import Data.IORef
 import GHC.Conc.Sync
@@ -114,7 +114,7 @@ runServer mstop conn conf server = withContext conn conf $ \ctx -> do
                             _ -> E.throwIO e
                 )
                 (finish ctx strm state)
-    maybe serve (\stop -> race_ (goingAway ctx (True <$ stop)) serve) mstop
+    maybe serve (serveGoingAway ctx serve . (True <$)) mstop
   where
     -- A thread stopped before it began, as the connection goes, has not
     -- looked at the request: it is rejected, which tells the client it may
@@ -149,12 +149,22 @@ data RequestState = NotStarted | Started | ConnectionClosed
 -- done answers nothing more, so its GOAWAY is the last one at once.
 goingAway :: Context -> STM Bool -> IO ()
 goingAway ctx told = do
-    twoSteps <- atomically told
-    when twoSteps $ do
-        goAwayAll ctx
-        waitPTO ctx
-    goAway ctx
-    atomically $ drained ctx
+    -- Ending with the context as well, whose end it may not be told of.
+    mtwoSteps <- atomically $ (Just <$> told) `orElse` (Nothing <$ stoppingSTM ctx)
+    forM_ mtwoSteps $ \twoSteps -> do
+        when twoSteps $ do
+            goAwayAll ctx
+            waitPTO ctx
+        goAway ctx
+        atomically $ drained ctx `orElse` stoppingSTM ctx
+
+-- | Serving until the connection is over, or once told to go away, until
+--   the requests taken are done.
+serveGoingAway :: Context -> IO () -> STM Bool -> IO ()
+serveGoingAway ctx serve told = do
+    g <- forkLibWithResult ctx "H3 going away" $ goingAway ctx told
+    s <- forkLibWithResult ctx "H3 server" serve
+    void $ T.waitEitherManaged g s
 
 runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO = runIOServer Nothing
@@ -191,7 +201,7 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
                 , sioReadRequest = atomically $ readTQueue reqq
                 , sioWriteResponse = \strm rsp -> do
                     let sid = QUIC.streamId strm
-                    sendResponseIO ctx strm rsp `E.finally` do
+                    translating (Just $ QUIC.streamId strm) (sendResponseIO ctx strm rsp) `E.finally` do
                         msrc <- atomically $ do
                             m <- readTVar srcs
                             writeTVar srcs $ IntMap.delete sid m
@@ -211,16 +221,53 @@ runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
     io <- action sio
     -- A thread per stream, as in 'run'.  Reading HEADERS on the accept loop
     -- let one stream that never sent them stop every stream after it.
-    race_ (goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop) $
-        concurrently_ io $
-            readerServer ctx $ \strm ->
-                forkManaged ctx "H3 server: processRequestIO" $ do
-                    let sid = QUIC.streamId strm
-                    src <- newSourceOrStop ctx strm
-                    handed <-
-                        processRequestIO ctx (put src) strm src
-                            `E.onException` finish sid (Just src)
-                    unless handed $ finish sid (Just src)
+    -- Library threads, told to stop with a grace when the context ends;
+    -- the application is the user's, killed then.  Under async, they were
+    -- killed at once on leaving, and the application was waited for even
+    -- once the connection was over.
+    let reader = readerServer ctx $ \strm ->
+            forkManaged ctx "H3 server: processRequestIO" $ do
+                let sid = QUIC.streamId strm
+                src <- newSourceOrStop ctx strm
+                handed <-
+                    processRequestIO ctx (put src) strm src
+                        `E.onException` finish sid (Just src)
+                unless handed $ finish sid (Just src)
+    g <-
+        forkLibWithResult ctx "H3 going away" $
+            goingAway ctx $ (False <$ appDone) <|> maybe STM.retry (True <$) mstop
+    a <- forkAppWithResult ctx "H3 runIO application" io
+    r <- forkLibWithResult ctx "H3 runIO reader" reader
+    -- Once the application is done, nobody reads the requests handed over
+    -- any more: they are rejected, so that the client may retry them, and
+    -- done with.  Left, they held the GOAWAY's drain until the idle timeout.
+    let rejectLeft = do
+            m <- atomically $ (Just <$> readTQueue reqq) `orElse` (Nothing <$ stoppingSTM ctx)
+            forM_ m $ \(strm, _) -> do
+                let sid = QUIC.streamId strm
+                QUIC.resetStream strm H3RequestRejected
+                msrc <- atomically $ do
+                    srcm <- readTVar srcs
+                    writeTVar srcs $ IntMap.delete sid srcm
+                    return $ IntMap.lookup sid srcm
+                finish sid msrc
+                rejectLeft
+    forkManaged ctx "H3 runIO rejecting what is left" $ do
+        told <- atomically $ (True <$ appDone) `orElse` (False <$ stoppingSTM ctx)
+        when told rejectLeft
+    let ended m = T.waitManagedSTM m >>= either throwSTM (\_ -> return ())
+        failed m = T.waitManagedSTM m >>= either throwSTM (\_ -> STM.retry)
+        wait3 = atomically $ ended g `orElse` ended r `orElse` failed a
+    -- Again once if told it is blocked indefinitely, as async waits.
+    wait3 `E.catch` \E.BlockedIndefinitelyOnSTM -> wait3
+
+-- | A request stream ended before its HEADERS: RFC 9114, section 4.1,
+--   says H3_REQUEST_INCOMPLETE, and a reset of the client's is answered as
+--   cancelled.  H3_MESSAGE_ERROR was sent for either.
+endedEarly :: Stream -> IO ()
+endedEarly strm = do
+    mreset <- QUIC.resetReceived strm
+    QUIC.resetStream strm $ maybe H3RequestIncomplete (const H3RequestCancelled) mreset
 
 readerServer :: Context -> (Stream -> IO ()) -> IO ()
 readerServer ctx action = loop
@@ -255,7 +302,7 @@ processRequest ctx server strm = E.handle reset $ do
         emvt <- E.try $ recvHeader ctx sid src
         case emvt of
             Left FieldSectionTooLarge -> refuseTooLarge ctx strm
-            Right Nothing -> QUIC.resetStream strm H3MessageError
+            Right Nothing -> endedEarly strm
             Right (Just ht) -> do
                 mreq <- mkRequest ctx strm src ht
                 case mreq of
@@ -329,7 +376,8 @@ processRequest ctx server strm = E.handle reset $ do
         | otherwise = do
             QUIC.resetStream strm H3InternalError
             E.throwIO se
-    notBadThing (QUIC.BadThingHappen _) = False
+    -- quic's own failure, not the connection taken down from outside.
+    notBadThing (QUIC.BadThingHappen e) = isAsyncException e
     notBadThing _ = True
     malformed se
         | Just (_ :: ContentLengthMismatch) <- E.fromException se = True
@@ -350,7 +398,7 @@ processRequestIO ctx put strm src = E.handle reset $ do
         Left FieldSectionTooLarge -> do
             refuseTooLarge ctx strm
             False <$ QUIC.closeStreamWith strm H3NoError
-        Right Nothing -> False <$ QUIC.resetStream strm H3MessageError
+        Right Nothing -> False <$ endedEarly strm
         Right (Just ht) -> do
             mreq <- mkRequest ctx strm src ht
             case mreq of
@@ -369,6 +417,14 @@ processRequestIO ctx put strm src = E.handle reset $ do
             abort ctx QpackDecompressionFailed
         | Just (QUIC.ApplicationProtocolErrorIsSent _ _) <- E.fromException se =
             return False
+        -- quic's own failure is printed, as in 'run'.
+        | Just (QUIC.BadThingHappen e) <- E.fromException se
+        , not (isAsyncException e) = do
+            QUIC.resetStream strm H3InternalError
+            E.throwIO se
+        -- The stream or the connection went under it: the peer's doing.
+        | Just (_ :: QUIC.QUICException) <- E.fromException se =
+            False <$ QUIC.resetStream strm H3InternalError
         | otherwise = False <$ QUIC.resetStream strm H3MessageError
 
 -- | Answering a request whose header section is more than we said we would

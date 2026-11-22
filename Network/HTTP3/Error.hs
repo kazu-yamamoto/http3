@@ -10,6 +10,7 @@ module Network.HTTP3.Error (
     UnsupportedRequest (..),
     StreamTerminated (..),
     toHTTPError,
+    Stopping (..),
     translating,
     untranslating,
     ApplicationProtocolError (
@@ -162,6 +163,8 @@ pattern H3VersionFallback         = ApplicationProtocolError 0x110
 toHTTPError :: Maybe StreamId -> E.SomeException -> Maybe HE.HTTPError
 toHTTPError msid se
     | Just e <- E.fromException se = Just e
+    -- Internal: what an application thread still reading is told.
+    | Just Stopping <- E.fromException se = Just HE.ConnectionIsClosed
     | Just (StreamResetIsReceived c) <- E.fromException se
     , Just sid <- msid =
         Just $ HE.StreamErrorIsReceived (h3 c) sid
@@ -192,6 +195,11 @@ toHTTPError msid se
         isJust (E.fromException se :: Maybe ContentLengthMismatch)
             || isJust (E.fromException se :: Maybe ConnectionSpecificField)
             || isJust (E.fromException se :: Maybe InvalidContentLength)
+
+-- | Thrown to a library wait once the connection's threads are stopping.
+data Stopping = Stopping deriving (Show)
+
+instance E.Exception Stopping
 
 -- | Throwing what the action throws as 'HE.HTTPError', where it is one.
 translating :: Maybe StreamId -> IO a -> IO a

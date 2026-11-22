@@ -86,8 +86,11 @@ run conn conf server = do
     -- doing, as over HTTP/3: not printed.  The handler's own failure and
     -- quic's are.
     quiet = E.handle $ \e -> case e of
-        QUIC.BadThingHappen _ -> E.throwIO e
+        QUIC.BadThingHappen se | not (isAsync se) -> E.throwIO e
         _ -> return ()
+    isAsync se = case E.fromException se of
+        Just (E.SomeAsyncException _) -> True
+        Nothing -> False
     -- Only a response sent in full ends with a FIN.  One whose handler
     -- failed or was stopped is reset.
     finish strm done = do
