@@ -157,6 +157,9 @@ maxControlFrameSize = 65536
 
 newContext :: Connection -> Config -> IO Context
 newContext conn conf = do
+    -- RFC 9114 Sec 5.2: a normal end is closed with H3_NO_ERROR, and the
+    -- peer's is taken as one.
+    setNormalClose conn H3NoError
     ctxThreadManager <- T.newThreadManager
     -- Our writes on the critical streams give up once we are stopping,
     -- as a peer granting no credit would hold them for good.
