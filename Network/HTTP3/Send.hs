@@ -3,6 +3,7 @@
 
 module Network.HTTP3.Send (
     sendHeader,
+    encodeHeaderFrame,
     sendInformational,
     checkHeaderSize,
     sendBody,
@@ -39,14 +40,17 @@ checkHeaderSize ctx hdrs = do
     when (siz > lim) $ E.throwIO $ FieldSectionTooLargeForPeer siz lim
 
 sendHeader :: Context -> Stream -> HT.ResponseHeaders -> IO ()
-sendHeader ctx strm hdrs = do
+sendHeader ctx strm hdrs = encodeHeaderFrame ctx strm hdrs >>= sendStreamMany strm
+
+-- | The HEADERS frame of a header section, as sent by 'sendHeader'.
+encodeHeaderFrame :: Context -> Stream -> HT.ResponseHeaders -> IO [ByteString]
+encodeHeaderFrame ctx strm hdrs = do
     -- fixme: fixHeaders
     (ths, _) <- toTokenHeaderTable hdrs
     hdr <- qpackEncode ctx (streamId strm) ths
     let frames = [H3Frame H3FrameHeaders hdr]
         frames' = onHeadersFrameCreated (getHooks ctx) frames
-        bss = encodeH3Frames frames'
-    sendStreamMany strm bss
+    return $ encodeH3Frames frames'
 
 -- | Sending an informational (1xx) response, such as 103 (Early Hints),
 --   ahead of the final one (RFC 9114, section 4.1).

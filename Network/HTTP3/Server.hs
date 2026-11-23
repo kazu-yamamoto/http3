@@ -321,7 +321,7 @@ processRequest ctx server strm = E.handle reset $ do
   where
     sid = QUIC.streamId strm
     reset se
-        -- Killed: by the timeout, or with the connection.  Whatever was
+        -- Killed, with the connection.  Whatever was
         -- sent of the response is not the whole of it, and is reset here.
         -- It used to be passed on as it was, and the finalizer
         -- ('closeStream') ended the stream with a FIN: the client took a
@@ -407,7 +407,7 @@ processRequestIO ctx put strm src = E.handle reset $ do
   where
     sid = QUIC.streamId strm
     reset se
-        -- Killed by the timeout, or stopping with the context, before the
+        -- Killed, or stopping with the context, before the
         -- request was handed over: rejected, so that the client may retry
         -- it, as 'run' does (RFC 9114, section 4.1.1).
         | isAsyncException se || isJust (E.fromException se :: Maybe Stopping) = do
@@ -434,11 +434,17 @@ processRequestIO ctx put strm src = E.handle reset $ do
 -- than it is willing to handle can send an HTTP 431 (Request Header Fields
 -- Too Large) status code".  What is left of the request is not wanted, and
 -- section 4.1.1 lets a server say so with STOP_SENDING and H3_NO_ERROR.
+--
+-- Given up once stopping, with 'Stopping': a peer which grants the stream
+-- no credit would otherwise hold a library thread.
 refuseTooLarge :: Context -> Stream -> IO ()
 refuseTooLarge ctx strm = do
     QUIC.stopStream strm H3NoError
-    sendHeader ctx strm [(":status", "431")]
-    QUIC.shutdownStream strm
+    bss <- encodeHeaderFrame ctx strm [(":status", "431")]
+    giving $ QUIC.sendStreamManyWith strm bss $ stoppingSTM ctx
+    giving $ QUIC.shutdownStreamWith strm $ stoppingSTM ctx
+  where
+    giving act = act >>= either (\_ -> E.throwIO Stopping) return
 
 -- | Build the 'Request', or reset the stream and answer 'Nothing' when the
 -- message is malformed.
