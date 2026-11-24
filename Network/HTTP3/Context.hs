@@ -131,9 +131,15 @@ data Answer = Waiting | Answered | Rejected deriving (Eq)
 -- application which swallows the exception could otherwise keep this from
 -- ever returning.  quic waits for its own threads with no cap, because
 -- those are all its own and are known to end.
-withContext :: Connection -> Config -> (Context -> IO a) -> IO a
-withContext conn conf action = do
-    ctx <- newContext conn conf
+--
+-- Setting the connection up gives up on the given 'STM' action, and the
+-- given 'IO' action is the result then.
+withContext :: Connection -> Config -> STM () -> IO a -> (Context -> IO a) -> IO a
+withContext conn conf opening givenUp action =
+    E.try (newContext conn conf opening) >>= either (\SetupGivenUp -> givenUp) (withContext' action)
+
+withContext' :: (Context -> IO a) -> Context -> IO a
+withContext' action ctx = do
     let lib = ctxThreadManager ctx
         app = ctxAppThreadManager ctx
         waitFor mgr _ = void $ T.waitUntilAllGoneFor mgr stopTimeout
@@ -155,8 +161,8 @@ stopTimeout = 1500000
 maxControlFrameSize :: Int
 maxControlFrameSize = 65536
 
-newContext :: Connection -> Config -> IO Context
-newContext conn conf = do
+newContext :: Connection -> Config -> STM () -> IO Context
+newContext conn conf opening = do
     -- RFC 9114 Sec 5.2: a normal end is closed with H3_NO_ERROR, and the
     -- peer's is taken as one.
     setNormalClose conn H3NoError
@@ -164,7 +170,7 @@ newContext conn conf = do
     -- Our writes on the critical streams give up once we are stopping,
     -- as a peer granting no credit would hold them for good.
     (sendEI, sendDI, ctxSendControl) <-
-        setupUnidirectional conn conf $ T.waitStoppingSTM ctxThreadManager
+        setupUnidirectional conn conf (T.waitStoppingSTM ctxThreadManager) opening
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     -- A section blocked on the peer's encoder stream gives up as the

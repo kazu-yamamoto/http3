@@ -94,7 +94,7 @@ runWith :: STM () -> Connection -> Config -> Server -> IO ()
 runWith = runServer . Just
 
 runServer :: Maybe (STM ()) -> Connection -> Config -> Server -> IO ()
-runServer mstop conn conf server = withContext conn conf $ \ctx -> do
+runServer mstop conn conf server = withContext conn conf (fromMaybe STM.retry mstop) (return ()) $ \ctx -> do
     myThreadId >>= \t -> labelThread t "H3 server: run"
     let serve = readerServer ctx $ \strm -> do
             state <- newIORef NotStarted
@@ -183,7 +183,7 @@ runIOServer
     -> Config
     -> (ServerIO Stream -> IO (IO ()))
     -> IO ()
-runIOServer mstop conn conf action = withContext conn conf $ \ctx -> do
+runIOServer mstop conn conf action = withContext conn conf (fromMaybe STM.retry mstop) (return ()) $ \ctx -> do
     info <- getConnectionInfo conn
     reqq <- newTQueueIO
     done <- newTVarIO False
