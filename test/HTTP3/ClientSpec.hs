@@ -8,6 +8,8 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import Network.HTTP.Semantics.Error (
@@ -55,6 +57,25 @@ spec =
                                 C.sendRequestWith sendRequest req giveUp $ \_ -> return ()
                     )
                     `shouldReturn` Just (Left ())
+        it "gives up a request whose body the server does not read" $ do
+            -- The sender, held by flow control, is woken by the reset the
+            -- give-up sends, before the connection ends.
+            reset <- newEmptyMVar
+            E.bracket (setupWith $ awaitReset reset) teardown $ \_ -> do
+                r <- timeout 3000000 $ QUICC.run testClientConfig $ \conn ->
+                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                            senderEnded <- newEmptyMVar
+                            giveUp <- deadline 200000
+                            let body push _flush =
+                                    forever (push $ BB.byteString $ B.replicate 16384 0x61)
+                                        `E.finally` putMVar senderEnded ()
+                                req = C.requestStreaming methodPost "/" [] body
+                            g <- C.sendRequestWith sendRequest req giveUp $ \_ -> return ()
+                            e <- timeout 1000000 $ takeMVar senderEnded
+                            return (g, e)
+                r `shouldBe` Just (Left (), Just ())
+                timeout 1000000 (takeMVar reset) `shouldReturn` Just (Just C.H3RequestCancelled)
         it "gives up a connection with runGivingUp" $
             E.bracket (setupWith silent) teardown $ \_ -> do
                 giveUp <- deadline 200000
@@ -103,6 +124,17 @@ setupNoUni = do
 -- (RFC 9114, section 4.1.1).
 rejecting :: QUIC.Stream -> IO ()
 rejecting strm = QUIC.resetStream strm C.H3RequestRejected
+
+-- | Reading nothing, and telling the reset of the client's, if one comes.
+awaitReset :: MVar (Maybe QUIC.ApplicationProtocolError) -> QUIC.Stream -> IO ()
+awaitReset reset strm = void $ forkIO $ loop (100 :: Int)
+  where
+    loop 0 = putMVar reset Nothing
+    loop n = do
+        mr <- QUIC.resetReceived strm
+        case mr of
+            Just code -> putMVar reset $ Just code
+            Nothing -> threadDelay 20000 >> loop (n - 1)
 
 -- | Never answered.
 silent :: QUIC.Stream -> IO ()
