@@ -282,12 +282,17 @@ isH3Server Context{..} = isServer ctxConnection
 isH3Client :: Context -> Bool
 isH3Client Context{..} = isClient ctxConnection
 
--- | The next stream the peer opens, or 'Nothing' once we are stopping.
---   An ended connection is told by 'acceptStream', as before.
+-- | The next stream the peer opens, or 'Nothing' once we are stopping or
+--   the connection has ended normally, as by the peer's H3_NO_ERROR.  A
+--   failed connection is told by 'acceptStream', as before.
 accept :: Context -> IO (Maybe Stream)
 accept Context{..} =
-    either (const Nothing) Just
+    ( either (const Nothing) Just
         <$> acceptStreamWith ctxConnection (T.waitStoppingSTM ctxThreadManager)
+    )
+        `E.catch` \e -> case e of
+            ConnectionIsClosed _ -> return Nothing
+            _ -> E.throwIO e
 
 -- | 'recvStream' for the library's own streams, which gives up with
 --   'Stopping' once we are stopping.

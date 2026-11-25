@@ -74,8 +74,14 @@ run conn conf server = do
     TM.stopAfter mgr (accept mgr mysa peersa) $ \_ ->
         void $ TM.waitUntilAllGoneFor mgr 5000000
   where
-    accept mgr mysa peersa = forever $ do
-        strm <- QUIC.acceptStream conn
+    -- A normal end of the connection is not a failure of the server.
+    accept mgr mysa peersa = do
+        r <- E.try $ QUIC.acceptStream conn
+        case r of
+            Left (QUIC.ConnectionIsClosed _) -> return ()
+            Left e -> E.throwIO e
+            Right strm -> serve mgr mysa peersa strm >> accept mgr mysa peersa
+    serve mgr mysa peersa strm = do
         done <- newIORef False
         TM.forkManagedFinally
             mgr
