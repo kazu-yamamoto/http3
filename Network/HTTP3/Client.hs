@@ -316,7 +316,7 @@ sendRequest ctx scm auth (Request outobj) processResponse = translating Nothing 
         endRequest ctx strm
         complete <- readIORef sent
         if complete
-            then QUIC.closeStreamWith strm H3RequestCancelled
+            then void $ QUIC.closeStreamWith strm H3RequestCancelled giveUp
             else QUIC.resetStream strm H3RequestCancelled
     giveUp = outObjGiveUp outobj
     hdr = outObjHeaders outobj
