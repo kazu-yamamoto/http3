@@ -124,7 +124,7 @@ runGivingUp conn cconf conf client giveUp = do
                 maybe (E.throwIO e) (return . Left) mg
 
 runWith :: Connection -> ClientConfig -> Config -> Client a -> STM () -> IO a
-runWith conn ClientConfig{..} conf client giveUp = untranslating $ withContext conn conf $ \ctx -> do
+runWith conn ClientConfig{..} conf client giveUp = untranslating $ withContext conn conf giveUp (E.throwIO ClientGivenUp) $ \ctx -> do
     forkManaged ctx "H3 client: readerClient" $ readerClient ctx
     -- Given up on, the client is stopped, as http2 does; returning, this
     -- ends the connection as any client returning does.  The client is

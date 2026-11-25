@@ -40,7 +40,16 @@ checkHeaderSize ctx hdrs = do
     when (siz > lim) $ E.throwIO $ FieldSectionTooLargeForPeer siz lim
 
 sendHeader :: Context -> Stream -> HT.ResponseHeaders -> IO ()
-sendHeader ctx strm hdrs = encodeHeaderFrame ctx strm hdrs >>= sendStreamMany strm
+sendHeader ctx strm hdrs = encodeHeaderFrame ctx strm hdrs >>= sendData ctx strm
+
+-- | Sending on a request stream, given up with 'Stopping' once the
+--   context stops: a peer granting no credit held it until the end.
+sendData :: Context -> Stream -> [ByteString] -> IO ()
+sendData ctx strm bss =
+    sendStreamManyWith strm bss (stoppingSTM ctx) >>= either (\_ -> E.throwIO Stopping) return
+
+sendData1 :: Context -> Stream -> ByteString -> IO ()
+sendData1 ctx strm bs = sendData ctx strm [bs]
 
 -- | The HEADERS frame of a header section, as sent by 'sendHeader'.
 encodeHeaderFrame :: Context -> Stream -> HT.ResponseHeaders -> IO [ByteString]
@@ -85,7 +94,7 @@ sendBody ctx strm outobj = case outObjBody outobj of
 sendNext :: Context -> Stream -> DynaNext -> TrailersMaker -> IO ()
 sendNext ctx strm curr tlrmkr0 = do
     (bs, mnext, tlrmkr) <- newByteStringWith tlrmkr0 curr
-    when (bs /= "") $ encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+    when (bs /= "") $ encodeH3Frame (H3Frame H3FrameData bs) >>= sendData1 ctx strm
     case mnext of
         Nothing -> do
             tm <- tlrmkr Nothing
@@ -131,11 +140,11 @@ nextMaker (NextTrailersMaker t) = t
 nextMaker tm@(Trailers _) = \_ -> return tm
 
 newByteStringAndSend
-    :: Stream
+    :: (ByteString -> IO ())
     -> TrailersMaker
     -> B.BufferWriter
     -> IO (B.Next, TrailersMaker)
-newByteStringAndSend strm tlrmkr0 action = do
+newByteStringAndSend send tlrmkr0 action = do
     fp <- BS.mallocByteString 2048
     (len, signal) <- withForeignPtr fp $ \buf -> action buf 2048
     if len == 0
@@ -143,7 +152,7 @@ newByteStringAndSend strm tlrmkr0 action = do
         else do
             let bs = PS fp 0 len
             tlrmkr1 <- nextMaker <$> tlrmkr0 (Just bs)
-            encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+            encodeH3Frame (H3Frame H3FrameData bs) >>= send
             return (signal, tlrmkr1)
 
 sendStreaming
@@ -191,13 +200,13 @@ sendStreaming ctx strm tlrmkr0 strmbdy = do
         resetStream strm $ maybe H3RequestCancelled (const H3InternalError) merr
     write ref builder = do
         tlrmkr1 <- readIORef ref
-        tlrmkr2 <- newByteStringAndSend strm tlrmkr1 (B.runBuilder builder) >>= loop
+        tlrmkr2 <- newByteStringAndSend (sendData1 ctx strm) tlrmkr1 (B.runBuilder builder) >>= loop
         writeIORef ref tlrmkr2
       where
         loop (B.Done, tlrmkr1) = return tlrmkr1
         loop (B.More _ writer, tlrmkr1) =
-            newByteStringAndSend strm tlrmkr1 writer >>= loop
+            newByteStringAndSend (sendData1 ctx strm) tlrmkr1 writer >>= loop
         loop (B.Chunk bs writer, tlrmkr1) = do
-            encodeH3Frame (H3Frame H3FrameData bs) >>= sendStream strm
+            encodeH3Frame (H3Frame H3FrameData bs) >>= sendData1 ctx strm
             tlrmkr2 <- nextMaker <$> tlrmkr1 (Just bs)
-            newByteStringAndSend strm tlrmkr2 writer >>= loop
+            newByteStringAndSend (sendData1 ctx strm) tlrmkr2 writer >>= loop

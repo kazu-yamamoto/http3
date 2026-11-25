@@ -20,6 +20,7 @@ import Network.HTTP.Types
 import qualified Network.HTTP3.Client as C
 import qualified Network.QUIC as QUIC
 import qualified Network.QUIC.Client as QUICC
+import qualified Network.QUIC.Internal as QUIC
 import qualified Network.QUIC.Server as QUICS
 import System.Timeout (timeout)
 import Test.Hspec
@@ -68,6 +69,15 @@ spec =
                             )
                             giveUp
                 r `shouldBe` Just (Left ())
+        it "gives up setting up a connection which grants no unidirectional stream" $
+            -- The control and QPACK streams could not be opened, and the
+            -- client waited for them with no give-up.
+            E.bracket setupNoUni teardown $ \_ -> do
+                giveUp <- deadline 200000
+                r <- timeout 3000000 $ QUICC.run testClientConfig $ \conn ->
+                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                        C.runGivingUp conn testH3ClientConfig conf (\_ _ -> return ()) giveUp
+                r `shouldBe` Just (Left ())
 
 -- | A plain QUIC server doing this to every request stream.
 setupWith :: (QUIC.Stream -> IO ()) -> IO ThreadId
@@ -77,6 +87,15 @@ setupWith act = do
         strm <- QUIC.acceptStream conn
         when (QUIC.isClientInitiatedBidirectional $ QUIC.streamId strm) $
             act strm
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | A plain QUIC server granting the client no unidirectional stream.
+setupNoUni :: IO ThreadId
+setupNoUni = do
+    sc0 <- makeTestServerConfig
+    let sc = sc0{QUIC.scParameters = (QUIC.scParameters sc0){QUIC.initialMaxStreamsUni = 0}}
+    tid <- forkIO $ QUICS.run sc $ \conn -> forever $ QUIC.acceptStream conn
     threadDelay 500000 -- give enough time to the server
     return tid
 

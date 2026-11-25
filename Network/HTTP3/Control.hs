@@ -3,6 +3,7 @@
 
 module Network.HTTP3.Control (
     setupUnidirectional,
+    SetupGivenUp (..),
     controlStream,
     ControlState,
     newControlState,
@@ -10,7 +11,7 @@ module Network.HTTP3.Control (
 ) where
 
 import Control.Concurrent.MVar
-import Control.Concurrent.STM (STM)
+import Control.Concurrent.STM (STM, orElse)
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -27,6 +28,12 @@ import Network.HTTP3.Settings
 import Network.HTTP3.Stream
 import Network.QPACK
 
+-- | Opening the critical streams was given up on.
+data SetupGivenUp = SetupGivenUp
+    deriving (Show)
+
+instance E.Exception SetupGivenUp
+
 mkType :: H3StreamType -> ByteString
 mkType = BS.singleton . fromIntegral . fromH3StreamType
 
@@ -35,12 +42,14 @@ setupUnidirectional
     -> H3.Config
     -> STM ()
     -- ^ What the writes on the critical streams give up on
+    -> STM ()
+    -- ^ What opening them gives up on, with 'SetupGivenUp'
     -> IO
         ( EncodedEncoderInstruction -> IO ()
         , EncodedDecoderInstruction -> IO ()
         , [H3Frame] -> IO ()
         )
-setupUnidirectional conn conf@H3.Config{..} stopping = do
+setupUnidirectional conn conf@H3.Config{..} stopping opening = do
     let dc = confQDecoderConfig
     settings <-
         encodeH3Settings
@@ -50,13 +59,17 @@ setupUnidirectional conn conf@H3.Config{..} stopping = do
             ]
     let framesC = H3.onControlFrameCreated hooks [H3Frame H3FrameSettings settings]
     let bssC = encodeH3Frames framesC
-    sC <- unidirectionalStream conn
-    sE <- unidirectionalStream conn
-    sD <- unidirectionalStream conn
-    -- fixme
-    sendStreamMany sC (stC : bssC)
-    sendStream sE stE
-    sendStream sD stD
+    -- A peer granting no unidirectional stream or no credit would hold
+    -- these for good: they give up as the caller says.
+    let opened = stopping `orElse` opening
+        orGivenUp :: Either () a -> IO a
+        orGivenUp = either (\_ -> E.throwIO SetupGivenUp) return
+    sC <- unidirectionalStreamWith conn opened >>= orGivenUp
+    sE <- unidirectionalStreamWith conn opened >>= orGivenUp
+    sD <- unidirectionalStreamWith conn opened >>= orGivenUp
+    sendStreamManyWith sC (stC : bssC) opened >>= orGivenUp
+    sendStreamManyWith sE [stE] opened >>= orGivenUp
+    sendStreamManyWith sD [stD] opened >>= orGivenUp
     H3.onControlStreamCreated hooks sC
     H3.onEncoderStreamCreated hooks sE
     H3.onDecoderStreamCreated hooks sD
