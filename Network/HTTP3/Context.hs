@@ -47,7 +47,6 @@ module Network.HTTP3.Context (
     drained,
 ) where
 
-import Control.Applicative ((<|>))
 import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad (forM, forM_, void, when)
@@ -286,21 +285,16 @@ isH3Client Context{..} = isClient ctxConnection
 -- | The next stream the peer opens, or 'Nothing' once we are stopping.
 --   An ended connection is told by 'acceptStream', as before.
 accept :: Context -> IO (Maybe Stream)
-accept Context{..} = do
-    go <-
-        atomically $
-            (False <$ T.waitStoppingSTM ctxThreadManager)
-                <|> (True <$ waitAcceptableSTM ctxConnection)
-    if go then Just <$> acceptStream ctxConnection else return Nothing
+accept Context{..} =
+    either (const Nothing) Just
+        <$> acceptStreamWith ctxConnection (T.waitStoppingSTM ctxThreadManager)
 
 -- | 'recvStream' for the library's own streams, which gives up with
 --   'Stopping' once we are stopping.
 recvOrStop :: Context -> Stream -> Int -> IO ByteString
-recvOrStop Context{..} strm n = do
-    go <-
-        atomically $
-            (False <$ T.waitStoppingSTM ctxThreadManager) <|> (True <$ waitReadableSTM strm)
-    if go then recvStream strm n else E.throwIO Stopping
+recvOrStop Context{..} strm n =
+    recvStreamWith strm n (T.waitStoppingSTM ctxThreadManager)
+        >>= either (\_ -> E.throwIO Stopping) return
 
 qpackEncode :: Context -> QEncoder
 qpackEncode Context{..} = ctxQEncoder
@@ -357,9 +351,8 @@ newStreamWith Context{..} giveUp =
 
 -- | 'recvStream' for a client request, which gives up as 'newStreamWith'.
 recvGivingUp :: STM () -> Stream -> Int -> IO ByteString
-recvGivingUp giveUp strm n = do
-    go <- atomically $ (True <$ waitReadableSTM strm) <|> (False <$ giveUp)
-    if go then recvStream strm n else E.throwIO RequestGivenUp
+recvGivingUp giveUp strm n =
+    recvStreamWith strm n giveUp >>= either (\_ -> E.throwIO RequestGivenUp) return
 
 pReadMaker :: Context -> PositionReadMaker
 pReadMaker = ctxPReadMaker

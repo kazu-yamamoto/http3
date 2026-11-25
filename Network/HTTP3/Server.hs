@@ -132,8 +132,8 @@ runServer mstop conn conf server = withContext conn conf (fromMaybe STM.retry ms
             case s of
                 NotStarted -> do
                     QUIC.resetStream strm H3RequestRejected
-                    QUIC.closeStreamWith strm H3NoError
-                Started -> QUIC.closeStreamWith strm H3NoError
+                    closeOrStop ctx strm
+                Started -> closeOrStop ctx strm
                 ConnectionClosed -> return ()
         )
             `E.finally` requestDone ctx (QUIC.streamId strm)
@@ -397,7 +397,7 @@ processRequestIO ctx put strm src = E.handle reset $ do
         -- given back to the client's limit on request streams.
         Left FieldSectionTooLarge -> do
             refuseTooLarge ctx strm
-            False <$ QUIC.closeStreamWith strm H3NoError
+            False <$ closeOrStop ctx strm
         Right Nothing -> False <$ endedEarly strm
         Right (Just ht) -> do
             mreq <- mkRequest ctx strm src ht
@@ -497,6 +497,11 @@ sendResponseIO ctx strm (Response outobj) =
         sendHeader ctx strm $ outObjHeaders outobj
         -- A cancelled body has reset the stream, and this only releases it.
         _ <- sendBody ctx strm outobj
-        QUIC.closeStreamWith strm H3NoError
+        closeOrStop ctx strm
     )
         `E.onException` QUIC.resetStream strm H3InternalError
+
+-- | Closing a request stream with H3_NO_ERROR, giving up waiting for the
+--   FIN once we are stopping: the stream is closed and released either way.
+closeOrStop :: Context -> Stream -> IO ()
+closeOrStop ctx strm = void $ QUIC.closeStreamWith strm H3NoError $ stoppingSTM ctx
