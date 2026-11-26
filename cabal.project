@@ -1,10 +1,11 @@
 packages: .
 -- quic 0.4, http2 and http-semantics with the give-up of a client request,
+-- tls 2.7,
 -- and time-manager with stopAfterWithGrace are not released yet.
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/quic.git
-  tag: e0a9a9351f770f025ea7a617461562eb5fc1eab7
+  tag: 398513a5d67f91167bba98ca51497e58e31d4c77
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http2.git
@@ -18,3 +19,8 @@ source-repository-package
   location: https://github.com/kazu-yamamoto/wai.git
   tag: 80d43828641b70614f125d93b765690fba97eb1f
   subdir: time-manager
+source-repository-package
+  type: git
+  location: https://github.com/haskell-tls/hs-tls.git
+  tag: f7801eb9a1ef8af26e08773279e1fde2e7497938
+  subdir: tls tls-session-manager
