@@ -1,6 +1,5 @@
 packages: .
--- quic 0.4, http2 and http-semantics with the give-up of a client request,
--- tls 2.7,
+-- quic 0.4, http2 with the give-up of a client request, tls 2.7,
 -- and time-manager with stopAfterWithGrace are not released yet.
 source-repository-package
   type: git
@@ -9,11 +8,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/http2.git
-  tag: b5d222af64cafdd7ee61eb4b930dab002cfeda57
-source-repository-package
-  type: git
-  location: https://github.com/kazu-yamamoto/http-semantics.git
-  tag: c62ff2ac488025697fa1e7aee3d3202be6e8385b
+  tag: 35c5f5d423b75a2ee9f8f9b8a40f16c6e55a7433
 source-repository-package
   type: git
   location: https://github.com/kazu-yamamoto/wai.git

@@ -54,7 +54,7 @@ spec =
                             C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
                                 giveUp <- deadline 200000
                                 let req = C.requestNoBody methodGet "/" []
-                                C.sendRequestWith sendRequest req giveUp $ \_ -> return ()
+                                C.sendRequestWith sendRequest req (\_ -> return ()) giveUp
                     )
                     `shouldReturn` Just (Left ())
         it "gives up a request whose body the server does not read" $ do
@@ -71,7 +71,7 @@ spec =
                                     forever (push $ BB.byteString $ B.replicate 16384 0x61)
                                         `E.finally` putMVar senderEnded ()
                                 req = C.requestStreaming methodPost "/" [] body
-                            g <- C.sendRequestWith sendRequest req giveUp $ \_ -> return ()
+                            g <- C.sendRequestWith sendRequest req (\_ -> return ()) giveUp
                             e <- timeout 1000000 $ takeMVar senderEnded
                             return (g, e)
                 r `shouldBe` Just (Left (), Just ())
