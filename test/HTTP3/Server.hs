@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -256,7 +257,7 @@ trailersMaker ctx Nothing = return $ Trailers [("X-SHA1", sha1)]
     sha1 = C8.pack $ show $ CH.hashFinalize ctx
 trailersMaker ctx (Just bs) = return $ NextTrailersMaker $ trailersMaker ctx'
   where
-    ctx' = CH.hashUpdate ctx bs
+    !ctx' = CH.hashUpdate ctx bs
 
 firstTrailerValue :: TokenHeaderTable -> FieldValue
 firstTrailerValue tbl = case fst tbl of
