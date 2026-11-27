@@ -10,14 +10,13 @@ module Network.HTTP3.Control (
     connectionError,
 ) where
 
-import Control.Concurrent.MVar
-import Control.Concurrent.STM (STM, orElse)
+import Control.Concurrent.STM
 import qualified Control.Exception as E
 import qualified Data.ByteString as BS
 import Data.IORef
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import Network.QUIC
+import Network.QUIC hiding (retry)
 import Network.QUIC.Internal (isServer)
 
 import Imports
@@ -48,6 +47,7 @@ setupUnidirectional
         ( EncodedEncoderInstruction -> IO ()
         , EncodedDecoderInstruction -> IO ()
         , [H3Frame] -> IO ()
+        , IO ()
         )
 setupUnidirectional conn conf@H3.Config{..} stopping opening = do
     let dc = confQDecoderConfig
@@ -73,14 +73,40 @@ setupUnidirectional conn conf@H3.Config{..} stopping opening = do
     H3.onControlStreamCreated hooks sC
     H3.onEncoderStreamCreated hooks sE
     H3.onDecoderStreamCreated hooks sD
-    -- Every request stream writes acknowledgements and cancellations to the
-    -- decoder stream, and an instruction must not be split by another one.
-    -- quic sends a write in two pieces when flow control stops it partway.
-    lockD <- newMVar ()
+    -- Request threads only queue their acknowledgements and cancellations:
+    -- one blocked on flow control held up the others and its own give-up.
+    -- One thread writes them, so no instruction is split by another.
+    qD <- newTQueueIO
+    pendingD <- newTVarIO 0
+    let sendDI bs = do
+            queued <- atomically $ do
+                n <- readTVar pendingD
+                let n' = n + BS.length bs
+                if n' > maxPendingDecoderInstructions
+                    then return False
+                    else do
+                        writeTVar pendingD n'
+                        writeTQueue qD bs
+                        return True
+            -- The peer makes us acknowledge but grants no credit to say so.
+            unless queued $ connectionError conn H3ExcessiveLoad
+        writerD = do
+            mbss <- atomically $ (Just <$> waitQueued) `orElse` (Nothing <$ stopping)
+            case mbss of
+                Nothing -> return ()
+                Just bss -> do
+                    critical (giving sD) bss
+                    atomically $ modifyTVar' pendingD (subtract (sum (map BS.length bss)))
+                    writerD
+        waitQueued = do
+            bss <- flushTQueue qD
+            when (null bss) retry
+            return bss
     return
         ( critical $ giving sE . (: [])
-        , critical $ \bs -> withMVar lockD $ \_ -> giving sD [bs]
+        , sendDI
         , critical $ giving sC . encodeH3Frames
+        , writerD
         )
   where
     giving s bss = sendStreamManyWith s bss stopping >>= either (\_ -> E.throwIO Stopping) return
@@ -107,6 +133,10 @@ connectionError :: Connection -> ApplicationProtocolError -> IO a
 connectionError conn aerr = do
     abortConnection conn aerr ""
     E.throwIO $ ApplicationProtocolErrorIsSent aerr ""
+
+-- | The most of our decoder instructions waiting for the peer's credit.
+maxPendingDecoderInstructions :: Int
+maxPendingDecoderInstructions = 65536
 
 -- | The last GOAWAY and MAX_PUSH_ID the peer sent on its control stream,
 --   and what to do with a GOAWAY.

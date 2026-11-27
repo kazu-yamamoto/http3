@@ -76,6 +76,19 @@ spec =
                             return (g, e)
                 r `shouldBe` Just (Left (), Just ())
                 timeout 1000000 (takeMVar reset) `shouldReturn` Just (Just C.H3RequestCancelled)
+        it "acknowledges a section with no credit, not holding up the request" $
+            -- The Section Acknowledgement waited for credit on the decoder
+            -- stream, and the request with it, past its give-up.
+            E.bracket setupDynamic teardown $ \_ -> do
+                r <- timeout 3000000 $ QUICC.run testClientConfig $ \conn ->
+                    E.bracket C.allocSimpleConfig C.freeSimpleConfig $ \conf ->
+                        C.run conn testH3ClientConfig conf $ \sendRequest _aux -> do
+                            giveUp <- deadline 1000000
+                            let body push _flush =
+                                    forever (push $ BB.byteString $ B.replicate 16384 0x61)
+                                req = C.requestStreaming methodPost "/" [] body
+                            C.sendRequestWith sendRequest req (\_ -> return ()) giveUp
+                r `shouldBe` Just (Right ())
         it "gives up a connection with runGivingUp" $
             E.bracket (setupWith silent) teardown $ \_ -> do
                 giveUp <- deadline 200000
@@ -108,6 +121,31 @@ setupWith act = do
         strm <- QUIC.acceptStream conn
         when (QUIC.isClientInitiatedBidirectional $ QUIC.streamId strm) $
             act strm
+    threadDelay 500000 -- give enough time to the server
+    return tid
+
+-- | A plain QUIC server granting the client little credit, and answering
+-- after it is used up with a field section from the dynamic table.
+setupDynamic :: IO ThreadId
+setupDynamic = do
+    sc0 <- makeTestServerConfig
+    let params =
+            (QUIC.scParameters sc0)
+                { QUIC.initialMaxData = 16384
+                , QUIC.initialMaxStreamDataBidiRemote = 16384
+                }
+        sc = sc0{QUIC.scParameters = params}
+    tid <- forkIO $ QUICS.run sc $ \conn -> forever $ do
+        strm <- QUIC.acceptStream conn
+        when (QUIC.isClientInitiatedBidirectional $ QUIC.streamId strm) $
+            void $
+                forkIO $ do
+                    threadDelay 300000
+                    enc <- QUIC.unidirectionalStream conn
+                    -- Set Dynamic Table Capacity 100, Insert x-foo: bar.
+                    QUIC.sendStream enc $ B.pack [0x02, 0x3f, 0x45, 0x45] <> "x-foo\x03\&bar"
+                    -- Required Insert Count 1; :status 200 and the entry.
+                    QUIC.sendStream strm $ B.pack [0x01, 0x04, 0x02, 0x00, 0xd9, 0x80]
     threadDelay 500000 -- give enough time to the server
     return tid
 
