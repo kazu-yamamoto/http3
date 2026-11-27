@@ -148,15 +148,24 @@ data RequestState = NotStarted | Started | ConnectionClosed
 -- that requests already on their way are taken.  An application that is
 -- done answers nothing more, so its GOAWAY is the last one at once.
 goingAway :: Context -> STM Bool -> IO ()
-goingAway ctx told = do
+goingAway ctx told =
+    -- The peer's normal close is told by the reader, through 'accept'.
+    -- Thrown from here, it made runWith and runIOWith throw on a normal end.
+    going `E.catch` \e -> case e of
+        QUIC.ConnectionIsClosed _ -> atomically $ stoppingSTM ctx
+        _ -> E.throwIO e
+  where
     -- Ending with the context as well, whose end it may not be told of.
-    mtwoSteps <- atomically $ (Just <$> told) `orElse` (Nothing <$ stoppingSTM ctx)
-    forM_ mtwoSteps $ \twoSteps -> do
-        when twoSteps $ do
-            goAwayAll ctx
-            waitPTO ctx
-        goAway ctx
-        atomically $ drained ctx `orElse` stoppingSTM ctx
+    going = do
+        mtwoSteps <- atomically $ (Just <$> told) `orElse` (Nothing <$ stoppingSTM ctx)
+        case mtwoSteps of
+            Nothing -> return ()
+            Just twoSteps -> do
+                when twoSteps $ do
+                    goAwayAll ctx
+                    waitPTO ctx
+                goAway ctx
+                atomically $ drained ctx `orElse` stoppingSTM ctx
 
 -- | Serving until the connection is over, or once told to go away, until
 --   the requests taken are done.
