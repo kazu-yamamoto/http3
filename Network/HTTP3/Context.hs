@@ -168,8 +168,10 @@ newContext conn conf opening = do
     ctxThreadManager <- T.newThreadManager
     -- Our writes on the critical streams give up once we are stopping,
     -- as a peer granting no credit would hold them for good.
-    (sendEI, sendDI, ctxSendControl) <-
+    (sendEI, sendDI, ctxSendControl, writerD) <-
         setupUnidirectional conn conf (T.waitStoppingSTM ctxThreadManager) opening
+    T.forkManaged ctxThreadManager "H3 decoder stream" $
+        endingOnConnectionError writerD
     (ctxQEncoder, handleDI, dyntblE) <- newQEncoder (confQEncoderConfig conf) sendEI
     -- newQDecoder passes dyntbl for decoder to handleEI internally
     -- A section blocked on the peer's encoder stream gives up as the
