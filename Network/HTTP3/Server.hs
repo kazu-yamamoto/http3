@@ -91,7 +91,7 @@ run = runServer Nothing
 --   request streams from the second one's ID on rejected, and the
 --   connection ended when the requests taken before it are answered.
 --
---   @since 0.1.13
+--   @since 0.2.0
 runGracefully :: Connection -> Config -> Server -> STM () -> IO ()
 runGracefully conn conf server shutdown = runServer (Just shutdown) conn conf server
 
@@ -190,7 +190,7 @@ runIO = runIOServer Nothing
 -- | Like 'runIO', but the connection goes away once the 'STM' action
 --   @shutdown@ fires, as with 'runGracefully'.
 --
---   @since 0.1.13
+--   @since 0.2.0
 runIOGracefully
     :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> STM () -> IO ()
 runIOGracefully conn conf action shutdown = runIOServer (Just shutdown) conn conf action
