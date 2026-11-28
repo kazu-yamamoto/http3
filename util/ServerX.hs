@@ -9,6 +9,7 @@ where
 
 -- crypton
 
+import Control.Concurrent.STM (STM)
 import qualified Control.Exception as E
 import Control.Monad
 import Crypto.Hash (Context, SHA1)
@@ -27,8 +28,9 @@ import Network.QUIC
 serverHQ :: Connection -> IO ()
 serverHQ = serverX HQ.run
 
-serverH3 :: Connection -> IO ()
-serverH3 = serverX H3.run
+-- | Going away (GOAWAY) once the 'STM' action fires.
+serverH3 :: STM () -> Connection -> IO ()
+serverH3 stop = serverX $ H3.runWith stop
 
 serverX
     :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()

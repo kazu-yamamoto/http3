@@ -112,8 +112,12 @@ executable h3-server
         http2,
         http3,
         quic,
+        stm,
         tls >=2.3.0 && <2.8,
         tls-session-manager
+
+    if !os(windows)
+        build-depends: unix
 
     if flag(devel)
 
@@ -140,8 +144,12 @@ executable h3-client
         http-types,
         http3,
         quic,
+        stm,
         tls >=2.3.0 && <2.8,
         unix-time
+
+    if !os(windows)
+        build-depends: unix
 
     if flag(devel)
 

@@ -18,6 +18,7 @@ import qualified Data.ByteString.Char8 as C8
 import Network.HTTP.Types
 import Network.QUIC
 import System.IO
+import System.IO.Error (isEOFError)
 
 import qualified Network.HQ.Client as HQ
 import Network.HTTP3.Client (
@@ -104,28 +105,33 @@ console paths aux conn go = do
     putStrLn "g -- get"
     putStrLn "p -- ping"
     putStrLn "n -- NAT rebinding"
-    mvar <- newEmptyMVar
-    loop mvar `E.catch` \(E.SomeException _) -> return ()
+    loop
   where
-    loop mvar = do
+    -- The end of the input ends the console; anything else is thrown.
+    loop = do
         hSetBuffering stdout NoBuffering
         putStr "> "
         hSetBuffering stdout LineBuffering
-        l <- getLine
+        ml <-
+            (Just <$> getLine) `E.catch` \e ->
+                if isEOFError e then return Nothing else E.throwIO e
+        case ml of
+            Nothing -> return ()
+            Just l -> command l
+    command l =
         case l of
             "q" -> putStrLn "bye"
             "g" -> do
                 mapM_ (\p -> putStrLn $ "GET " ++ C8.unpack p) paths
-                _ <- go >> putMVar mvar ()
-                takeMVar mvar
-                loop mvar
+                go
+                loop
             "p" -> do
                 putStrLn "Ping"
                 H3.auxSendPing aux
-                loop mvar
+                loop
             "n" -> do
                 QUIC.controlConnection conn QUIC.NATRebinding >>= print
-                loop mvar
+                loop
             _ -> do
                 putStrLn "No such command"
-                loop mvar
+                loop

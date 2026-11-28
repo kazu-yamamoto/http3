@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -5,6 +6,8 @@
 module Main where
 
 import Control.Concurrent
+import Control.Concurrent.STM hiding (retry)
+import qualified Control.Concurrent.STM as STM
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
@@ -16,7 +19,9 @@ import Network.TLS.QUIC
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
-import qualified System.Timeout as T
+#ifndef mingw32_HOST_OS
+import System.Posix.Signals (Handler (..), installHandler, sigINT)
+#endif
 import Text.Printf
 import Text.Read (readMaybe)
 
@@ -43,6 +48,7 @@ data Options = Options
     , optMigration :: Maybe ConnectionControl
     , optPacketSize :: Maybe Int
     , optNumOfReqs :: Int
+    , optWait :: Int
     }
     deriving (Show)
 
@@ -65,6 +71,7 @@ defaultOptions =
         , optMigration = Nothing
         , optPacketSize = Nothing
         , optNumOfReqs = 1
+        , optWait = 30
         }
 
 usage :: String
@@ -167,6 +174,11 @@ options =
         ["number-of-requests"]
         (ReqArg (\n o -> o{optNumOfReqs = fromMaybe 0 (readMaybe n)}) "<n>")
         "specify the number of requests"
+    , Option
+        ['w']
+        ["wait"]
+        (ReqArg (\n o -> o{optWait = fromMaybe (-1) (readMaybe n)}) "<secs>")
+        "give up a connection after this (0: never, default: 30)"
     ]
 
 showUsageAndExit :: String -> IO a
@@ -190,7 +202,9 @@ main = do
         _ : [] -> showUsageAndExit "N of args must be 2 or larger"
         h : p : [] -> return (h, p, ["/"])
         h : p : ps -> return (h, p, C8.pack <$> ps)
-    cmvar <- newEmptyMVar
+    -- Filled by each connection's closer, never blocking it: with -R or
+    -- -Z a second connection closes before the first fill is taken.
+    closed <- newEmptyTMVarIO
     -- Bad numbers are left as 0 by the options, and refused here.  They
     -- used to stop the program with "Prelude.read: no parse", and a
     -- negative number of requests never ended.
@@ -198,6 +212,8 @@ main = do
         showUsageAndExit "packet size must be a positive integer"
     when (optNumOfReqs <= 0) $
         showUsageAndExit "number of requests must be a positive integer"
+    when (optWait < 0) $
+        showUsageAndExit "wait must be a non-negative integer"
     let ccalpn ver =
             let (h3X, hqX) = makeProtos ver
                 protos
@@ -228,7 +244,7 @@ main = do
                 , ccQLog = optQLogDir
                 , ccHooks =
                     defaultHooks
-                        { onCloseCompleted = putMVar cmvar ()
+                        { onCloseCompleted = atomically $ void $ tryPutTMVar closed ()
                         }
                 }
         debug
@@ -243,18 +259,21 @@ main = do
                 , miscDebug = debug
                 , miscShow = showContent
                 , miscCheckClose = do
-                    mx <- T.timeout 1000000 $ takeMVar cmvar
-                    case mx of
-                        Nothing -> return False
-                        _ -> return True
+                    expired <- registerDelay 1000000
+                    atomically $
+                        (True <$ takeTMVar closed)
+                            `orElse` (False <$ (readTVar expired >>= check))
                 , miscInteractive = optInteractive
                 }
-    runClient cc opts misc paths
+    interrupted <- newTVarIO False
+    onInterrupt $ atomically $ writeTVar interrupted True
+    runClient (givingUp opts interrupted) cc opts misc paths
 
-runClient :: ClientConfig -> Options -> Misc -> [H3.Path] -> IO ()
-runClient cc opts@Options{..} misc@Misc{..} paths = do
+runClient
+    :: IO (STM String) -> ClientConfig -> Options -> Misc -> [H3.Path] -> IO ()
+runClient giveUp cc opts@Options{..} misc@Misc{..} paths = do
     miscDebug "------------------------"
-    (info1, info2, res, mig, client') <- run cc $ \conn -> do
+    (info1, info2, res, mig, client') <- runOrGiveUp giveUp cc $ \conn -> do
         i1 <- getConnectionInfo conn
         let client = case alpn i1 of
                 Just proto | "hq" `BS.isPrefixOf` proto -> clientHQ optNumOfReqs
@@ -284,7 +303,7 @@ runClient cc opts@Options{..} misc@Misc{..} paths = do
         | optResumption -> do
             if isResumptionPossible res
                 then do
-                    info3 <- runClient2 cc opts misc paths res client'
+                    info3 <- runClient2 giveUp cc opts misc paths res client'
                     if handshakeMode info3 == PreSharedKey
                         then do
                             putStrLn "Result: (R) TLS resumption ... OK"
@@ -298,7 +317,7 @@ runClient cc opts@Options{..} misc@Misc{..} paths = do
         | opt0RTT -> do
             if is0RTTPossible res
                 then do
-                    info3 <- runClient2 cc opts misc paths res client'
+                    info3 <- runClient2 giveUp cc opts misc paths res client'
                     if handshakeMode info3 == RTT0
                         then do
                             putStrLn "Result: (Z) 0-RTT ... OK"
@@ -361,18 +380,19 @@ runClient cc opts@Options{..} misc@Misc{..} paths = do
                 exitSuccess
 
 runClient2
-    :: ClientConfig
+    :: IO (STM String)
+    -> ClientConfig
     -> Options
     -> Misc
     -> [H3.Path]
     -> ResumptionInfo
     -> Cli
     -> IO ConnectionInfo
-runClient2 cc Options{..} misc@Misc{..} paths res client = do
+runClient2 giveUp cc Options{..} misc@Misc{..} paths res client = do
     threadDelay 100000
     miscDebug "<<<< next connection >>>>"
     miscDebug "------------------------"
-    run cc' $ \conn -> do
+    runOrGiveUp giveUp cc' $ \conn -> do
         void $ client misc paths conn
         getConnectionInfo conn
   where
@@ -381,6 +401,38 @@ runClient2 cc Options{..} misc@Misc{..} paths res client = do
             { ccResumption = res
             , ccUse0RTT = opt0RTT && is0RTTPossible res
             }
+
+-- | What a connection gives up on: its deadline, made as it starts, unless
+--   it is interactive or has none, and an interrupt.
+givingUp :: Options -> TVar Bool -> IO (STM String)
+givingUp Options{..} interrupted = do
+    deadline <-
+        if optInteractive || optWait <= 0
+            then return STM.retry
+            else do
+                expired <- registerDelay $ optWait * 1000000
+                return $ "deadline" <$ (readTVar expired >>= check)
+    return $ deadline `orElse` ("interrupted" <$ (readTVar interrupted >>= check))
+
+-- | 'runGivingUp', failing with why it gave up.
+runOrGiveUp :: IO (STM String) -> ClientConfig -> (Connection -> IO a) -> IO a
+runOrGiveUp giveUp cc client = do
+    g <- giveUp
+    r <- runGivingUp cc client g
+    case r of
+        Right x -> return x
+        Left why -> do
+            putStrLn $ "Given up: " ++ why
+            exitFailure
+
+-- | Telling of SIGINT rather than being killed by it.  On Windows, Ctrl-C
+--   interrupts the client instead.
+onInterrupt :: IO () -> IO ()
+#ifndef mingw32_HOST_OS
+onInterrupt act = void $ installHandler sigINT (Catch act) Nothing
+#else
+onInterrupt _ = return ()
+#endif
 
 printThroughput :: UnixTime -> UnixTime -> ConnectionStats -> IO ()
 printThroughput t1 t2 st =
