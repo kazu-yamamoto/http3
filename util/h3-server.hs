@@ -1,10 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
 module Main where
 
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -16,6 +19,9 @@ import System.Console.GetOpt
 import System.Environment (getArgs)
 import System.Exit
 import System.IO
+#ifndef mingw32_HOST_OS
+import System.Posix.Signals (Handler (..), installHandler, sigINT, sigTERM)
+#endif
 import Text.Read (readMaybe)
 
 import Common
@@ -124,6 +130,8 @@ main = do
         Nothing -> showUsageAndExit "cannot parse <addr> or <port>\n"
         Just (addrs, port) -> return $ (,port) <$> addrs
     smgr <- SM.newSessionManager SM.defaultConfig
+    draining <- newTVarIO False
+    active <- newTVarIO (0 :: Int)
     let loadCred =
             credentialLoadX509 optCertFile optKeyFile
                 `E.catch` \e -> return $ Left $ show (e :: E.IOException)
@@ -150,10 +158,46 @@ main = do
                   -- more anyway, for extensions and reserved stream types.
                   scParameters =
                     (scParameters sc0){initialMaxStreamsUni = 10}
+                , -- H3_NO_ERROR, for what is still open once the drain is over.
+                  scCloseReason = (ApplicationProtocolError 0x100, "server is closing")
+                , scInstallShutdownHandler = onSignals . drainThen draining active
                 }
-    run sc $ \conn -> do
+    run sc $ \conn -> counted active $ do
         info <- getConnectionInfo conn
         let server = case alpn info of
                 Just proto | "hq" `BS.isPrefixOf` proto -> serverHQ
-                _ -> serverH3
+                _ -> serverH3 $ readTVar draining >>= check
         server conn
+
+-- | Running a connection, counted while it runs.
+counted :: TVar Int -> IO a -> IO a
+counted active =
+    E.bracket_
+        (atomically $ modifyTVar' active (+ 1))
+        (atomically $ modifyTVar' active (subtract 1))
+
+-- | Draining, then stopping: HTTP/3 connections are told GOAWAY and
+--   answer what they have taken, for 'drainTime' at most.  The server is
+--   then stopped, which closes what is left.
+drainThen :: TVar Bool -> TVar Int -> IO () -> IO ()
+drainThen draining active stopIt = do
+    atomically $ writeTVar draining True
+    expired <- registerDelay drainTime
+    atomically $
+        (readTVar active >>= check . (== 0)) `orElse` (readTVar expired >>= check)
+    stopIt
+
+-- | How long a stopping server waits for its connections (microseconds).
+drainTime :: Int
+drainTime = 5000000
+
+-- | Draining on SIGINT or SIGTERM, on a thread of its own, since a signal
+--   handler should return.  On Windows, Ctrl-C interrupts 'run' instead.
+onSignals :: IO () -> IO ()
+#ifndef mingw32_HOST_OS
+onSignals act =
+    forM_ [sigINT, sigTERM] $ \sig ->
+        installHandler sig (CatchOnce $ void $ forkIO act) Nothing
+#else
+onSignals _ = return ()
+#endif
