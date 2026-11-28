@@ -51,13 +51,13 @@ spec = do
                     timeout 3000000 (takeMVar returned) `shouldReturn` Just ()
 
 -- | A server going away once the variable is set; the 'MVar' is filled when
--- 'runWith' returns.  "/slow" is answered after a second.
+-- 'runGracefully' returns.  "/slow" is answered after a second.
 setupGoAway :: TVar Bool -> MVar () -> IO ThreadId
 setupGoAway stop returned = do
     sc <- makeTestServerConfig
     tid <- forkIO $ QUICS.run sc $ \conn ->
         E.bracket allocSimpleConfig freeSimpleConfig $ \conf -> do
-            runWith (readTVar stop >>= check) conn conf svr
+            runGracefully conn conf svr (readTVar stop >>= check)
             putMVar returned ()
     threadDelay 500000 -- give enough time to the server
     return tid
