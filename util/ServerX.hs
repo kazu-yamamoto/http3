@@ -30,7 +30,7 @@ serverHQ = serverX HQ.run
 
 -- | Going away (GOAWAY) once the 'STM' action fires.
 serverH3 :: STM () -> Connection -> IO ()
-serverH3 stop = serverX $ H3.runWith stop
+serverH3 stop = serverX $ \conn conf svr -> H3.runGracefully conn conf svr stop
 
 serverX
     :: (Connection -> H3.Config -> H3.Server -> IO ()) -> Connection -> IO ()

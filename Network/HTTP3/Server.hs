@@ -5,6 +5,7 @@
 module Network.HTTP3.Server (
     -- * Runner
     run,
+    runGracefully,
     runWith,
 
     -- * Common configuration
@@ -50,6 +51,7 @@ module Network.HTTP3.Server (
 
     -- * Internal
     runIO,
+    runIOGracefully,
     runIOWith,
     ServerIO (..),
 ) where
@@ -84,14 +86,21 @@ import Network.QPACK.Internal
 run :: Connection -> Config -> Server -> IO ()
 run = runServer Nothing
 
--- | Like 'run', but the connection goes away once the 'STM' action fires:
---   two GOAWAYs a PTO apart (RFC 9114, section 5.2), request streams from
---   the second one's ID on rejected, and the connection ended when the
---   requests taken before it are answered.
+-- | Like 'run', but the connection goes away once the 'STM' action
+--   @shutdown@ fires: two GOAWAYs a PTO apart (RFC 9114, section 5.2),
+--   request streams from the second one's ID on rejected, and the
+--   connection ended when the requests taken before it are answered.
+--
+--   @since 0.1.13
+runGracefully :: Connection -> Config -> Server -> STM () -> IO ()
+runGracefully conn conf server shutdown = runServer (Just shutdown) conn conf server
+
+-- | The same as 'runGracefully' with the 'STM' action first.
 --
 --   @since 0.1.10
 runWith :: STM () -> Connection -> Config -> Server -> IO ()
-runWith = runServer . Just
+runWith shutdown conn conf server = runGracefully conn conf server shutdown
+{-# DEPRECATED runWith "Use runGracefully" #-}
 
 runServer :: Maybe (STM ()) -> Connection -> Config -> Server -> IO ()
 runServer mstop conn conf server = withContext conn conf (fromMaybe STM.retry mstop) (return ()) $ \ctx -> do
@@ -150,7 +159,7 @@ data RequestState = NotStarted | Started | ConnectionClosed
 goingAway :: Context -> STM Bool -> IO ()
 goingAway ctx told =
     -- The peer's normal close is told by the reader, through 'accept'.
-    -- Thrown from here, it made runWith and runIOWith throw on a normal end.
+    -- Thrown from here, it made runGracefully and runIOGracefully throw on a normal end.
     going `E.catch` \e -> case e of
         QUIC.ConnectionIsClosed _ -> atomically $ stoppingSTM ctx
         _ -> E.throwIO e
@@ -179,12 +188,20 @@ runIO :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
 runIO = runIOServer Nothing
 
 -- | Like 'runIO', but the connection goes away once the 'STM' action
---   fires, as with 'runWith'.
+--   @shutdown@ fires, as with 'runGracefully'.
+--
+--   @since 0.1.13
+runIOGracefully
+    :: Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> STM () -> IO ()
+runIOGracefully conn conf action shutdown = runIOServer (Just shutdown) conn conf action
+
+-- | The same as 'runIOGracefully' with the 'STM' action first.
 --
 --   @since 0.1.10
 runIOWith
     :: STM () -> Connection -> Config -> (ServerIO Stream -> IO (IO ())) -> IO ()
-runIOWith = runIOServer . Just
+runIOWith shutdown conn conf action = runIOGracefully conn conf action shutdown
+{-# DEPRECATED runIOWith "Use runIOGracefully" #-}
 
 runIOServer
     :: Maybe (STM ())
